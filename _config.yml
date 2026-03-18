@@ -38,3 +38,5 @@ exclude:
   - CLAUDE.md
   - Gemfile.lock
   - README.md
+
+logo: "/assets/images/riseproject-logo.svg"
