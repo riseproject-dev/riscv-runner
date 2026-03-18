@@ -1,0 +1,26 @@
+title: RISE RISC-V Runners
+description: Run GitHub Actions CI on real RISC-V hardware
+url: https://riscv-runners.riseproject.dev
+
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+
+color_scheme: dark
+
+mermaid:
+  version: "11"
+
+aux_links:
+  GitHub:
+    - https://github.com/riseproject-dev/riscv-runner
+
+nav_sort: order
+
+back_to_top: true
+back_to_top_text: Back to top
+
+footer_content: "RISE Project"
+
+exclude:
+  - CLAUDE.md
+  - Gemfile.lock
+  - README.md
