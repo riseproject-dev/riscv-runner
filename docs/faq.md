@@ -23,7 +23,7 @@ Ubuntu 24.04 and Ubuntu 26.04. The OS version is determined by the runner label 
 
 ## How do I get access?
 
-Install the [RISE RISC-V Runners GitHub App](https://github.com/apps/rise-risc-v-runners) on your organization. Your organization must be on the allowlist. Contact the RISE project team if your workflows are not picking up runners after installation.
+Install the [RISE RISC-V Runners GitHub App](https://github.com/apps/rise-risc-v-runners) on your organization. Contact the RISE project team if your workflows are not picking up runners after installation.
 
 ## Can I use this for personal repositories?
 

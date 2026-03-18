@@ -10,7 +10,11 @@ Run GitHub Actions workflows on real RISC-V hardware. No emulation, no cross-com
 
 [RISE RISC-V Runners](https://github.com/apps/rise-risc-v-runners) is a managed self-hosted runner service. Install the [GitHub App](https://github.com/apps/rise-risc-v-runners), set `runs-on: ubuntu-24.04-riscv` in your workflow, and your jobs run on dedicated RISC-V nodes with full Docker support.
 
-The service is provided free of charge by [RISE](https://riseproject.dev/).
+[RISE](https://riseproject.dev/) provides the service free of charge for any OSS project. Our goal is to enable the Software Ecosystem at large on RISC-V. This is one of our small contribution to this large effort.
+
+We only supports installation of the [RISE RISC-V Runners GitHub App](https://github.com/apps/rise-risc-v-runners) on organizatons at the moment. Support for personal account is a work in progress. [Reach out](https://github.com/riseproject-dev/riscv-runner-app/issues) to let us know of your needs.
+{: .warning }
+
 
 ## How it works
 

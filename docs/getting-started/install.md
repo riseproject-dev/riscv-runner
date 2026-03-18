@@ -6,9 +6,10 @@ nav_order: 1
 
 # Install the GitHub App
 
-[RISE RISC-V Runners](https://github.com/apps/rise-risc-v-runners) is delivered as a GitHub App. Install it on your organization to start running CI jobs on RISC-V hardware.
+[RISE RISC-V Runners](https://github.com/apps/rise-risc-v-runners) is delivered as a [GitHub App](https://github.com/apps/rise-risc-v-runners). Install it on your organization to start running CI jobs on RISC-V hardware.
 
-**It only supports installation on organizatons at the moment. Support for personal account is a work in progress. Reach out at https://github.com/riseproject-dev/riscv-runner-app/issues to let us know of your needs.**
+We only supports installation of the [RISE RISC-V Runners GitHub App](https://github.com/apps/rise-risc-v-runners) on organizatons at the moment. Support for personal account is a work in progress. [Reach out](https://github.com/riseproject-dev/riscv-runner-app/issues) to let us know of your needs.
+{: .warning }
 
 ## Steps
 

@@ -4,6 +4,9 @@ url: https://riscv-runners.riseproject.dev
 
 remote_theme: just-the-docs/just-the-docs@v0.12.0
 
+plugins:
+  - jekyll-remote-theme
+
 color_scheme: dark
 
 mermaid:
@@ -12,6 +15,17 @@ mermaid:
 aux_links:
   GitHub:
     - https://github.com/riseproject-dev/riscv-runner
+
+callouts:
+  note:
+    title: Note
+    color: blue
+  important:
+    title: Important
+    color: purple
+  warning:
+    title: Warning
+    color: red
 
 nav_sort: order
 
