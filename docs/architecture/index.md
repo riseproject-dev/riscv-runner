@@ -30,18 +30,16 @@ sequenceDiagram
 
     GH->>H: workflow_job (queued)
     H->>H: Validate signature (HMAC-SHA256)
-    H->>H: Check org allowlist
     H->>H: Match labels → K8s pool + image
     H->>R: Store job (HSET + SADD)
     H->>W: Signal queue event
 
     W->>R: Get pending jobs (FIFO)
     W->>W: Check demand > supply
-    W->>W: Check org max_workers cap
+    W->>W: Check max_workers cap
     W->>K: Check available slots (node selector)
     W->>GH: Authenticate (GitHub App)
-    W->>GH: Ensure runner group exists
-    W->>GH: Create JIT runner config
+    W->>GH: Create JIT runner config (org or repo scoped)
     W->>K: Provision runner pod
     K->>N: Schedule pod on RISC-V node
     N->>GH: Register as JIT runner
@@ -66,7 +64,9 @@ sequenceDiagram
 
 **One pod per node.** The device plugin advertises a single `riseproject.com/runner` resource per node. The Kubernetes scheduler enforces exclusive access — only one runner pod can be scheduled on each RISC-V node at a time.
 
-**JIT runner registration.** Runners use GitHub's just-in-time configuration. The worker obtains a JIT config token from the GitHub API and passes it to the pod at creation time. The runner registers, executes one job, and exits.
+**JIT runner registration.** Runners use GitHub's just-in-time configuration. The worker obtains a JIT config token from the GitHub API and passes it to the pod at creation time. For organizations, runners are registered in a dedicated runner group; for personal accounts, runners are registered at the repository level. The runner registers, executes one job, and exits.
+
+**Two GitHub Apps.** Organizations and personal accounts use separate GitHub Apps. The org app uses organization-level runner registration (requires Self-hosted runners permission). The personal app uses repository-level runner registration (requires Administration permission). The worker selects the correct app and API path based on entity type.
 
 **Board-based scheduling.** The node labeller reads the device tree on each RISC-V node, detects the SoC, and applies a `riseproject.dev/board` label. Runner pods use a `nodeSelector` to land on the correct hardware for each label.
 

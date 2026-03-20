@@ -26,12 +26,12 @@ The loop uses a `threading.Condition` to wake immediately when the handler store
 For each pending job (processed FIFO by `created_at`):
 
 1. **Demand check** — count jobs vs. workers for the pool. Skip if supply meets demand.
-2. **Org cap check** — skip if the organization has reached its `max_workers` limit across all pools.
+2. **Max workers cap** — skip if the entity (organization or personal account) has reached its `max_workers` limit across all pools.
 3. **Capacity check** — query Kubernetes for available `riseproject.com/runner` slots on nodes matching the pool's node selector. Skip if no slots are free.
 4. **Provision** — if all checks pass:
-   - Authenticate with GitHub as the installation (GitHub App token)
-   - Ensure a runner group named "RISE RISC-V Runners" exists for the org
-   - Create a JIT (just-in-time) runner configuration via the GitHub API
+   - Authenticate with the correct GitHub App (org app or personal app, based on entity type)
+   - For organizations: ensure a runner group named "RISE RISC-V Runners" exists, then create an org-scoped JIT runner config
+   - For personal accounts: create a repo-scoped JIT runner config
    - Create a Kubernetes pod with the JIT config
    - Record the worker in Redis
 
@@ -68,7 +68,7 @@ This handles cases where webhooks are missed or delayed.
 | Setting | Value | Source |
 |---------|-------|--------|
 | Poll interval | 15 seconds | `serve.py` |
-| Max workers per org | Configurable per org | `constants.py` (`ORG_CONFIG`) |
+| Max workers per entity | Configurable per org/account | `constants.py` (`ENTITY_CONFIG`) |
 | Job retention | 15 days | `worker.py` |
 | Pod active deadline | 525,600 seconds | `k8s.py` |
 

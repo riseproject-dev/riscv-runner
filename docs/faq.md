@@ -23,18 +23,18 @@ Ubuntu 24.04 and Ubuntu 26.04. The OS version is determined by the runner label 
 
 ## How do I get access?
 
-Install the [RISE RISC-V Runners GitHub App](https://github.com/apps/rise-risc-v-runners) on your organization. Contact the RISE project team if your workflows are not picking up runners after installation.
+Install the GitHub App on your [organization](https://github.com/apps/rise-risc-v-runners) or [personal account](https://github.com/apps/rise-risc-v-runners-personal). The service is open to all — no allowlist or approval required. Contact the [RISE project team](https://github.com/riseproject-dev/riscv-runner-app/issues) if the app installation does not trigger runners for your workflows.
 
 ## Can I use this for personal repositories?
 
-Personal accounts are not supported yet. The GitHub App can only be installed on organizations. If you need personal account support, open an issue at [riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app/issues).
+**Yes.** Install the [personal account app](https://github.com/apps/rise-risc-v-runners-personal). It registers runners at the repository level and requires **Administration** permission (the minimum GitHub allows for repo-scoped runner registration). See [Install the GitHub App](getting-started/install) for details.
 
 ## How many jobs can run concurrently?
 
 Concurrency is limited by:
 
 1. **Hardware capacity** — each RISC-V node runs at most one job at a time (enforced by the [device plugin](architecture/kubernetes))
-2. **Per-org limits** — each organization has a configurable maximum number of concurrent workers across all pools
+2. **Per-entity limits** — each organization or personal account has a configurable maximum number of concurrent workers across all pools
 
 ## How long can a job run?
 

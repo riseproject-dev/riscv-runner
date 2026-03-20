@@ -6,7 +6,7 @@ nav_order: 2
 
 # Configure Your Workflow
 
-Once the [RISE RISC-V Runners GitHub App]((https://github.com/apps/rise-risc-v-runners)) is installed, use RISC-V runners by setting the `runs-on` label in your workflow file.
+Once the RISE RISC-V Runners GitHub App is installed ([organization](https://github.com/apps/rise-risc-v-runners) or [personal](https://github.com/apps/rise-risc-v-runners-personal)), use RISC-V runners by setting the `runs-on` label in your workflow file.
 
 ## Minimal workflow
 

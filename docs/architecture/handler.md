@@ -18,9 +18,7 @@ flowchart TD
     B -->|Invalid| C[401 Unauthorized]
     B -->|Valid| D{Event type?}
     D -->|Not workflow_job| E[200 Ignored]
-    D -->|workflow_job| F{Org in allowlist?}
-    F -->|No| G[200 Ignored]
-    F -->|Yes| H{Action?}
+    D -->|workflow_job| H{Action?}
     H -->|queued| I[Match labels → K8s pool + image]
     I -->|No match| J[200 Ignored]
     I -->|Match| K[Store job in Redis]
@@ -52,10 +50,10 @@ Jobs are stored using two Redis structures:
 
 | Key pattern | Type | Purpose |
 |-------------|------|---------|
-| `{env}:job:{job_id}` | Hash | Job metadata: status, org_id, labels, k8s_pool, created_at, repo, installation_id |
-| `{env}:pool:{org_id}:{k8s_pool}:jobs` | Set | Active job IDs for demand counting (pending + running) |
+| `{env}:job:{job_id}` | Hash | Job metadata: status, entity_id, entity_type, labels, k8s_pool, created_at, repo, installation_id |
+| `{env}:pool:{entity_id}:{k8s_pool}:jobs` | Set | Active job IDs for demand counting (pending + running) |
 
-The `{env}` prefix is `prod` or `staging` depending on the deployment.
+The `{env}` prefix is `prod` or `staging` depending on the deployment. The `entity_id` is the organization ID for org installations or the repository ID for personal account installations.
 
 On `queued`: the handler creates the job hash and adds the job ID to the pool set.
 On `in_progress`: the handler updates the job hash status to `running`.
@@ -78,5 +76,5 @@ In production mode, webhooks from staging organizations are forwarded to the sta
 
 - [`container/handler.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/handler.py) — webhook handler
 - [`container/db.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/db.py) — Redis operations
-- [`container/constants.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/constants.py) — org allowlist, label mappings, configuration
+- [`container/constants.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/constants.py) — entity configuration, label mappings
 - [`container/serve.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/serve.py) — application entry point
