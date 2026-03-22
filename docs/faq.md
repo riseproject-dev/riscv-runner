@@ -15,7 +15,7 @@ nav_order: 4
 
 ## What architectures are supported?
 
-**RISC-V 64-bit (riscv64) only.** All runners execute on physical RISC-V hardware. There is no x86 or ARM emulation — binaries must be compiled for riscv64.
+**RISC-V 64-bit (riscv64) only.** All runners execute on physical RISC-V hardware. There is no x86 or ARM emulation. Binaries must be compiled for riscv64.
 
 ## What operating systems are available?
 
@@ -23,7 +23,7 @@ Ubuntu 24.04 and Ubuntu 26.04. The OS version is determined by the runner label 
 
 ## How do I get access?
 
-Install the GitHub App on your [organization](https://github.com/apps/rise-risc-v-runners) or [personal account](https://github.com/apps/rise-risc-v-runners-personal). The service is open to all — no allowlist or approval required. Contact the [RISE project team](https://github.com/riseproject-dev/riscv-runner-app/issues) if the app installation does not trigger runners for your workflows.
+Install the GitHub App on your [organization](https://github.com/apps/rise-risc-v-runners) or [personal account](https://github.com/apps/rise-risc-v-runners-personal). The service is open to all. No allowlist or approval required. Contact the [RISE project team](https://github.com/riseproject-dev/riscv-runner-app/issues) if the app installation does not trigger runners for your workflows.
 
 ## Can I use this for personal repositories?
 
@@ -33,8 +33,8 @@ Install the GitHub App on your [organization](https://github.com/apps/rise-risc-
 
 Concurrency is limited by:
 
-1. **Hardware capacity** — each RISC-V node runs at most one job at a time (enforced by the [device plugin](architecture/kubernetes))
-2. **Per-entity limits** — each organization or personal account has a configurable maximum number of concurrent workers across all pools
+1. **Hardware capacity**: each RISC-V node runs at most one job at a time (enforced by the [device plugin](architecture/kubernetes))
+2. **Per-entity limits**: each organization or personal account has a configurable maximum number of concurrent workers across all pools
 
 ## How long can a job run?
 

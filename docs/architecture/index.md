@@ -58,11 +58,11 @@ sequenceDiagram
 
 ## Key design decisions
 
-**Demand-driven provisioning.** Webhooks record demand (pending jobs in Redis). The worker creates supply (Kubernetes pods) to match. This separation keeps webhook responses fast — no GitHub API calls or Kubernetes operations on the webhook path.
+**Demand-driven provisioning.** Webhooks record demand (pending jobs in Redis). The worker creates supply (Kubernetes pods) to match. This separation keeps webhook responses fast: no GitHub API calls or Kubernetes operations on the webhook path.
 
 **Ephemeral runners.** Each job gets a fresh pod. No state persists between jobs. Pods are deleted after completion by the worker's cleanup loop.
 
-**One pod per node.** The device plugin advertises a single `riseproject.com/runner` resource per node. The Kubernetes scheduler enforces exclusive access — only one runner pod can be scheduled on each RISC-V node at a time.
+**One pod per node.** The device plugin advertises a single `riseproject.com/runner` resource per node. The Kubernetes scheduler enforces exclusive access: only one runner pod can be scheduled on each RISC-V node at a time.
 
 **JIT runner registration.** Runners use GitHub's just-in-time configuration. The worker obtains a JIT config token from the GitHub API and passes it to the pod at creation time. For organizations, runners are registered in a dedicated runner group; for personal accounts, runners are registered at the repository level. The runner registers, executes one job, and exits.
 
@@ -72,7 +72,7 @@ sequenceDiagram
 
 ## Components
 
-- [Webhook Handler](handler) — request validation, label matching, Redis storage
-- [Worker & Scheduling](worker) — reconciliation loop, demand matching, pod lifecycle
-- [Kubernetes Infrastructure](kubernetes) — device plugin, node labeller, scheduling
-- [Container Images](images) — runner image, DinD sidecar, build pipeline
+- [Webhook Handler](handler): request validation, label matching, Redis storage
+- [Worker & Scheduling](worker): reconciliation loop, demand matching, pod lifecycle
+- [Kubernetes Infrastructure](kubernetes): device plugin, node labeller, scheduling
+- [Container Images](images): runner image, DinD sidecar, build pipeline

@@ -58,7 +58,7 @@ Since only one unit exists per node, the Kubernetes scheduler will never place t
 
 1. The plugin starts and registers with kubelet via a Unix socket at `/var/lib/kubelet/device-plugins/rise-riscv-runner.sock`
 2. `ListAndWatch()` advertises a single healthy device (`runner-0`) to the kubelet
-3. `Allocate()` returns an empty response — no actual device allocation is needed, only the scheduling constraint matters
+3. `Allocate()` returns an empty response. No actual device allocation is needed; only the scheduling constraint matters
 4. A file watcher monitors the kubelet socket directory and re-registers if kubelet restarts
 
 ### DaemonSet configuration

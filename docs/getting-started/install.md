@@ -6,7 +6,7 @@ nav_order: 1
 
 # Install the GitHub App
 
-RISE RISC-V Runners is delivered as a GitHub App. There are two variants — one for organizations and one for personal accounts.
+RISE RISC-V Runners is delivered as a GitHub App. There are two variants: one for organizations and one for personal accounts.
 
 ## For organizations
 
@@ -14,13 +14,13 @@ RISE RISC-V Runners is delivered as a GitHub App. There are two variants — one
 2. Click **Install**
 3. Choose the organization where you want to use RISC-V runners
 4. Select repository access:
-   - **All repositories** — enables RISC-V runners across every repo in the org
-   - **Only select repositories** — pick specific repos
+   - **All repositories**: enables RISC-V runners across every repo in the org
+   - **Only select repositories**: pick specific repos
 5. Click **Install**
 
 The organization app requires these permissions:
-- **Self-hosted runners** (read/write) — to register and manage organization-level self-hosted runners
-- **Metadata** (read) — required by GitHub for all apps
+- **Self-hosted runners** (read/write): to register and manage organization-level self-hosted runners
+- **Metadata** (read): required by GitHub for all apps
 
 Runners are registered at the **organization level** within a dedicated runner group named "RISE RISC-V Runners".
 
@@ -29,15 +29,15 @@ Runners are registered at the **organization level** within a dedicated runner g
 1. Go to [github.com/apps/rise-risc-v-runners-personal](https://github.com/apps/rise-risc-v-runners-personal)
 2. Click **Install**
 3. Select repository access:
-   - **All repositories** — enables RISC-V runners across every repo in your account
-   - **Only select repositories** — pick specific repos
+   - **All repositories**: enables RISC-V runners across every repo in your account
+   - **Only select repositories**: pick specific repos
 4. Click **Install**
 
 The personal app requires these permissions:
-- **Administration** (read/write) — required to register repository-level self-hosted runners
-- **Metadata** (read) — required by GitHub for all apps
+- **Administration** (read/write): required to register repository-level self-hosted runners
+- **Metadata** (read): required by GitHub for all apps
 
-> The **Administration** permission is broader than ideal. GitHub does not offer a repo-scoped "self-hosted runners" permission for personal accounts, so **Administration** is the minimum required to register runners at the repository level.
+> The **Administration** permission is broader than needed. GitHub does not offer a repo-scoped "self-hosted runners" permission for personal accounts, so **Administration** is the minimum required to register runners at the repository level.
 {: .warning }
 
 Runners are registered at the **repository level** (not in a runner group).

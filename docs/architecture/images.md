@@ -31,7 +31,7 @@ The JIT config is a base64-encoded token obtained from the GitHub API by the wor
 
 | Category | Packages |
 |----------|----------|
-| **Python** | 3.10, 3.11, 3.12 (default), 3.13, 3.14 — built from source with shared libraries |
+| **Python** | 3.10, 3.11, 3.12 (default), 3.13, 3.14 (built from source with shared libraries) |
 | **Compilers** | GCC, G++ |
 | **Build tools** | Make, Autoconf, Automake, Libtool, Flex, Bison, Binutils |
 | **Docker** | Docker CLI, Buildx, Compose |
@@ -75,7 +75,7 @@ Images are built and pushed automatically:
 
 - **Trigger:** Daily at 06:00 UTC, on push to `main`, or manual dispatch
 - **Platform:** `linux/riscv64`
-- **Cross-compilation:** Ubuntu 24.04 images build on native RISC-V runners. Ubuntu 26.04 images use QEMU emulation on x86 runners (requires RVA23 CPU).
+- **Cross-compilation:** Ubuntu 24.04 images build on native RISC-V runners. Ubuntu 26.04 images are built with QEMU emulation on x86 runners (requires RVA23 CPU).
 - **Caching:** GitHub Actions Cache for Docker layer caching
 
 ## Registry

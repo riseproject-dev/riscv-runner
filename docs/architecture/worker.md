@@ -14,10 +14,10 @@ The worker is a background thread that runs a reconciliation loop every 15 secon
 
 Each iteration runs four operations sequentially:
 
-1. **GitHub reconciliation** (`gh_reconcile`) — syncs Redis state with GitHub's actual job status
-2. **Pod cleanup** (`cleanup_pods`) — deletes completed/failed pods and removes stale worker records
-3. **Job cleanup** (`cleanup_jobs`) — removes completed job hashes older than 15 days
-4. **Demand matching** (`demand_match`) — provisions new runner pods for pending jobs
+1. **GitHub reconciliation** (`gh_reconcile`): syncs Redis state with GitHub's actual job status
+2. **Pod cleanup** (`cleanup_pods`): deletes completed/failed pods and removes stale worker records
+3. **Job cleanup** (`cleanup_jobs`): removes completed job hashes older than 15 days
+4. **Demand matching** (`demand_match`): provisions new runner pods for pending jobs
 
 The loop uses a `threading.Condition` to wake immediately when the handler stores a new job, rather than waiting for the next 15-second tick.
 
@@ -25,10 +25,10 @@ The loop uses a `threading.Condition` to wake immediately when the handler store
 
 For each pending job (processed FIFO by `created_at`):
 
-1. **Demand check** — count jobs vs. workers for the pool. Skip if supply meets demand.
-2. **Max workers cap** — skip if the entity (organization or personal account) has reached its `max_workers` limit across all pools.
-3. **Capacity check** — query Kubernetes for available `riseproject.com/runner` slots on nodes matching the pool's node selector. Skip if no slots are free.
-4. **Provision** — if all checks pass:
+1. **Demand check**: count jobs vs. workers for the pool. Skip if supply meets demand.
+2. **Max workers cap**: skip if the entity (organization or personal account) has reached its `max_workers` limit across all pools.
+3. **Capacity check**: query Kubernetes for available `riseproject.com/runner` slots on nodes matching the pool's node selector. Skip if no slots are free.
+4. **Provision**: if all checks pass:
    - Authenticate with the correct GitHub App (org app or personal app, based on entity type)
    - For organizations: ensure a runner group named "RISE RISC-V Runners" exists, then create an org-scoped JIT runner config
    - For personal accounts: create a repo-scoped JIT runner config
@@ -39,9 +39,9 @@ For each pending job (processed FIFO by `created_at`):
 
 Pods are created via the Kubernetes API with:
 
-- **Node selector:** `riseproject.dev/board: {pool}` — targets the correct hardware
-- **Resource limit:** `riseproject.com/runner: 1` — enforces one pod per node via the device plugin
-- **Active deadline:** 525,600 seconds (~6 days) — prevents stuck pods
+- **Node selector:** `riseproject.dev/board: {pool}` (targets the correct hardware)
+- **Resource limit:** `riseproject.com/runner: 1` (enforces one pod per node via the device plugin)
+- **Active deadline:** 525,600 seconds (~6 days) (prevents stuck pods)
 - **Init container:** DinD sidecar for Docker support
 - **Environment:** JIT runner config, Docker TLS certificates
 - **Volumes:** Docker certs (emptyDir), Docker storage, workspace
@@ -74,7 +74,7 @@ This handles cases where webhooks are missed or delayed.
 
 ## Related files
 
-- [`container/worker.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/worker.py) — reconciliation loop and demand matching
-- [`container/k8s.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/k8s.py) — Kubernetes pod provisioning and capacity checks
-- [`container/github.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/github.py) — GitHub API: JIT config, runner groups, job status
-- [`container/db.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/db.py) — Redis operations for jobs and workers
+- [`container/worker.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/worker.py): reconciliation loop and demand matching
+- [`container/k8s.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/k8s.py): Kubernetes pod provisioning and capacity checks
+- [`container/github.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/github.py): GitHub API (JIT config, runner groups, job status)
+- [`container/db.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/db.py): Redis operations for jobs and workers

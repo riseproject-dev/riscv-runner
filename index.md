@@ -6,11 +6,11 @@ nav_order: 1
 
 # RISE RISC-V Runners
 
-Run GitHub Actions workflows on real RISC-V hardware. No emulation, no cross-compilation — native execution on physical boards.
+Run GitHub Actions workflows on real RISC-V hardware. No emulation, no cross-compilation. Native execution on physical boards.
 
 [RISE RISC-V Runners](https://github.com/apps/rise-risc-v-runners) is a managed GitHub runner service. Install the GitHub App on your [organization](https://github.com/apps/rise-risc-v-runners) or [personal account](https://github.com/apps/rise-risc-v-runners-personal), set `runs-on: ubuntu-24.04-riscv` in your workflow, and your jobs run on dedicated RISC-V nodes with full Docker support.
 
-[RISE](https://riseproject.dev/) provides the service free of charge for any OSS project. Our goal is to enable the Software Ecosystem at large on RISC-V. This is one of our small contribution to this large effort.
+[RISE](https://riseproject.dev/) provides the service free of charge for any open source project. We want to make RISC-V a viable target for open source software. This is one of our contributions to that effort.
 
 
 ## How it works
@@ -21,7 +21,7 @@ Run GitHub Actions workflows on real RISC-V hardware. No emulation, no cross-com
 4. The pod registers as a just-in-time GitHub Actions runner and executes your job
 5. On completion, the pod is cleaned up automatically
 
-Runners are **ephemeral** — each job gets a fresh environment. Docker-in-Docker is available in every run.
+Runners are **ephemeral**. Each job gets a fresh environment. Docker-in-Docker is available in every run.
 
 ## Quick start
 
@@ -48,9 +48,9 @@ See the full [Runner Labels Reference](docs/getting-started/labels) for hardware
 
 The system spans four repositories:
 
-- **[riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app)** — GitHub App webhook handler and background worker
-- **[riscv-runner-device-plugin](https://github.com/riseproject-dev/riscv-runner-device-plugin)** — Kubernetes device plugin and node labeller
-- **[riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)** — Runner and DinD container images
-- **[riscv-runner-sample](https://github.com/riseproject-dev/riscv-runner-sample)** — Sample repository demonstrating usage
+- **[riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app)**: GitHub App webhook handler and background worker
+- **[riscv-runner-device-plugin](https://github.com/riseproject-dev/riscv-runner-device-plugin)**: Kubernetes device plugin and node labeller
+- **[riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)**: Runner and DinD container images
+- **[riscv-runner-sample](https://github.com/riseproject-dev/riscv-runner-sample)**: Sample repository demonstrating usage
 
 See the [Architecture Overview](docs/architecture/) for details.

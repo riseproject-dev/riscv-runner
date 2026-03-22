@@ -74,7 +74,7 @@ In production mode, webhooks from staging organizations are forwarded to the sta
 
 ## Related files
 
-- [`container/handler.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/handler.py) — webhook handler
-- [`container/db.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/db.py) — Redis operations
-- [`container/constants.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/constants.py) — entity configuration, label mappings
-- [`container/serve.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/serve.py) — application entry point
+- [`container/handler.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/handler.py): webhook handler
+- [`container/db.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/db.py): Redis operations
+- [`container/constants.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/constants.py): entity configuration, label mappings
+- [`container/serve.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/serve.py): application entry point
