@@ -17,6 +17,8 @@ aux_links:
     - https://github.com/riseproject-dev/riscv-runner
 
 callouts:
+  highlight:
+    color: yellow
   note:
     title: Note
     color: blue

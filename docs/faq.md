@@ -15,7 +15,7 @@ nav_order: 4
 
 ## What architectures are supported?
 
-**RISC-V 64-bit (riscv64) only.** All runners execute on physical RISC-V hardware. There is no x86 or ARM emulation. Binaries must be compiled for riscv64.
+**RISC-V 64-bit (riscv64) only.** All runners execute on physical RISC-V hardware. There is no RISC-V emulation. Binaries must be compiled for riscv64.
 
 ## What operating systems are available?
 
