@@ -37,6 +37,11 @@ jobs:
 
 See [Install the GitHub App](docs/getting-started/install) and [Configure Your Workflow](docs/getting-started/configure) to get started.
 
+**Note:** the app requires specific permissions in order for the runners to
+work:
+
+![Alt text](images/permissions.png "Permissions for RISC-V Runners")
+
 ## Available runners
 
 | Label | OS | Hardware | Notes |
