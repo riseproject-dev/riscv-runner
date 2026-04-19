@@ -90,7 +90,7 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                             },
                             {
                                 "name": "workspace",
-                                "mountPath": "/home/runner/_work",
+                                "mountPath": "/home/runner/work",
                             },
                         ],
                         "resources": {
@@ -131,7 +131,7 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                             },
                             {
                                 "name": "workspace",
-                                "mountPath": "/home/runner/_work",
+                                "mountPath": "/home/runner/work",
                             },
                         ],
                     },

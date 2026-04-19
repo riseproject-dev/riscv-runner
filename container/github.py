@@ -146,6 +146,7 @@ def create_jit_runner_config_org(token, group_id, labels, entity_name, runner_na
         "name": runner_name,
         "runner_group_id": group_id,
         "labels": labels,
+        "work_folder": "../../../work", # /home/runner/actions-runner/cached/X.Y.Z/bin/../ -> /home/runner/work
     }
     response = requests.post(url, headers=headers, json=body)
 
@@ -170,6 +171,7 @@ def create_jit_runner_config_repo(token, labels, repo_full_name, runner_name):
         "name": runner_name,
         "runner_group_id": 1,  # default runner group for repos
         "labels": labels,
+        "work_folder": "../../../work", # /home/runner/actions-runner/cached/X.Y.Z/bin/../ -> /home/runner/work
     }
     response = requests.post(url, headers=headers, json=body)
 
