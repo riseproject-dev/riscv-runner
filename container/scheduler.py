@@ -189,7 +189,7 @@ def gh_reconcile_runners():
         # Consume the groupby elements into a list that we can iterate multiple times
         workers = list(workers)
 
-        pod_name_prefix = f"{RUNNER_NAME_PREFIX}{entity_id}-"
+        pod_name_prefix = f"{RUNNER_NAME_PREFIX}-"
         logger.info(f"Checking for workers={pod_name_prefix}%s in runners={pod_name_prefix}%s for target=%s entity_type=%s",
                     sorted([w["pod_name"].removeprefix(pod_name_prefix) for w in workers]),
                     sorted([r.removeprefix(pod_name_prefix) for r in gh_runners.keys()]),
@@ -320,7 +320,7 @@ def demand_match():
         runner_name = None
         for _ in range(5):  # max retries for name collision
             suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=9))
-            candidate = f"rise-riscv-runner%s-{entity_id}-{suffix}" % ("" if PROD else "-staging")
+            candidate = f"{RUNNER_NAME_PREFIX}{suffix}"
             try:
                 db.add_worker(provider, entity_id, entity_name, entity_type.value,
                               installation_id,
