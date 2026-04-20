@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import datetime
 import functools
 import logging
+from enum import Enum
 import kubernetes as k8s
 import yaml
 
 from constants import *
 
 logger = logging.getLogger(__name__)
+
+
+class FailureReason(str, Enum):
+    POD_FAILED              = "pod_failed"
+    RUNNER_NEVER_REGISTERED = "runner_never_registered"
+    POD_STUCK_PENDING       = "pod_stuck_pending"
 
 
 @functools.lru_cache(maxsize=1)
@@ -227,16 +235,38 @@ def get_pod_logs(pod_name: str, container: str) -> str | None:
         return None
 
 
-def collect_pod_failure_info(pod) -> dict:
-    """Collect exhaustive diagnostic info from a Failed pod.
+def get_runner_running_at(pod) -> datetime.datetime | None:
+    """When the 'runner' container actually began running. Best-effort."""
+    for cs in (pod.status.container_statuses or []):
+        if cs.name == "runner" and cs.state and cs.state.running:
+            return cs.state.running.started_at
+    for cond in (pod.status.conditions or []):
+        if cond.type == "Ready" and cond.status == "True":
+            return cond.last_transition_time
+    return None
 
-    Gathers container termination info, full container logs, and pod events
-    into a dict for storage in the workers.failure_info JSONB column.
-    Called before delete_pod() so logs are still available.
+
+def get_pod_finished_at(pod) -> datetime.datetime | None:
+    """Latest container termination time for Succeeded/Failed pods."""
+    finishes = []
+    for cs in (pod.status.container_statuses or []) + (pod.status.init_container_statuses or []):
+        if cs.state and cs.state.terminated and cs.state.terminated.finished_at:
+            finishes.append(cs.state.terminated.finished_at)
+    return max(finishes) if finishes else None
+
+
+def collect_pod_failure_info(pod, reason: FailureReason) -> dict:
+    """Collect exhaustive diagnostic info from a pod for the workers.failure_info column.
+
+    Gathers container termination/running info, full container logs, and pod events.
+    Safe to call on Running or Pending pods too (logs are read live).
+    Callers must pass a FailureReason to describe why the worker is being failed.
     """
+    assert isinstance(reason, FailureReason), "reason must be a FailureReason enum value"
     pod_name = pod.metadata.name
     info = {
-        "version": 1, # version structure of the data
+        "version": 2, # bump when the structure changes
+        "reason": reason.value,
         "containers": {},
         "events": [],
         "pod_message": pod.status.message,

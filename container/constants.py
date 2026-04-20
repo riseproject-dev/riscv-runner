@@ -21,7 +21,12 @@ POSTGRES_URL = os.environ["POSTGRES_URL"]  # postgresql://user:pass@host:5432/db
 POSTGRES_SCHEMA = "prod" if PROD else "staging"
 POSTGRES_MAXCONN = 10
 
-RUNNER_GROUP_NAME = "RISE RISC-V Runners"
+RUNNER_GROUP_NAME = f"RISE RISC-V Runners{'' if PROD else " (staging)"}"
+RUNNER_NAME_PREFIX = f"rise-riscv-runner{'' if PROD else '-staging'}-"
+
+RUNNER_REGISTRATION_TIMEOUT_SECONDS = 120           # pod Running but GH never sees runner
+POD_PENDING_TIMEOUT_SECONDS         = 600           # pod stuck Pending (no capacity, image pull, etc.)
+POD_DELETE_GRACE_SECONDS            = 6 * 60 * 60   # keep terminal pods around so logs remain inspectable
 
 # gh api orgs/<orgname> --jq '.id'
 RISEPROJECT_DEV_ORG_ID = 152654596 # github.com/riseproject-dev

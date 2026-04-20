@@ -23,6 +23,10 @@ mock_constants.POSTGRES_URL = "postgresql://test:test@localhost:5432/testdb"
 mock_constants.POSTGRES_SCHEMA = "staging"
 mock_constants.POSTGRES_MAXCONN = 10
 mock_constants.RUNNER_GROUP_NAME = "RISE RISC-V Runners"
+mock_constants.RUNNER_NAME_PREFIX = "rise-riscv-runner-staging-"
+mock_constants.RUNNER_REGISTRATION_TIMEOUT_SECONDS = 120
+mock_constants.POD_PENDING_TIMEOUT_SECONDS = 600
+mock_constants.POD_DELETE_GRACE_SECONDS = 6 * 60 * 60
 mock_constants.K8S_KUBECONFIG = None
 mock_constants.RISEPROJECT_DEV_ORG_ID = 152654596
 mock_constants.PYTORCH_ORG_ID = 21003710
@@ -38,3 +42,17 @@ mock_constants.ENTITY_CONFIG = {
 mock_constants.STAGING_ENTITIES = {oid for oid, c in mock_constants.ENTITY_CONFIG.items() if c.get("staging")}
 
 sys.modules["constants"] = mock_constants
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _clear_gh_authenticate_app_cache():
+    """authenticate_app is TTL-cached; clear between tests to avoid cross-test contamination."""
+    try:
+        import github
+        github.authenticate_app.cache_clear()
+    except ImportError:
+        pass
+    yield

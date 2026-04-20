@@ -12,7 +12,7 @@ from db import (
     get_pool_demand,
     get_pending_jobs,
     add_worker,
-    remove_worker,
+    mark_worker_failed,
     DuplicateRunnerNameException,
 )
 from constants import EntityType
@@ -239,7 +239,24 @@ def test_get_pending_jobs(mock_pool_fn):
     assert result == ["333", "111"]
 
 
-# --- add/remove worker ---
+# --- add worker / mark worker failed ---
+
+def _add_worker_default(**overrides):
+    defaults = dict(
+        provider="github",
+        entity_id=1000,
+        entity_name="test-org",
+        entity_type="Organization",
+        installation_id=42,
+        repo_full_name="test-org/test-repo",
+        k8s_pool="scw-em-rv1",
+        pod_name="pod-1",
+        job_labels=["rise"],
+        k8s_image="img:latest",
+    )
+    defaults.update(overrides)
+    return add_worker(**defaults)
+
 
 @patch("db._init_pool")
 def test_add_worker(mock_pool_fn):
@@ -247,7 +264,7 @@ def test_add_worker(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.rowcount = 1  # inserted
 
-    add_worker("github", 1000, "test-org", "scw-em-rv1", "pod-1", job_labels=["rise"], k8s_image="img:latest")
+    _add_worker_default()
 
     # No explicit commit needed — _PoolConnection.__exit__ handles it
 
@@ -260,15 +277,14 @@ def test_add_worker_duplicate_raises(mock_pool_fn):
     cur.rowcount = 0  # collision
 
     with pytest.raises(DuplicateRunnerNameException):
-        add_worker("github", 1000, "test-org", "scw-em-rv1", "pod-1", job_labels=["rise"], k8s_image="img:latest")
+        _add_worker_default()
 
 
 @patch("db._init_pool")
-def test_remove_worker(mock_pool_fn):
+def test_mark_worker_failed(mock_pool_fn):
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
 
-    remove_worker("pod-1")
+    mark_worker_failed("pod-1", None, {"version": 2, "reason": "runner_never_registered"}, None)
 
-    # Verify UPDATE was called (search_path + UPDATE = 2 execute calls)
     assert cur.execute.call_count >= 1

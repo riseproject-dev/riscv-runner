@@ -5,6 +5,7 @@ import time
 import jwt
 import requests
 
+from cachetools.func import ttl_cache
 from constants import *
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ def generate_jwt(app_id, private_key):
     return jwt.JWT().encode(payload, private_key, alg="RS256")
 
 
+@ttl_cache(maxsize=1024, ttl=60*59) # Authentication Token lifetime is 1 hour
 def authenticate_app(installation_id, entity_type):
     """Authenticate the app and get an installation token.
 
@@ -179,6 +181,65 @@ def create_jit_runner_config_repo(token, labels, repo_full_name, runner_name):
         error = response.json()
         logger.error("Failed to create JIT runner config for repo %s: %s", repo_full_name, error)
         raise GitHubAPIError(response.status_code, f"Failed to create JIT runner config: {error}")
+
+
+def _paginated_get(url, token, collection_key):
+    """GET a paginated GitHub list endpoint, following the `Link: rel="next"` header.
+
+    Returns the concatenated list under `collection_key` in each response body.
+    Raises GitHubAPIError on non-2xx.
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    results = []
+    next_url = f"{url}?per_page=100"
+    while next_url:
+        response = requests.get(next_url, headers=headers)
+        if response.status_code != 200:
+            raise GitHubAPIError(response.status_code, f"GET {next_url}: {response.text}")
+        results.extend(response.json().get(collection_key, []))
+        next_url = response.links.get("next", {}).get("url")
+    return results
+
+
+def list_runners_org_group(token, entity_name, group_id):
+    """List all runners registered under a specific org runner group."""
+    url = f"https://api.github.com/orgs/{entity_name}/actions/runner-groups/{group_id}/runners"
+    return _paginated_get(url, token, "runners")
+
+
+def list_runners_repo(token, repo_full_name):
+    """List all runners registered under a specific repo."""
+    url = f"https://api.github.com/repos/{repo_full_name}/actions/runners"
+    return _paginated_get(url, token, "runners")
+
+
+def delete_runner_org(token, entity_name, runner_id):
+    """DELETE an org-scoped runner. 404 is swallowed (already gone)."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    url = f"https://api.github.com/orgs/{entity_name}/actions/runners/{runner_id}"
+    response = requests.delete(url, headers=headers)
+    if response.status_code in (204, 404):
+        return
+    raise GitHubAPIError(response.status_code, f"DELETE {url}: {response.text}")
+
+
+def delete_runner_repo(token, repo_full_name, runner_id):
+    """DELETE a repo-scoped runner. 404 is swallowed."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    url = f"https://api.github.com/repos/{repo_full_name}/actions/runners/{runner_id}"
+    response = requests.delete(url, headers=headers)
+    if response.status_code in (204, 404):
+        return
+    raise GitHubAPIError(response.status_code, f"DELETE {url}: {response.text}")
 
 
 def get_job_status(repo_full_name, job_id, token):

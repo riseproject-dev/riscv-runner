@@ -6,14 +6,15 @@ from scheduler import (
     app,
     demand_match,
     cleanup_pods,
-    gh_reconcile,
+    gh_reconcile_jobs,
     _parse_date_param,
     _build_link_header,
 )
 
 
-def make_pod(name, phase="Running", entity_id=None, board=None):
+def make_pod(name, phase="Running", entity_id=None, board=None, creation_timestamp=None):
     """Helper to create a mock k8s pod object."""
+    import datetime
     pod = MagicMock()
     pod.metadata.name = name
     pod.metadata.labels = {"app": "rise-riscv-runner"}
@@ -21,7 +22,11 @@ def make_pod(name, phase="Running", entity_id=None, board=None):
         pod.metadata.labels["riseproject.com/entity_id"] = str(entity_id)
     if board:
         pod.metadata.labels["riseproject.com/board"] = board
+    pod.metadata.creation_timestamp = creation_timestamp or datetime.datetime.now(datetime.timezone.utc)
     pod.status.phase = phase
+    pod.status.container_statuses = []
+    pod.status.init_container_statuses = []
+    pod.status.conditions = []
     return pod
 
 
@@ -171,58 +176,65 @@ def test_demand_match_handles_provision_failure(mock_jit, mock_group, mock_auth,
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
-def test_cleanup_deletes_succeeded_pod(mock_delete, mock_list, mock_db):
-    """Test that succeeded pods are deleted and removed from worker pool."""
-    pod = make_pod("pod-1", phase="Succeeded", entity_id="1000", board="scw-em-rv1")
+def test_cleanup_deletes_succeeded_pod_past_grace(mock_delete, mock_list, mock_db):
+    """Succeeded pods past the 6h grace period are deleted from k8s.
+
+    The worker row transition is driven by sync_worker_status (not a separate
+    remove_worker call after delete), so we only assert the k8s delete happened.
+    """
+    import datetime
+    from constants import POD_DELETE_GRACE_SECONDS
+
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=POD_DELETE_GRACE_SECONDS + 60)
+    pod = make_pod("pod-1", phase="Succeeded", entity_id="1000", board="scw-em-rv1",
+                   creation_timestamp=old)
     mock_list.return_value = [pod]
-    mock_db.init_client.return_value = MagicMock(scan_iter=MagicMock(return_value=[]))
+    mock_db.iter_workers.return_value = []
 
     cleanup_pods()
 
     mock_delete.assert_called_once_with(pod)
-    mock_db.remove_worker.assert_called_once_with("pod-1")
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.delete_pod")
+def test_cleanup_skips_succeeded_pod_within_grace(mock_delete, mock_list, mock_db):
+    """Recently-terminated pods are kept around for the grace window."""
+    pod = make_pod("pod-1", phase="Succeeded", entity_id="1000", board="scw-em-rv1")
+    mock_list.return_value = [pod]
+    mock_db.iter_workers.return_value = []
+
+    cleanup_pods()
+
+    mock_delete.assert_not_called()
 
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
 def test_cleanup_skips_running_pod(mock_delete, mock_list, mock_db):
-    """Test that running pods are not deleted."""
+    """Running pods are never deleted."""
     pod = make_pod("pod-1", phase="Running", entity_id="1000", board="scw-em-rv1")
     mock_list.return_value = [pod]
-    mock_db.init_client.return_value = MagicMock(scan_iter=MagicMock(return_value=[]))
+    mock_db.iter_workers.return_value = []
 
     cleanup_pods()
 
     mock_delete.assert_not_called()
-    mock_db.remove_worker.assert_not_called()
 
 
-@patch("scheduler.db")
-@patch("scheduler.k8s.list_pods")
-@patch("scheduler.k8s.delete_pod", side_effect=Exception("k8s error"))
-def test_cleanup_handles_delete_failure(mock_delete, mock_list, mock_db):
-    """Test that delete failure doesn't crash and doesn't remove worker."""
-    pod = make_pod("pod-1", phase="Failed", entity_id="1000", board="scw-em-rv1")
-    mock_list.return_value = [pod]
-    mock_db.init_client.return_value = MagicMock(scan_iter=MagicMock(return_value=[]))
-
-    cleanup_pods()
-
-    mock_db.remove_worker.assert_not_called()
-
-
-# --- gh_reconcile tests ---
+# --- gh_reconcile_jobs tests ---
 
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.get_job_status", return_value="completed")
-def test_gh_reconcile_completes_job(mock_status, mock_auth, mock_db):
-    """Test that reconciliation marks a job completed when GH says so."""
+def test_gh_reconcile_jobs_completes_job(mock_status, mock_auth, mock_db):
+    """Reconciliation marks a job completed when GH says so."""
     job = make_job(111, status="running")
     mock_db.get_active_jobs.return_value = [job]
 
-    gh_reconcile()
+    gh_reconcile_jobs()
 
     mock_db.update_job_completed.assert_called_once_with("111")
 
@@ -230,12 +242,12 @@ def test_gh_reconcile_completes_job(mock_status, mock_auth, mock_db):
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.get_job_status", return_value="in_progress")
-def test_gh_reconcile_updates_running(mock_status, mock_auth, mock_db):
-    """Test that reconciliation updates pending→running when GH says in_progress."""
+def test_gh_reconcile_jobs_updates_running(mock_status, mock_auth, mock_db):
+    """Reconciliation updates pending→running when GH says in_progress."""
     job = make_job(111, status="pending")
     mock_db.get_active_jobs.return_value = [job]
 
-    gh_reconcile()
+    gh_reconcile_jobs()
 
     mock_db.update_job_running.assert_called_once_with("111")
 
@@ -243,15 +255,15 @@ def test_gh_reconcile_updates_running(mock_status, mock_auth, mock_db):
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.get_job_status")
-def test_gh_reconcile_marks_job_failed_on_404(mock_status, mock_auth, mock_db):
-    """Test that a 404 from get_job_status marks the job as failed."""
+def test_gh_reconcile_jobs_marks_job_failed_on_404(mock_status, mock_auth, mock_db):
+    """A 404 from get_job_status marks the job as failed."""
     from github import GitHubAPIError
 
     job = make_job(111, status="running")
     mock_db.get_active_jobs.return_value = [job]
     mock_status.side_effect = GitHubAPIError(404, "Not Found")
 
-    gh_reconcile()
+    gh_reconcile_jobs()
 
     mock_db.update_job_failed.assert_called_once()
     call_args = mock_db.update_job_failed.call_args[0]
@@ -262,15 +274,15 @@ def test_gh_reconcile_marks_job_failed_on_404(mock_status, mock_auth, mock_db):
 
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app")
-def test_gh_reconcile_marks_all_jobs_failed_on_installation_404(mock_auth, mock_db):
-    """Test that a 404 from authenticate_app marks all jobs for that installation as failed."""
+def test_gh_reconcile_jobs_marks_job_failed_on_installation_404(mock_auth, mock_db):
+    """A 404 from authenticate_app marks the job as failed (per-job now, since we iterate flatly)."""
     from github import GitHubAPIError
 
     jobs = [make_job(111, status="running"), make_job(222, status="pending")]
     mock_db.get_active_jobs.return_value = jobs
     mock_auth.side_effect = GitHubAPIError(404, "Not Found")
 
-    gh_reconcile()
+    gh_reconcile_jobs()
 
     assert mock_db.update_job_failed.call_count == 2
     job_ids = [call_args[0][0] for call_args in mock_db.update_job_failed.call_args_list]
@@ -281,11 +293,11 @@ def test_gh_reconcile_marks_all_jobs_failed_on_installation_404(mock_auth, mock_
 
 
 @patch("scheduler.db")
-def test_gh_reconcile_no_active_jobs(mock_db):
-    """Test that reconciliation is a no-op when no active jobs."""
+def test_gh_reconcile_jobs_no_active_jobs(mock_db):
+    """No-op when no active jobs."""
     mock_db.get_active_jobs.return_value = []
 
-    gh_reconcile()
+    gh_reconcile_jobs()
 
     mock_db.update_job_completed.assert_not_called()
     mock_db.update_job_running.assert_not_called()

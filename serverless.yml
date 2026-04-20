@@ -22,10 +22,12 @@ custom:
     namespace: rise-riscv-runner-app-staging
     container-tag: "staging"
     prod: "false"
+    loglevel: "INFO"
   main:
     namespace: rise-riscv-runner-app
     container-tag: "latest"
     prod: "true"
+    loglevel: "INFO"
   # containers
   containers:
     ghfe:
@@ -43,7 +45,7 @@ custom:
         PROD: ${self:custom.${self:provider.stage}.prod}
         PROD_URL: ${env:PROD_URL}
         STAGING_URL: ${env:STAGING_URL}
-        LOGLEVEL: INFO
+        LOGLEVEL: ${self:custom.${self:provider.stage}.loglevel}
       # Health check configuration
       healthCheck:
         type: http
@@ -69,7 +71,7 @@ custom:
         PROD: ${self:custom.${self:provider.stage}.prod}
         PROD_URL: ${env:PROD_URL}
         STAGING_URL: ${env:STAGING_URL}
-        LOGLEVEL: INFO
+        LOGLEVEL: ${self:custom.${self:provider.stage}.loglevel}
       # Health check configuration
       healthCheck:
         type: http

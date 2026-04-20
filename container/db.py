@@ -151,18 +151,23 @@ def ensure_schema() -> None:
             # Workers table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS workers (
-                    pod_name      TEXT PRIMARY KEY,
-                    provider      provider_enum NOT NULL,
-                    entity_id     BIGINT NOT NULL,
-                    entity_name   TEXT NOT NULL,
-                    job_labels    JSONB NOT NULL DEFAULT '[]',
-                    k8s_pool      TEXT NOT NULL,
-                    k8s_image     TEXT NOT NULL,
-                    k8s_node      TEXT,
-                    status        status_enum NOT NULL DEFAULT 'pending',
-                    failure_info  JSONB,
-                    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+                    pod_name        TEXT PRIMARY KEY,
+                    provider        provider_enum NOT NULL,
+                    entity_id       BIGINT NOT NULL,
+                    entity_name     TEXT NOT NULL,
+                    entity_type     TEXT NOT NULL,
+                    installation_id BIGINT NOT NULL,
+                    repo_full_name  TEXT,
+                    job_labels      JSONB NOT NULL DEFAULT '[]',
+                    k8s_pool        TEXT NOT NULL,
+                    k8s_image       TEXT NOT NULL,
+                    k8s_node        TEXT,
+                    status          status_enum NOT NULL DEFAULT 'pending',
+                    failure_info    JSONB,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    running_at      TIMESTAMPTZ,
+                    completed_at    TIMESTAMPTZ,
+                    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
             """)
 
@@ -364,19 +369,26 @@ def get_pending_jobs() -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def add_worker(provider: str, entity_id: int, entity_name: str, k8s_pool: str, pod_name: str,
+def add_worker(provider: str, entity_id: int, entity_name: str, entity_type: str,
+               installation_id: int, repo_full_name: str | None, k8s_pool: str, pod_name: str,
                job_labels: list[str], k8s_image: str) -> None:
-    """Add a worker. Raises DuplicateRunnerNameException on pod_name collision."""
+    """Add a worker. Raises DuplicateRunnerNameException on pod_name collision.
+
+    `repo_full_name` is only meaningful for user-scoped runners (personal accounts,
+    where runners are registered under a specific repo). Pass None for org-scoped runners.
+    """
     sorted_labels = json.dumps(sorted(job_labels))
 
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO workers (pod_name, provider, entity_id, entity_name, k8s_pool, job_labels,
+                INSERT INTO workers (pod_name, provider, entity_id, entity_name, entity_type,
+                                     installation_id, repo_full_name, k8s_pool, job_labels,
                                      k8s_image, status, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', now(), now())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', now(), now())
                 ON CONFLICT (pod_name) DO NOTHING
-            """, (pod_name, provider, int(entity_id), entity_name, k8s_pool, sorted_labels, k8s_image))
+            """, (pod_name, provider, int(entity_id), entity_name, entity_type,
+                  int(installation_id), repo_full_name, k8s_pool, sorted_labels, k8s_image))
 
             if cur.rowcount == 0:
                 raise DuplicateRunnerNameException(
@@ -385,31 +397,54 @@ def add_worker(provider: str, entity_id: int, entity_name: str, k8s_pool: str, p
     logger.debug("Added worker %s to pool %s:%s", pod_name, entity_id, k8s_pool)
 
 
-def remove_worker(pod_name: str) -> None:
-    """Mark a worker as completed (never delete).
-
-    Allows transitions: pending -> completed, running -> completed.
-    """
+def mark_worker_running(pod_name: str, k8s_node: str, running_at: Any):
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE workers SET status = 'completed', updated_at = now()
+                UPDATE workers
+                SET status = 'running',
+                    k8s_node = %s,
+                    running_at = COALESCE(running_at, %s, now()),
+                    updated_at = now()
+                WHERE pod_name = %s AND status = 'pending'
+            """, (k8s_node, running_at, pod_name))
+    logger.debug("Marked worker %s running", pod_name)
+
+
+def mark_worker_completed(pod_name: str, k8s_node: str, completed_at: Any):
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE workers
+                SET status = 'completed',
+                    k8s_node = COALESCE(k8s_node, %s),
+                    completed_at = COALESCE(completed_at, %s, now()),
+                    updated_at = now()
                 WHERE pod_name = %s AND (status = 'pending' OR status = 'running')
-            """, (pod_name,))
+            """, (k8s_node, completed_at, pod_name))
     logger.debug("Marked worker %s completed", pod_name)
 
 
-def iter_workers() -> Iterator[tuple[str, str, str]]:
-    """Yield (entity_id, k8s_pool, pod_name) for all active workers."""
+def mark_worker_failed(pod_name: str, k8s_node: str, failure_info: dict, completed_at: Any) -> None:
+    """Mark a worker as failed with failure_info and completed_at.
+
+    Allows transitions: pending -> failed, running -> failed.
+    `completed_at` may be a datetime or None (DB now() fallback).
+    """
+    assert failure_info and "version" in failure_info and isinstance(failure_info["version"], int), \
+        "failure_info must be a dict with an int 'version' field"
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT entity_id, k8s_pool, pod_name FROM workers
-                WHERE status = 'pending' OR status = 'running'
-            """)
-            rows = cur.fetchall()
-    for row in rows:
-        yield str(row[0]), row[1], row[2]
+                UPDATE workers
+                SET status = 'failed',
+                    k8s_node = COALESCE(k8s_node, %s),
+                    failure_info = %s,
+                    completed_at = COALESCE(%s, now()),
+                    updated_at = now()
+                WHERE pod_name = %s AND (status = 'pending' OR status = 'running')
+            """, (k8s_node, json.dumps(failure_info), completed_at, pod_name))
+    logger.debug("Marked worker %s failed", pod_name)
 
 
 def get_job(job_id: int) -> dict[str, str]:
@@ -465,6 +500,18 @@ def get_active_jobs() -> list[dict]:
             return cur.fetchall()
 
 
+def get_active_workers() -> list[dict]:
+    """Return active_workers as raw rows from PostgreSQL."""
+    with _get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT *
+                FROM workers WHERE status = 'pending' OR status = 'running'
+                ORDER BY created_at
+            """)
+            return cur.fetchall()
+
+
 def get_all_jobs(start: str | None = None, end: str | None = None,
                  page: int = 0, per_page: int = 100) -> tuple[list[dict[str, str]], int]:
     """Return (jobs, total_count) with optional date filtering and paging.
@@ -503,81 +550,24 @@ def get_all_jobs(start: str | None = None, end: str | None = None,
     return [_job_row_to_dict(row) for row in rows], total
 
 
-def sync_worker_status(pods: list[Any], failure_info_by_pod: dict[str, dict]) -> None:
-    """Bulk update worker status from k8s pod phases.
+def get_workers_for_reconcile(terminal_lookback_seconds: int = 3600) -> list[dict]:
+    """Return all active workers plus recently-terminal workers for reconciliation.
 
-    K8s pod phase mapping:
-      Pending   -> worker 'pending'   (pod scheduled, containers not yet started)
-      Running   -> worker 'running'   (at least one container running)
-      Succeeded -> worker 'completed' (all containers exited 0)
-      Failed    -> worker 'completed' (at least one container failed)
-      Unknown   -> no change          (pod state indeterminate)
-
-    Args:
-        pods: list of k8s pod objects from k8s.list_pods()
-        failure_info_by_pod: dict of {pod_name: failure_info_dict} for Failed pods
+    Active = pending/running. Terminal = completed/failed within the lookback window.
+    Terminal rows are included so gh_reconcile_runners can delete their GitHub counterparts.
     """
-    assert failure_info_by_pod is not None, "failure_info_by_pod must be a dict, not None"
-
     with _get_conn() as conn:
-        with conn.cursor() as cur:
-            for pod in pods:
-                phase = pod.status.phase
-                pod_name = pod.metadata.name
-                node_name = pod.spec.node_name  # set once pod is scheduled
-
-                if phase == "Running":
-                    # pending -> running
-                    cur.execute("""
-                        UPDATE workers SET status = 'running', k8s_node = %s, updated_at = now()
-                        WHERE pod_name = %s AND status = 'pending'
-                    """, (node_name, pod_name))
-                elif phase in ("Succeeded", "Failed"):
-                    # pending|running -> completed
-                    failure_info = failure_info_by_pod.get(pod_name)
-                    if failure_info:
-                        assert "version" in failure_info and isinstance(failure_info['version'], int), f"failure_info must have a failure_info['version'] parameter and it must be an int"
-                        cur.execute("""
-                            UPDATE workers SET status = 'completed', k8s_node = COALESCE(k8s_node, %s),
-                                   failure_info = %s, updated_at = now()
-                            WHERE pod_name = %s AND (status = 'pending' OR status = 'running')
-                        """, (node_name, json.dumps(failure_info), pod_name))
-                    else:
-                        cur.execute("""
-                            UPDATE workers SET status = 'completed', k8s_node = COALESCE(k8s_node, %s),
-                                   updated_at = now()
-                            WHERE pod_name = %s AND (status = 'pending' OR status = 'running')
-                        """, (node_name, pod_name))
-
-
-def mark_orphaned_workers_completed(active_pod_names: set[str], known_worker_pod_names: list[str]) -> None:
-    """Mark specific orphaned workers as completed.
-
-    Only marks workers that are both:
-    1. In known_worker_pod_names (explicitly known to the caller as workers)
-    2. NOT in active_pod_names (no matching k8s pod)
-
-    Allows transitions: pending -> completed, running -> completed.
-
-    Args:
-        active_pod_names: Set of pod names that currently exist in k8s.
-        known_worker_pod_names: List of pod names the caller knows are workers
-            (from iter_workers). Only these are candidates for orphan marking.
-    """
-    if not known_worker_pod_names:
-        return
-
-    orphaned = [name for name in known_worker_pod_names if name not in active_pod_names]
-    if not orphaned:
-        return
-
-    with _get_conn() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                UPDATE workers SET status = 'completed', updated_at = now()
-                WHERE pod_name = ANY(%s) AND (status = 'pending' OR status = 'running')
-            """, (orphaned,))
-    logger.debug("Marked %d orphaned workers as completed", len(orphaned))
+                SELECT pod_name, entity_id, entity_name, entity_type, installation_id,
+                       repo_full_name, k8s_pool, status, running_at, created_at, completed_at
+                FROM workers
+                WHERE status IN ('pending', 'running')
+                   OR (status IN ('completed', 'failed')
+                       AND completed_at IS NOT NULL
+                       AND completed_at > now() - (%s || ' seconds')::interval)
+            """, (int(terminal_lookback_seconds),))
+            return cur.fetchall()
 
 
 # --- Pub/Sub ---

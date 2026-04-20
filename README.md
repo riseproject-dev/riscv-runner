@@ -68,15 +68,19 @@ ghfe (ghfe.py)
   v
 PostgreSQL (state store)
   |  - jobs table: all job metadata with status_enum, sorted JSONB labels
-  |  - workers table: never deleted, status tracked (pending/running/completed)
-  |  - failure_info: exhaustive diagnostics for failed pods
+  |  - workers table: never deleted, status tracked (pending/running/completed/failed)
+  |  - failure_info: exhaustive diagnostics for failed pods (including stuck ones)
   |  - LISTEN/NOTIFY: wakes scheduler on new jobs
   |
   v
 Scheduler (scheduler.py)
-  |  - GH reconciliation: sync database with GitHub job status
-  |  - Pod cleanup: delete Succeeded/Failed pods, sync worker status
-  |  - Demand matching: provision runners where demand > supply
+  |  - gh_reconcile_jobs:    sync job status with GitHub
+  |  - gh_reconcile_runners: detect stuck runners (registration timeout,
+  |                          pending timeout); clean up orphan/terminal runners
+  |                          from GitHub
+  |  - cleanup_pods:         sync worker status from k8s, delete terminal pods
+  |                          after a 6h grace period (so logs stay inspectable)
+  |  - demand_match:         provision runners where demand > supply
   |  - Woken by PostgreSQL LISTEN/NOTIFY or 15s timeout
   |
   v
@@ -151,24 +155,36 @@ queued webhook      in_progress webhook     completed webhook
 ### Worker lifecycle
 
 ```
-add_worker() reserves name in DB (status=pending)
+add_worker() reserves name in DB (status=pending, running_at=NULL, completed_at=NULL)
   -> k8s pod created
-  -> Running (status=running, updated by cleanup_pods)
-  -> Succeeded / Failed (status=completed, updated by cleanup_pods)
+  -> K8s pod Running   -> status=running, running_at set from container start time
+  -> K8s pod Succeeded -> status=completed, completed_at set from container finish time
+  -> K8s pod Failed    -> status=failed,    completed_at set, failure_info populated
        |
-       cleanup_pods() deletes k8s pod,
-       marks worker completed in DB (never deleted)
-       For Failed pods: collects failure_info (logs, exit codes, events)
+       cleanup_pods() keeps the pod around for 6 hours (POD_DELETE_GRACE_SECONDS)
+       after termination so logs/events remain accessible via kubectl, then deletes it.
+       The worker row is updated immediately on phase transition (not after delete).
 ```
 
-Workers are never deleted from PostgreSQL. The `status` field tracks the lifecycle. Historical workers with `failure_info` are available for post-mortem debugging.
+Additional health checks run in `gh_reconcile_runners` (not `cleanup_pods`):
+- **RUNNER_NEVER_REGISTERED**: pod has been Running for more than `RUNNER_REGISTRATION_TIMEOUT_SECONDS` (120s) but the runner never appeared in the GitHub API. Worker is marked `failed`, pod is deleted immediately (no grace period — the slot is needed for retries), and any stale GH runner entry is removed. `failure_info` captures logs/events before deletion.
+- **POD_STUCK_PENDING**: pod has been Pending for more than `POD_PENDING_TIMEOUT_SECONDS` (600s), likely due to missing capacity or image pull failures. Same remediation.
+
+Workers are never deleted from PostgreSQL. The `status` field tracks the lifecycle: `pending -> running -> completed|failed`. Historical workers with `failure_info` are available for post-mortem debugging.
+
+### GitHub / Kubernetes / DB reconciliation
+
+`gh_reconcile_runners` also performs GitHub-side cleanup each cycle:
+- Runners registered in GitHub whose worker row is `completed` or `failed` are deleted from GitHub.
+- Runners registered in GitHub with no matching worker row (orphans from a previous scheduler, crashed provisioning, etc.) are deleted.
+- For org-scoped runners the listing is scoped to the `RISE RISC-V Runners` runner group; for repo-scoped (personal accounts) runners are filtered by the `rise-riscv-runner{-staging}-` name prefix.
 
 ### Database schema
 
 Tables live in a `prod` or `staging` schema (same database, isolated by `SET search_path`).
 
 ```sql
-CREATE TYPE status_enum AS ENUM ('pending', 'running', 'completed');
+CREATE TYPE status_enum AS ENUM ('pending', 'running', 'completed', 'failed');
 
 CREATE TABLE jobs (
     job_id          BIGINT PRIMARY KEY,
@@ -187,21 +203,26 @@ CREATE TABLE jobs (
 );
 
 CREATE TABLE workers (
-    pod_name      TEXT PRIMARY KEY,
-    entity_id     BIGINT NOT NULL,
-    entity_name   TEXT NOT NULL,
-    job_labels    JSONB NOT NULL DEFAULT '[]',
-    k8s_pool      TEXT NOT NULL,
-    k8s_image     TEXT NOT NULL,
-    k8s_node      TEXT,
-    status        status_enum NOT NULL DEFAULT 'pending',
-    failure_info  JSONB,               -- exhaustive diagnostics for Failed pods
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    pod_name        TEXT PRIMARY KEY,
+    entity_id       BIGINT NOT NULL,
+    entity_name     TEXT NOT NULL,
+    entity_type     TEXT NOT NULL,        -- 'Organization' or 'User'
+    installation_id BIGINT NOT NULL,      -- GitHub App installation, needed for reconcile calls
+    repo_full_name  TEXT,                 -- only set for User entities (repo-scoped runners); NULL for Organization
+    job_labels      JSONB NOT NULL DEFAULT '[]',
+    k8s_pool        TEXT NOT NULL,
+    k8s_image       TEXT NOT NULL,
+    k8s_node        TEXT,
+    status          status_enum NOT NULL DEFAULT 'pending',
+    failure_info    JSONB,                -- exhaustive diagnostics for Failed and stuck pods (version=2)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    running_at      TIMESTAMPTZ,          -- set when k8s pod first reaches running
+    completed_at    TIMESTAMPTZ,          -- set when status transitions to completed|failed
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
-Status transitions are forward-only: `pending -> running -> completed`. All UPDATE queries enforce this with explicit WHERE clauses (`status = 'pending'` for running, `status = 'pending' OR status = 'running'` for completed).
+Status transitions are forward-only: `pending -> running -> (completed | failed)`. All UPDATE queries enforce this with explicit WHERE clauses. A `failed` worker does not count toward supply in `get_pool_demand`, so `demand_match` automatically re-provisions a runner for the same pending job on the next loop iteration.
 
 ### Demand matching algorithm
 
@@ -382,9 +403,9 @@ RBAC is configured automatically by the control plane provisioning script. The k
 
 ### Cleanup terminated runner pods
 
-Runner pods are automatically cleaned up by the scheduler when pods reach Succeeded/Failed phase. Stale completed job hashes are removed after 15 days.
+Runner pods stay alive for 6 hours after reaching Succeeded/Failed so their logs and events can still be inspected via `kubectl`. The worker row in PostgreSQL is updated to `completed`/`failed` immediately on phase transition (not after the pod is deleted), so pool supply accounting is accurate throughout the grace period.
 
-To manually clean up finished pods:
+To manually clean up finished pods ahead of the grace period:
 
 ```bash
 kubectl delete pods -l app=rise-riscv-runner --field-selector=status.phase!=Running,status.phase!=Pending,status.phase!=Unknown
@@ -406,5 +427,8 @@ SELECT COUNT(*) FROM staging.workers WHERE entity_id = {entity_id} AND job_label
 SELECT * FROM staging.jobs WHERE job_id = {job_id};
 
 # View recent failed workers with diagnostics
-SELECT pod_name, entity_id, k8s_pool, failure_info FROM staging.workers WHERE status = 'completed' AND failure_info IS NOT NULL ORDER BY updated_at DESC LIMIT 10;
+SELECT pod_name, entity_id, k8s_pool, failure_info FROM staging.workers WHERE status = 'failed' ORDER BY completed_at DESC LIMIT 10;
+
+# Filter by failure reason (e.g. runners that never registered with GitHub)
+SELECT pod_name, entity_name, completed_at FROM staging.workers WHERE status = 'failed' AND failure_info->>'reason' = 'runner_never_registered' ORDER BY completed_at DESC LIMIT 20;
 ```
