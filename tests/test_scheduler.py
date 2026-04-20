@@ -56,17 +56,18 @@ def make_pod(name, phase="Running", entity_id=None, board=None, creation_timesta
 
 def make_job(job_id, entity_id="1000", entity_name="test-org", k8s_pool="scw-em-rv1",
              status="pending", installation_id="999", repo_full_name="test-org/repo",
-             entity_type=EntityType.ORGANIZATION):
-    """Helper to create a mock job dict."""
+             entity_type=EntityType.ORGANIZATION, provider="github"):
+    """Helper to create a mock job dict matching what get_pending_jobs returns."""
     return {
         "status": status,
         "job_id": str(job_id),
+        "provider": provider,
         "entity_id": str(entity_id),
         "entity_name": entity_name,
         "entity_type": entity_type.value,
         "repo_full_name": repo_full_name,
         "installation_id": str(installation_id),
-        "job_labels": json.dumps(["ubuntu-24.04-riscv"]),
+        "job_labels": ["ubuntu-24.04-riscv"],
         "k8s_pool": k8s_pool,
         "k8s_image": "test-image:latest",
         "created_at": "1000000.0",

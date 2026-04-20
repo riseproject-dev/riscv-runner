@@ -354,19 +354,15 @@ def demand_match():
             logger.info("Job %s status is %s, not pending, skipping", job_id, job.get("status"))
             continue
 
-        k8s_pool = job.get("k8s_pool")
-        k8s_image = job.get("k8s_image")
-        installation_id = job.get("installation_id")
-        entity_name = job.get("entity_name") or job.get("org_name")  # migration fallback
-        labels = json.loads(job.get("job_labels", "[]"))
-        entity_type = EntityType(job.get("entity_type", EntityType.ORGANIZATION))
-        entity_id = job.get("entity_id") or job.get("org_id")  # migration fallback
-        repo_full_name = job.get("repo_full_name")
-        provider = job.get("provider", "github")
-
-        if not all([k8s_pool, k8s_image, installation_id, entity_name, entity_id, repo_full_name]):
-            logger.warning("Job %s missing required fields, skipping", job_id)
-            continue
+        k8s_pool = job["k8s_pool"]
+        k8s_image = job["k8s_image"]
+        installation_id = job["installation_id"]
+        entity_name = job["entity_name"]
+        labels = job["job_labels"]
+        entity_type = EntityType(job["entity_type"])
+        entity_id = job["entity_id"]
+        repo_full_name = job["repo_full_name"]
+        provider = job["provider"]
 
         # Check demand vs supply (matched by entity_id + job_labels, not k8s_pool)
         job_count, worker_count = db.get_pool_demand(entity_id, labels)

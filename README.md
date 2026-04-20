@@ -210,6 +210,8 @@ CREATE TYPE status_enum AS ENUM ('pending', 'running', 'completed', 'failed');
 CREATE TABLE jobs (
     job_id          BIGINT PRIMARY KEY,
     status          status_enum NOT NULL DEFAULT 'pending',
+    failure_info    JSONB,
+    provider        provider_enum NOT NULL,
     entity_id       BIGINT NOT NULL,
     entity_name     TEXT NOT NULL,
     entity_type     TEXT NOT NULL,        -- 'Organization' or 'User'
