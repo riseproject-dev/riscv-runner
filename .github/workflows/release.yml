@@ -106,10 +106,8 @@ jobs:
             ${{ format('type=gha,scope=type=gha,scope=scheduler-{0}', env.GITHUB_REF_NAME_SLUG) }}
           push: true
 
-      - run: npm ci
-
       - name: Deploy to Scaleway
-        run: npx serverless@3 deploy --stage=${{ needs.resolve.outputs.environment }}
+        run: npm ci && npx serverless@3 deploy --stage=${{ needs.resolve.outputs.environment }}
         env:
           SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
           GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
