@@ -10,10 +10,6 @@ on:
       - staging
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 env:
   REGISTRY: rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s
   IMAGE: riscv-runner
@@ -54,6 +50,9 @@ jobs:
     needs: [test, resolve]
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: rlespinasse/github-slug-action@9e7def61550737ba68c62d34a32dd31792e3f429 # v5.5.0
