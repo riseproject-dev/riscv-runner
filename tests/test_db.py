@@ -107,7 +107,7 @@ def test_mark_job_running(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.fetchone.return_value = ("pending",)  # RETURNING old.status
 
-    prev = mark_job_running(111)
+    prev = mark_job_running(111, "my-runner")
 
     assert prev == "pending"
 
@@ -119,7 +119,7 @@ def test_mark_job_running_already_running(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, ("running",)]  # UPDATE no match, SELECT finds it
 
-    prev = mark_job_running(111)
+    prev = mark_job_running(111, "my-runner")
 
     assert prev == "running"
 
@@ -130,7 +130,7 @@ def test_mark_job_running_not_found(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, None]  # UPDATE no match, SELECT no match
 
-    prev = mark_job_running(111)
+    prev = mark_job_running(111, "my-runner")
 
     assert prev is None
 

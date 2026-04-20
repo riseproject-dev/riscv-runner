@@ -208,7 +208,7 @@ def test_webhook_in_progress(mock_update):
 
     payload = {
         "action": "in_progress",
-        "workflow_job": {"id": 12345, "name": "test", "labels": ["ubuntu-24.04-riscv"]},
+        "workflow_job": {"id": 12345, "name": "test", "labels": ["ubuntu-24.04-riscv"], "runner_name": "my-runner"},
         "repository": {"id": 100, "full_name": "riseproject-dev/sample", "owner": {"id": 152654596, "login": "riseproject-dev", "type": "Organization"}},
     }
     body = json.dumps(payload)
@@ -222,7 +222,7 @@ def test_webhook_in_progress(mock_update):
         })
         assert resp.status_code == 200
         assert b"running" in resp.data
-        mock_update.assert_called_once_with(12345)
+        mock_update.assert_called_once_with(12345, "my-runner")
 
 
 @patch("db.mark_job_completed", return_value="running")

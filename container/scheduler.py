@@ -64,7 +64,7 @@ def sync_jobs_state():
             continue
 
         try:
-            gh_status = gh.get_job_status(repo, job_id, token)
+            gh_job = gh.get_job_info(repo, job_id, token)
         except gh.GitHubAPIError as e:
             if e.status_code == 404:
                 logger.warning("Job not found job_id=%s entity=%s entity_id=%s entity_type=%s: marking as failed",
@@ -78,13 +78,18 @@ def sync_jobs_state():
                          job_id, entity_type, job['entity_id'], job['entity_name'], e)
             continue
 
-        db_status = job.get("status")
-        if gh_status == "completed" and db_status != "completed":
-            logger.info("GH reconcile: job %s is completed on GitHub (was %s in DB)", job_id, db_status)
+        gh_job_status = gh_job.get("status")  # queued, in_progress, completed
+        gh_job_conclusion = gh_job.get("conclusion")  # null, success, failure, cancelled, ...
+        # A non-null conclusion means the job is done, even if status says in_progress
+        if gh_job_conclusion is not None:
+            gh_job_status = "completed"
+
+        if gh_job_status == "completed":
+            logger.info("GH reconcile: job %s is completed on GitHub (was %s in DB)", job_id, job["status"])
             db.mark_job_completed(job_id)
-        elif gh_status == "in_progress" and db_status == "pending":
+        elif gh_job_status == "in_progress" and job["status"] == "pending":
             logger.info("GH reconcile: job %s is in_progress on GitHub (was pending in DB)", job_id)
-            db.mark_job_running(job_id)
+            db.mark_job_running(job_id, gh_job.get("runner_name"))
 
 
 def sync_workers_state():

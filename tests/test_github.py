@@ -8,7 +8,7 @@ from github import (
     ensure_runner_group,
     create_jit_runner_config_org,
     create_jit_runner_config_repo,
-    get_job_status,
+    get_job_info,
 )
 
 
@@ -159,8 +159,8 @@ def test_get_job_status(requests_mock):
         json={"status": "completed"},
     )
 
-    status = get_job_status("org/repo", 111, "token")
-    assert status == "completed"
+    info = get_job_info("org/repo", 111, "token")
+    assert info == {"status": "completed"}
 
 
 def test_get_job_status_failure(requests_mock):
@@ -171,4 +171,4 @@ def test_get_job_status_failure(requests_mock):
     )
 
     with pytest.raises(GitHubAPIError):
-        get_job_status("org/repo", 111, "token")
+        get_job_info("org/repo", 111, "token")

@@ -840,7 +840,7 @@ def test_sync_workers_state_takes_table_lock(mock_list_pods, mock_db):
 
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.get_job_status", return_value="completed")
+@patch("scheduler.gh.get_job_info", return_value={"status": "completed"})
 def test_gh_reconcile_jobs_completes_job(mock_status, mock_auth, mock_db):
     """Reconciliation marks a job completed when GH says so."""
     job = make_job(111, status="running")
@@ -853,7 +853,7 @@ def test_gh_reconcile_jobs_completes_job(mock_status, mock_auth, mock_db):
 
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.get_job_status", return_value="in_progress")
+@patch("scheduler.gh.get_job_info", return_value={"status": "in_progress", "runner_name": "my-runner"})
 def test_gh_reconcile_jobs_updates_running(mock_status, mock_auth, mock_db):
     """Reconciliation updates pending→running when GH says in_progress."""
     job = make_job(111, status="pending")
@@ -861,14 +861,14 @@ def test_gh_reconcile_jobs_updates_running(mock_status, mock_auth, mock_db):
 
     sync_jobs_state()
 
-    mock_db.mark_job_running.assert_called_once_with("111")
+    mock_db.mark_job_running.assert_called_once_with("111", "my-runner")
 
 
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.get_job_status")
+@patch("scheduler.gh.get_job_info")
 def test_gh_reconcile_jobs_marks_job_failed_on_404(mock_status, mock_auth, mock_db):
-    """A 404 from get_job_status marks the job as failed."""
+    """A 404 from get_job_info marks the job as failed."""
     from github import GitHubAPIError
 
     job = make_job(111, status="running")

@@ -220,6 +220,7 @@ CREATE TABLE jobs (
     job_labels      JSONB NOT NULL DEFAULT '[]',  -- sorted at write time
     k8s_pool        TEXT NOT NULL,
     k8s_image       TEXT NOT NULL,
+    k8s_pod         TEXT,
     html_url        TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()

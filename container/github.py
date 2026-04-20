@@ -244,7 +244,7 @@ def delete_runner_repo(token, repo_full_name, runner_id):
     raise GitHubAPIError(response.status_code, f"DELETE {url}: {response.text}")
 
 
-def get_job_status(repo_full_name, job_id, token):
+def get_job_info(repo_full_name, job_id, token):
     """Get the effective status of a workflow job from GitHub API.
 
     GitHub can return status="in_progress" with conclusion="cancelled" (or other
@@ -259,13 +259,7 @@ def get_job_status(repo_full_name, job_id, token):
     response = requests.get(url, headers=headers)
 
     if response.status_code == 200:
-        data = response.json()
-        status = data.get("status")  # queued, in_progress, completed
-        conclusion = data.get("conclusion")  # null, success, failure, cancelled, ...
-        # A non-null conclusion means the job is done, even if status says in_progress
-        if conclusion is not None:
-            return "completed"
-        return status
+        return response.json()
     else:
         logger.error("Failed to get job status for %s job %s: %s", repo_full_name, job_id, response.status_code)
         raise GitHubAPIError(response.status_code, f"Failed to get job status: {response.text}")

@@ -284,7 +284,7 @@ def add_job(job_id: int, provider: str, entity_id: int, entity_name: str, entity
     return created
 
 
-def mark_job_running(job_id: int) -> str | None:
+def mark_job_running(job_id: int, runner_name: str | None) -> str | None:
     """Update job status to running. Returns previous status string or None.
 
     Only allows the transition: pending -> running.
@@ -293,10 +293,13 @@ def mark_job_running(job_id: int) -> str | None:
         with conn.cursor() as cur:
             cur.execute("""
                 WITH prev AS (SELECT status FROM jobs WHERE job_id = %s)
-                UPDATE jobs SET status = 'running', updated_at = now()
+                UPDATE jobs
+                SET status = 'running',
+                    k8s_pod = COALESCE(k8s_pod, %s),
+                    updated_at = now()
                 WHERE job_id = %s AND status = 'pending'
                 RETURNING (SELECT status::text FROM prev) as prev_status
-            """, (int(job_id), int(job_id)))
+            """, (int(job_id), runner_name, int(job_id)))
             row = cur.fetchone()
 
             if row is not None:
