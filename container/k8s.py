@@ -172,6 +172,28 @@ def delete_pod(pod):
             raise
 
 
+def kill_pod(pod):
+    """Force a pod to transition to Failed phase (reason=DeadlineExceeded).
+
+    Patches spec.activeDeadlineSeconds to 1. The kubelet compares this against
+    now() - pod.status.startTime and, when exceeded, marks phase=Failed and
+    SIGTERM/SIGKILLs the containers. Unlike delete_pod(), the pod stays in the
+    cluster so logs/events remain inspectable until the grace window removes it.
+    """
+    assert pod, "Pod must be provided to kill it"
+    body = {"spec": {"activeDeadlineSeconds": 1}}
+    with _init_client() as client:
+        api = k8s.client.CoreV1Api(client)
+        try:
+            api.patch_namespaced_pod(name=pod.metadata.name, namespace="default", body=body)
+            logger.info("Killed runner pod %s (activeDeadlineSeconds=1)", pod.metadata.name)
+        except k8s.client.exceptions.ApiException as e:
+            if e.status == 404:
+                logger.debug("Pod %s not found, already gone", pod.metadata.name)
+                return
+            raise
+
+
 def has_available_slot(node_selector):
     """Check if there's an available runner slot on nodes matching the selector."""
     with _init_client() as client:

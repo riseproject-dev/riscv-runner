@@ -374,7 +374,7 @@ def webhook():
                 return f"Job {job_id} already exists."
 
         elif action == "in_progress":
-            prev_status = db.update_job_running(job_id)
+            prev_status = db.mark_job_running(job_id)
             if prev_status is None:
                 logger.warning("Job %s not found on in_progress event", job_id)
                 return f"Job {job_id} not found."
@@ -382,7 +382,7 @@ def webhook():
             return f"Job {job_id} marked running (was {prev_status})."
 
         elif action == "completed":
-            prev_status = db.update_job_completed(job_id)
+            prev_status = db.mark_job_completed(job_id)
             if prev_status is None:
                 logger.warning("Job %s not found on completed event", job_id)
                 return f"Job {job_id} not found."

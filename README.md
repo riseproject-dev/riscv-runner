@@ -74,18 +74,24 @@ PostgreSQL (state store)
   |
   v
 Scheduler (scheduler.py)
-  |  - gh_reconcile_jobs:    sync job status with GitHub
-  |  - gh_reconcile_runners: detect stuck runners (registration timeout,
-  |                          pending timeout); clean up orphan/terminal runners
-  |                          from GitHub
-  |  - cleanup_pods:         sync worker status from k8s, delete terminal pods
-  |                          after a 6h grace period (so logs stay inspectable)
-  |  - demand_match:         provision runners where demand > supply
+  |  - sync_jobs_state:    sync job status with GitHub
+  |  - sync_workers_state: runs under a per-scheduler LOCK TABLE workers advisory,
+  |                        5 phases (atomic, single transaction):
+  |                          1. orphan sweep (worker rows without a k8s pod)
+  |                          2. k8s pod phase -> worker status sync
+  |                          3. health checks: kill stuck-pending & never-registered
+  |                             runners and free their slots
+  |                          4. GH-side cleanup: delete registered runners whose
+  |                             worker row is terminal or missing
+  |                          5. delete k8s pods past the 6h grace period
+  |  - demand_match:       provision runners where demand > supply
   |  - Woken by PostgreSQL LISTEN/NOTIFY or 15s timeout
   |
   v
 Kubernetes (runner pods)
 ```
+
+Only one scheduler at a time may run `sync_workers_state`: each invocation holds `LOCK TABLE workers IN EXCLUSIVE MODE` for its duration, using a thread-local connection pin (`db.hold_connection`) so all `mark_worker_*` calls share the locked transaction. If a second scheduler container is deployed, it will block on the lock until the first commits.
 
 ### Sequence: Queued webhook
 
@@ -119,7 +125,7 @@ Scheduler: for each pending job:
 
 ```
 GitHub -> ghfe: workflow_job (action=in_progress)
-ghfe -> PostgreSQL: update_job_running(job_id)
+ghfe -> PostgreSQL: mark_job_running(job_id)
   - UPDATE jobs SET status='running' WHERE status='pending'
 ghfe -> GitHub: 200 OK
 ```
@@ -128,7 +134,7 @@ ghfe -> GitHub: 200 OK
 
 ```
 GitHub -> ghfe: workflow_job (action=completed)
-ghfe -> PostgreSQL: update_job_completed(job_id)
+ghfe -> PostgreSQL: mark_job_completed(job_id)
   - UPDATE jobs SET status='completed' WHERE status IN ('pending', 'running')
 ghfe -> GitHub: 200 OK
 ```
@@ -161,20 +167,35 @@ add_worker() reserves name in DB (status=pending, running_at=NULL, completed_at=
   -> K8s pod Succeeded -> status=completed, completed_at set from container finish time
   -> K8s pod Failed    -> status=failed,    completed_at set, failure_info populated
        |
-       cleanup_pods() keeps the pod around for 6 hours (POD_DELETE_GRACE_SECONDS)
-       after termination so logs/events remain accessible via kubectl, then deletes it.
-       The worker row is updated immediately on phase transition (not after delete).
+       sync_workers_state keeps Succeeded/Failed pods around for 6 hours
+       (POD_DELETE_GRACE_SECONDS) so logs/events remain accessible via kubectl,
+       then deletes them. The worker row is updated immediately on phase
+       transition (not after delete).
 ```
 
-Additional health checks run in `gh_reconcile_runners` (not `cleanup_pods`):
-- **RUNNER_NEVER_REGISTERED**: pod has been Running for more than `RUNNER_REGISTRATION_TIMEOUT_SECONDS` (120s) but the runner never appeared in the GitHub API. Worker is marked `failed`, pod is deleted immediately (no grace period — the slot is needed for retries), and any stale GH runner entry is removed. `failure_info` captures logs/events before deletion.
-- **POD_STUCK_PENDING**: pod has been Pending for more than `POD_PENDING_TIMEOUT_SECONDS` (600s), likely due to missing capacity or image pull failures. Same remediation.
+Health checks for stuck runners run inside `sync_workers_state` and, rather than
+deleting the pod directly, *kill* it by patching `spec.activeDeadlineSeconds = 1`.
+The kubelet then transitions the pod to `Failed` (reason `DeadlineExceeded`) so it
+enters the normal 6-hour grace-and-delete flow — logs/events remain inspectable:
+
+- **RUNNER_NEVER_REGISTERED**: pod has been Running for more than
+  `RUNNER_REGISTRATION_TIMEOUT_SECONDS` (120s) but the runner never appeared in the
+  GitHub API. Worker is marked `failed` with full diagnostics in `failure_info`, then
+  the pod is killed so its slot frees up for a retry.
+- **POD_STUCK_PENDING**: pod has been Pending for more than
+  `POD_PENDING_TIMEOUT_SECONDS` (600s), likely due to missing capacity or image pull
+  failures. Same remediation.
+
+Both health checks first attempt to delete the runner from GitHub if one is
+registered under that name. If GitHub refuses (e.g. `422 "Runner is busy"`),
+`sync_workers_state` aborts the cleanup for that worker — GitHub believes a job
+is actually running, so we leave the worker alone and retry next cycle.
 
 Workers are never deleted from PostgreSQL. The `status` field tracks the lifecycle: `pending -> running -> completed|failed`. Historical workers with `failure_info` are available for post-mortem debugging.
 
 ### GitHub / Kubernetes / DB reconciliation
 
-`gh_reconcile_runners` also performs GitHub-side cleanup each cycle:
+Phase 4 of `sync_workers_state` cleans up GitHub-registered runners once per cycle:
 - Runners registered in GitHub whose worker row is `completed` or `failed` are deleted from GitHub.
 - Runners registered in GitHub with no matching worker row (orphans from a previous scheduler, crashed provisioning, etc.) are deleted.
 - For org-scoped runners the listing is scoped to the `RISE RISC-V Runners` runner group; for repo-scoped (personal accounts) runners are filtered by the `rise-riscv-runner{-staging}-` name prefix.
@@ -431,4 +452,7 @@ SELECT pod_name, entity_id, k8s_pool, failure_info FROM staging.workers WHERE st
 
 # Filter by failure reason (e.g. runners that never registered with GitHub)
 SELECT pod_name, entity_name, completed_at FROM staging.workers WHERE status = 'failed' AND failure_info->>'reason' = 'runner_never_registered' ORDER BY completed_at DESC LIMIT 20;
+
+# Other reasons: 'pod_failed' (k8s Failed phase), 'pod_stuck_pending' (never reached Running), 'runner_never_registered'
+SELECT failure_info->>'reason' AS reason, COUNT(*) FROM staging.workers WHERE status = 'failed' AND completed_at > now() - interval '24 hours' GROUP BY 1;
 ```

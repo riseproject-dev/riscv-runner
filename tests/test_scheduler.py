@@ -1,15 +1,39 @@
+import datetime
 import json
 from unittest.mock import patch, MagicMock
 
-from constants import EntityType
+import pytest
+
+from constants import (
+    EntityType,
+    POD_DELETE_GRACE_SECONDS,
+    POD_PENDING_TIMEOUT_SECONDS,
+    RUNNER_NAME_PREFIX,
+    RUNNER_REGISTRATION_TIMEOUT_SECONDS,
+)
+from k8s import FailureReason
 from scheduler import (
     app,
     demand_match,
-    cleanup_pods,
-    gh_reconcile_jobs,
+    sync_jobs_state,
+    sync_workers_state,
     _parse_date_param,
     _build_link_header,
 )
+
+
+@pytest.fixture(autouse=True)
+def _default_gh_mocks():
+    """Provide harmless defaults for the GH API calls Phase 3/4 always makes so
+    tests that don't explicitly care about GitHub don't fall through to the real
+    authenticate_app (which would try to decode a fake PEM)."""
+    with patch("scheduler.gh.authenticate_app", return_value="default-token"), \
+         patch("scheduler.gh.ensure_runner_group", return_value=42), \
+         patch("scheduler.gh.list_runners_org_group", return_value=[]), \
+         patch("scheduler.gh.list_runners_repo", return_value=[]), \
+         patch("scheduler.gh.delete_runner_org"), \
+         patch("scheduler.gh.delete_runner_repo"):
+        yield
 
 
 def make_pod(name, phase="Running", entity_id=None, board=None, creation_timestamp=None):
@@ -60,8 +84,7 @@ def make_job(job_id, entity_id="1000", entity_name="test-org", k8s_pool="scw-em-
 def test_demand_match_provisions_org_job(mock_jit, mock_group, mock_auth, mock_provision, mock_slot, mock_db):
     """Test that demand_match provisions a pending org job when capacity exists."""
     job = make_job(111)
-    mock_db.get_pending_jobs.return_value = ["111"]
-    mock_db.get_job.return_value = job
+    mock_db.get_pending_jobs.return_value = [job]
     mock_db.get_pool_demand.return_value = (1, 0)  # 1 job, 0 workers = deficit
     mock_db.get_total_workers_for_entity.return_value = 0
 
@@ -83,8 +106,7 @@ def test_demand_match_provisions_personal_job(mock_jit_repo, mock_auth, mock_pro
     """Test that demand_match provisions a pending personal account job (repo-scoped)."""
     job = make_job(222, entity_id="200", entity_name="someuser", entity_type=EntityType.USER,
                    repo_full_name="someuser/myrepo")
-    mock_db.get_pending_jobs.return_value = ["222"]
-    mock_db.get_job.return_value = job
+    mock_db.get_pending_jobs.return_value = [job]
     mock_db.get_pool_demand.return_value = (1, 0)
     mock_db.get_total_workers_for_entity.return_value = 0
 
@@ -105,8 +127,7 @@ def test_demand_match_provisions_personal_job(mock_jit_repo, mock_auth, mock_pro
 def test_demand_match_skips_when_demand_met(mock_provision, mock_slot, mock_db):
     """Test that jobs are skipped when pool demand is already met."""
     job = make_job(111)
-    mock_db.get_pending_jobs.return_value = ["111"]
-    mock_db.get_job.return_value = job
+    mock_db.get_pending_jobs.return_value = [job]
     mock_db.get_pool_demand.return_value = (1, 1)  # demand met
 
     demand_match()
@@ -120,8 +141,7 @@ def test_demand_match_skips_when_demand_met(mock_provision, mock_slot, mock_db):
 def test_demand_match_skips_no_k8s_capacity(mock_provision, mock_slot, mock_db):
     """Test that jobs are skipped when no k8s capacity."""
     job = make_job(111)
-    mock_db.get_pending_jobs.return_value = ["111"]
-    mock_db.get_job.return_value = job
+    mock_db.get_pending_jobs.return_value = [job]
     mock_db.get_pool_demand.return_value = (1, 0)
     mock_db.get_total_workers_for_entity.return_value = 0
 
@@ -136,8 +156,7 @@ def test_demand_match_skips_no_k8s_capacity(mock_provision, mock_slot, mock_db):
 def test_demand_match_respects_max_workers(mock_provision, mock_slot, mock_db):
     """Test that max_workers cap is respected."""
     job = make_job(111, entity_id="660779", entity_name="luhenry")  # max_workers defaults to 20
-    mock_db.get_pending_jobs.return_value = ["111"]
-    mock_db.get_job.return_value = job
+    mock_db.get_pending_jobs.return_value = [job]
     mock_db.get_pool_demand.return_value = (1, 0)
     mock_db.get_total_workers_for_entity.return_value = 20  # at default cap
 
@@ -160,8 +179,7 @@ def test_demand_match_handles_provision_failure(mock_jit, mock_group, mock_auth,
     be cleaned up by cleanup_pods() orphan detection.
     """
     job = make_job(111)
-    mock_db.get_pending_jobs.return_value = ["111"]
-    mock_db.get_job.return_value = job
+    mock_db.get_pending_jobs.return_value = [job]
     mock_db.get_pool_demand.return_value = (1, 0)
     mock_db.get_total_workers_for_entity.return_value = 0
 
@@ -171,27 +189,512 @@ def test_demand_match_handles_provision_failure(mock_jit, mock_group, mock_auth,
     mock_db.add_worker.assert_called_once()
 
 
-# --- cleanup_pods tests ---
+# --- sync_workers_state helpers + tests ---
+
+
+def make_worker(pod_name="pod-1", status="pending", entity_id="1000",
+                 entity_name="test-org", entity_type=EntityType.ORGANIZATION,
+                 installation_id="999", repo_full_name=None,
+                 running_at=None, k8s_node=None, k8s_pool="scw-em-rv1"):
+    """Build a worker row dict mirroring what get_workers_for_reconcile returns."""
+    if entity_type == EntityType.USER and repo_full_name is None:
+        repo_full_name = "someuser/myrepo"
+    return {
+        "pod_name": pod_name,
+        "status": status,
+        "entity_id": entity_id,
+        "entity_name": entity_name,
+        "entity_type": entity_type.value,
+        "installation_id": installation_id,
+        "repo_full_name": repo_full_name,
+        "running_at": running_at,
+        "k8s_node": k8s_node,
+        "k8s_pool": k8s_pool,
+    }
+
+
+def make_running_pod(name, running_at=None, node_name="node-1"):
+    """Running pod with a 'runner' container whose running.started_at is set."""
+    pod = make_pod(name, phase="Running")
+    pod.spec.node_name = node_name
+    cs = MagicMock()
+    cs.name = "runner"
+    cs.state.running.started_at = running_at or datetime.datetime.now(datetime.timezone.utc)
+    cs.state.terminated = None
+    cs.state.waiting = None
+    pod.status.container_statuses = [cs]
+    return pod
+
+
+def make_terminal_pod(name, phase="Succeeded", finished_at=None, node_name="node-1"):
+    """Pod that has reached a terminal phase, with a container.state.terminated.finished_at."""
+    pod = make_pod(name, phase=phase)
+    pod.spec.node_name = node_name
+    cs = MagicMock()
+    cs.name = "runner"
+    cs.state.terminated.finished_at = finished_at or datetime.datetime.now(datetime.timezone.utc)
+    cs.state.running = None
+    cs.state.waiting = None
+    pod.status.container_statuses = [cs]
+    return pod
+
+
+def _configure_db_mock(mock_db, workers=None):
+    """Wire up the mock db so sync_workers_state can enter `hold_connection` and
+    the mock's in-memory worker state transitions in response to mark_worker_*
+    calls — mirroring how PostgreSQL would behave between the reconcile's
+    get_workers_for_reconcile refreshes.
+    """
+    state = {w["pod_name"]: dict(w) for w in (workers or [])}
+
+    def get_workers():
+        return [dict(w) for w in state.values()]
+
+    def _set(pod_name, status, **extra):
+        if pod_name in state:
+            state[pod_name]["status"] = status
+            state[pod_name].update(extra)
+
+    mock_db.get_workers_for_reconcile.side_effect = get_workers
+    mock_db.mark_worker_orphaned.side_effect = lambda pn: _set(pn, "completed")
+    mock_db.mark_worker_running.side_effect = lambda pn, node, ra: _set(
+        pn, "running", k8s_node=node, running_at=ra)
+    mock_db.mark_worker_completed.side_effect = lambda pn, node, ca: _set(
+        pn, "completed", k8s_node=node, completed_at=ca)
+    mock_db.mark_worker_failed.side_effect = lambda pn, node, fi, ca: _set(
+        pn, "failed", k8s_node=node, failure_info=fi, completed_at=ca)
+
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cur)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_db.hold_connection.return_value.__enter__ = MagicMock(return_value=conn)
+    mock_db.hold_connection.return_value.__exit__ = MagicMock(return_value=False)
+    return conn, cur
+
+
+# Phase 1 — orphan sweep
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods", return_value=[])
+def test_reconcile_orphans_worker_with_no_pod(mock_list, mock_db):
+    worker = make_worker(pod_name="pod-1", status="pending")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_orphaned.assert_called_once_with("pod-1")
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods", return_value=[])
+def test_reconcile_does_not_orphan_terminal_workers(mock_list, mock_db):
+    w1 = make_worker(pod_name="pod-completed", status="completed")
+    w2 = make_worker(pod_name="pod-failed", status="failed")
+    _configure_db_mock(mock_db, workers=[w1, w2])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_orphaned.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+def test_reconcile_does_not_orphan_worker_with_matching_pod(mock_list, mock_db):
+    pod = make_running_pod("pod-1")
+    mock_list.return_value = [pod]
+    worker = make_worker(pod_name="pod-1", status="running")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_orphaned.assert_not_called()
+
+
+# Phase 2 — pod phase -> worker status sync
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+def test_reconcile_syncs_pending_to_running(mock_list, mock_db):
+    started_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    pod = make_running_pod("pod-1", running_at=started_at)
+    mock_list.return_value = [pod]
+    worker = make_worker(pod_name="pod-1", status="pending")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_running.assert_called_once()
+    args = mock_db.mark_worker_running.call_args[0]
+    assert args[0] == "pod-1"
+    assert args[2] == started_at
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+def test_reconcile_syncs_to_completed_on_succeeded(mock_list, mock_db):
+    finished_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    pod = make_terminal_pod("pod-1", phase="Succeeded", finished_at=finished_at)
+    mock_list.return_value = [pod]
+    worker = make_worker(pod_name="pod-1", status="running")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_completed.assert_called_once()
+    args = mock_db.mark_worker_completed.call_args[0]
+    assert args[0] == "pod-1"
+    assert args[2] == finished_at
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "pod_failed"})
+def test_reconcile_syncs_to_failed_on_pod_failed(mock_collect, mock_list, mock_db):
+    finished_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    pod = make_terminal_pod("pod-1", phase="Failed", finished_at=finished_at)
+    mock_list.return_value = [pod]
+    worker = make_worker(pod_name="pod-1", status="running")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_called_once()
+    args = mock_db.mark_worker_failed.call_args[0]
+    assert args[0] == "pod-1"
+    assert args[2]["reason"] == "pod_failed"
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+def test_reconcile_skips_sync_when_worker_already_terminal(mock_list, mock_db):
+    pod = make_running_pod("pod-1")
+    mock_list.return_value = [pod]
+    worker = make_worker(pod_name="pod-1", status="completed")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_running.assert_not_called()
+    mock_db.mark_worker_failed.assert_not_called()
+
+
+# Phase 3 — stuck-runner health checks
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "runner_never_registered"})
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_fails_runner_that_never_registered_past_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
+    pod = make_running_pod("rise-riscv-runner-staging-pod-1")
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
+                         status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_called_once()
+    args = mock_db.mark_worker_failed.call_args[0]
+    assert args[0] == "rise-riscv-runner-staging-pod-1"
+    assert args[2]["reason"] == "runner_never_registered"
+    mock_kill.assert_called_once_with(pod)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_keeps_runner_within_registration_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
+    recent = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=10)
+    pod = make_running_pod("rise-riscv-runner-staging-pod-1")
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
+                         status="running", running_at=recent)
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+def test_reconcile_keeps_registered_runner(
+        mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name}]
+    worker = make_worker(pod_name=name, status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "pod_stuck_pending"})
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_fails_stuck_pending_pod_past_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=POD_PENDING_TIMEOUT_SECONDS + 60)
+    pod = make_pod("rise-riscv-runner-staging-pod-1", phase="Pending", creation_timestamp=old)
+    pod.spec.node_name = None
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1", status="pending")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_called_once()
+    args = mock_db.mark_worker_failed.call_args[0]
+    assert args[2]["reason"] == "pod_stuck_pending"
+    mock_kill.assert_called_once_with(pod)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_keeps_pending_pod_within_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
+    pod = make_pod("rise-riscv-runner-staging-pod-1", phase="Pending")
+    pod.spec.node_name = None
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1", status="pending")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod", side_effect=Exception("k8s patch failed"))
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "runner_never_registered"})
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_fail_and_cleanup_is_best_effort_on_kill_failure(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    """kill_pod failure must not prevent the mark_worker_failed call."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
+    pod = make_running_pod("rise-riscv-runner-staging-pod-1")
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
+                         status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_called_once()
+    mock_kill.assert_called_once_with(pod)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+@patch("scheduler.gh.delete_runner_org", side_effect=Exception("422 runner is busy"))
+def test_reconcile_aborts_cleanup_when_github_refuses_delete(
+        mock_delete, mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill,
+        mock_list_pods, mock_db):
+    """If GitHub refuses to delete the runner (e.g. 422 "runner is busy") we must
+    NOT kill the pod or mark the worker failed — GH believes the runner is doing
+    useful work, so we leave it alone and try again next reconcile."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=POD_PENDING_TIMEOUT_SECONDS + 60)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_pod(name, phase="Pending", creation_timestamp=old)
+    pod.spec.node_name = None
+    mock_list_pods.return_value = [pod]
+    # GH has the runner listed (so gh_runner is not None in _fail_and_cleanup).
+    mock_list_gh.return_value = [{"id": 77, "name": name}]
+    worker = make_worker(pod_name=name, status="pending")
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    # We attempted the delete.
+    mock_delete.assert_called_once_with("token-123", "test-org", 77)
+    # But aborted before killing / marking failed / collecting diagnostics.
+    mock_kill.assert_not_called()
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_collect.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info", side_effect=RuntimeError("boom"))
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_fail_and_cleanup_is_best_effort_on_collect_failure(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    """collect_pod_failure_info exception -> mark_worker_failed still called with fallback."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
+    pod = make_running_pod("rise-riscv-runner-staging-pod-1")
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
+                         status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_called_once()
+    failure_info = mock_db.mark_worker_failed.call_args[0][2]
+    assert failure_info["reason"] == "runner_never_registered"
+    assert "collect_error" in failure_info
+
+
+# Phase 4 — GH-side cleanup
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods", return_value=[])
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+@patch("scheduler.gh.delete_runner_org")
+def test_reconcile_deletes_gh_runner_for_terminal_worker(
+        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+    """A terminal worker's GH runner must be deleted.
+
+    Phase 3 listing is per-scope and driven off pending/running workers; we need at
+    least one pending/running worker in the same scope so that the listing is fetched
+    and Phase 4 sees the terminal runner.
+    """
+    name = "rise-riscv-runner-staging-pod-1"
+    active_pod = make_running_pod("rise-riscv-runner-staging-pod-active")
+    mock_list_pods.return_value = [active_pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name},
+                                  {"id": 12, "name": "rise-riscv-runner-staging-pod-active"}]
+    terminal_worker = make_worker(pod_name=name, status="completed")
+    active_worker = make_worker(pod_name="rise-riscv-runner-staging-pod-active",
+                                status="running",
+                                running_at=datetime.datetime.now(datetime.timezone.utc))
+    _configure_db_mock(mock_db, workers=[terminal_worker, active_worker])
+
+    sync_workers_state()
+
+    mock_delete.assert_any_call("token-123", "test-org", 11)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+@patch("scheduler.gh.delete_runner_org")
+def test_reconcile_deletes_gh_runner_with_no_worker_row(
+        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+    active_name = "rise-riscv-runner-staging-pod-active"
+    orphan_name = "rise-riscv-runner-staging-pod-orphan"
+    pod = make_running_pod(active_name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": active_name},
+                                  {"id": 99, "name": orphan_name}]
+    active_worker = make_worker(pod_name=active_name, status="running",
+                                running_at=datetime.datetime.now(datetime.timezone.utc))
+    _configure_db_mock(mock_db, workers=[active_worker])
+
+    sync_workers_state()
+
+    mock_delete.assert_any_call("token-123", "test-org", 99)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+@patch("scheduler.gh.delete_runner_org")
+def test_reconcile_keeps_gh_runner_with_active_worker(
+        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name}]
+    worker = make_worker(pod_name=name, status="running",
+                         running_at=datetime.datetime.now(datetime.timezone.utc))
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_delete.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+@patch("scheduler.gh.delete_runner_org")
+def test_reconcile_skips_gh_runners_without_prefix(
+        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+    active_name = "rise-riscv-runner-staging-pod-active"
+    pod = make_running_pod(active_name)
+    mock_list_pods.return_value = [pod]
+    # A foreign runner (no matching prefix) must never be deleted even if there is no
+    # corresponding worker row.
+    mock_list_gh.return_value = [{"id": 11, "name": active_name},
+                                  {"id": 99, "name": "some-other-teams-runner"}]
+    active_worker = make_worker(pod_name=active_name, status="running",
+                                running_at=datetime.datetime.now(datetime.timezone.utc))
+    _configure_db_mock(mock_db, workers=[active_worker])
+
+    sync_workers_state()
+
+    # Only called (if at all) for runners matching our prefix — never for the foreign name.
+    for call_args in mock_delete.call_args_list:
+        assert call_args[0][2] != 99, "foreign runner must not be deleted"
+
+
+# Phase 5 — grace period for terminal pods
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
-def test_cleanup_deletes_succeeded_pod_past_grace(mock_delete, mock_list, mock_db):
-    """Succeeded pods past the 6h grace period are deleted from k8s.
+def test_reconcile_deletes_terminal_pod_past_grace(mock_delete, mock_list_pods, mock_db):
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=POD_DELETE_GRACE_SECONDS + 60)
+    pod = make_terminal_pod("pod-1", phase="Succeeded", finished_at=old)
+    mock_list_pods.return_value = [pod]
+    _configure_db_mock(mock_db, workers=[])
 
-    The worker row transition is driven by sync_worker_status (not a separate
-    remove_worker call after delete), so we only assert the k8s delete happened.
-    """
-    import datetime
-    from constants import POD_DELETE_GRACE_SECONDS
-
-    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=POD_DELETE_GRACE_SECONDS + 60)
-    pod = make_pod("pod-1", phase="Succeeded", entity_id="1000", board="scw-em-rv1",
-                   creation_timestamp=old)
-    mock_list.return_value = [pod]
-    mock_db.iter_workers.return_value = []
-
-    cleanup_pods()
+    sync_workers_state()
 
     mock_delete.assert_called_once_with(pod)
 
@@ -199,13 +702,12 @@ def test_cleanup_deletes_succeeded_pod_past_grace(mock_delete, mock_list, mock_d
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
-def test_cleanup_skips_succeeded_pod_within_grace(mock_delete, mock_list, mock_db):
-    """Recently-terminated pods are kept around for the grace window."""
-    pod = make_pod("pod-1", phase="Succeeded", entity_id="1000", board="scw-em-rv1")
-    mock_list.return_value = [pod]
-    mock_db.iter_workers.return_value = []
+def test_reconcile_keeps_terminal_pod_within_grace(mock_delete, mock_list_pods, mock_db):
+    pod = make_terminal_pod("pod-1", phase="Succeeded")
+    mock_list_pods.return_value = [pod]
+    _configure_db_mock(mock_db, workers=[])
 
-    cleanup_pods()
+    sync_workers_state()
 
     mock_delete.assert_not_called()
 
@@ -213,18 +715,127 @@ def test_cleanup_skips_succeeded_pod_within_grace(mock_delete, mock_list, mock_d
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
-def test_cleanup_skips_running_pod(mock_delete, mock_list, mock_db):
-    """Running pods are never deleted."""
-    pod = make_pod("pod-1", phase="Running", entity_id="1000", board="scw-em-rv1")
-    mock_list.return_value = [pod]
-    mock_db.iter_workers.return_value = []
+def test_reconcile_does_not_delete_running_pod(mock_delete, mock_list_pods, mock_db):
+    pod = make_running_pod("rise-riscv-runner-staging-pod-1")
+    mock_list_pods.return_value = [pod]
+    _configure_db_mock(mock_db, workers=[])
 
-    cleanup_pods()
+    sync_workers_state()
 
     mock_delete.assert_not_called()
 
 
-# --- gh_reconcile_jobs tests ---
+# Cross-cutting
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_uses_runner_group_for_org(
+        mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name=name, status="running",
+                         entity_type=EntityType.ORGANIZATION,
+                         running_at=datetime.datetime.now(datetime.timezone.utc))
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_group.assert_called_once()
+    mock_list_gh.assert_called_once_with("token-123", "test-org", 42)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.gh.authenticate_app", return_value="token-user")
+@patch("scheduler.gh.list_runners_repo")
+def test_reconcile_uses_repo_listing_for_user(
+        mock_list_repo, mock_auth, mock_list_pods, mock_db):
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    # Two runners returned: one of ours, one foreign. The call-side filter in
+    # _get_gh_runners strips the foreign one because it doesn't start with RUNNER_NAME_PREFIX.
+    mock_list_repo.return_value = [
+        {"id": 11, "name": name},
+        {"id": 22, "name": "random-self-hosted"},
+    ]
+    worker = make_worker(pod_name=name, status="running",
+                         entity_type=EntityType.USER,
+                         repo_full_name="someuser/myrepo",
+                         running_at=datetime.datetime.now(datetime.timezone.utc))
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_list_repo.assert_called_once_with("token-user", "someuser/myrepo")
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "runner_never_registered"})
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_groupby_tolerates_unsorted_workers(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    """Two workers share scope A; one worker is scope B. Interleaved via entity_id.
+
+    Before the sort fix, `itertools.groupby` would put the two scope-A workers in
+    separate groups and `_get_gh_runners` would still dedup via the cache, but the
+    health-check loop should still iterate all three workers regardless of order.
+    """
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
+    a1 = make_worker(pod_name="rise-riscv-runner-staging-a1", status="running",
+                     entity_id="1000", entity_name="org-a", running_at=old)
+    b1 = make_worker(pod_name="rise-riscv-runner-staging-b1", status="running",
+                     entity_id="2000", entity_name="org-b", running_at=old)
+    a2 = make_worker(pod_name="rise-riscv-runner-staging-a2", status="running",
+                     entity_id="1000", entity_name="org-a", running_at=old)
+    mock_list_pods.return_value = [
+        make_running_pod("rise-riscv-runner-staging-a1"),
+        make_running_pod("rise-riscv-runner-staging-b1"),
+        make_running_pod("rise-riscv-runner-staging-a2"),
+    ]
+    _configure_db_mock(mock_db, workers=[a1, b1, a2])  # deliberately interleaved
+
+    sync_workers_state()
+
+    # All three should have been checked and failed (none were in gh_by_name).
+    assert mock_db.mark_worker_failed.call_count == 3
+    failed_names = {c[0][0] for c in mock_db.mark_worker_failed.call_args_list}
+    assert failed_names == {"rise-riscv-runner-staging-a1",
+                             "rise-riscv-runner-staging-b1",
+                             "rise-riscv-runner-staging-a2"}
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods", return_value=[])
+def test_sync_workers_state_takes_table_lock(mock_list_pods, mock_db):
+    """Verify the LOCK TABLE statement is executed inside hold_connection."""
+    executed = []
+    cur = MagicMock()
+    def record_execute(sql, *args):
+        executed.append(sql)
+    cur.execute.side_effect = record_execute
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cur)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_db.hold_connection.return_value.__enter__ = MagicMock(return_value=conn)
+    mock_db.hold_connection.return_value.__exit__ = MagicMock(return_value=False)
+    mock_db.get_workers_for_reconcile.return_value = []
+
+    sync_workers_state()
+
+    assert any("LOCK TABLE workers IN EXCLUSIVE MODE" in s for s in executed)
+
+
+# --- sync_jobs_state tests ---
 
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
@@ -234,9 +845,9 @@ def test_gh_reconcile_jobs_completes_job(mock_status, mock_auth, mock_db):
     job = make_job(111, status="running")
     mock_db.get_active_jobs.return_value = [job]
 
-    gh_reconcile_jobs()
+    sync_jobs_state()
 
-    mock_db.update_job_completed.assert_called_once_with("111")
+    mock_db.mark_job_completed.assert_called_once_with("111")
 
 
 @patch("scheduler.db")
@@ -247,9 +858,9 @@ def test_gh_reconcile_jobs_updates_running(mock_status, mock_auth, mock_db):
     job = make_job(111, status="pending")
     mock_db.get_active_jobs.return_value = [job]
 
-    gh_reconcile_jobs()
+    sync_jobs_state()
 
-    mock_db.update_job_running.assert_called_once_with("111")
+    mock_db.mark_job_running.assert_called_once_with("111")
 
 
 @patch("scheduler.db")
@@ -263,10 +874,10 @@ def test_gh_reconcile_jobs_marks_job_failed_on_404(mock_status, mock_auth, mock_
     mock_db.get_active_jobs.return_value = [job]
     mock_status.side_effect = GitHubAPIError(404, "Not Found")
 
-    gh_reconcile_jobs()
+    sync_jobs_state()
 
-    mock_db.update_job_failed.assert_called_once()
-    call_args = mock_db.update_job_failed.call_args[0]
+    mock_db.mark_job_failed.assert_called_once()
+    call_args = mock_db.mark_job_failed.call_args[0]
     assert call_args[0] == "111"
     assert "version" in call_args[1] and isinstance(call_args[1]["version"], int) and call_args[1]["version"] >= 1
     assert "job not found" in call_args[1]["message"]
@@ -282,12 +893,12 @@ def test_gh_reconcile_jobs_marks_job_failed_on_installation_404(mock_auth, mock_
     mock_db.get_active_jobs.return_value = jobs
     mock_auth.side_effect = GitHubAPIError(404, "Not Found")
 
-    gh_reconcile_jobs()
+    sync_jobs_state()
 
-    assert mock_db.update_job_failed.call_count == 2
-    job_ids = [call_args[0][0] for call_args in mock_db.update_job_failed.call_args_list]
+    assert mock_db.mark_job_failed.call_count == 2
+    job_ids = [call_args[0][0] for call_args in mock_db.mark_job_failed.call_args_list]
     assert set(job_ids) == {"111", "222"}
-    for call_args in mock_db.update_job_failed.call_args_list:
+    for call_args in mock_db.mark_job_failed.call_args_list:
         assert "version" in call_args[0][1] and isinstance(call_args[0][1]["version"], int) and call_args[0][1]["version"] >= 1
         assert "installation not found" in call_args[0][1]["message"]
 
@@ -297,10 +908,10 @@ def test_gh_reconcile_jobs_no_active_jobs(mock_db):
     """No-op when no active jobs."""
     mock_db.get_active_jobs.return_value = []
 
-    gh_reconcile_jobs()
+    sync_jobs_state()
 
-    mock_db.update_job_completed.assert_not_called()
-    mock_db.update_job_running.assert_not_called()
+    mock_db.mark_job_completed.assert_not_called()
+    mock_db.mark_job_running.assert_not_called()
 
 
 # --- _parse_date_param tests ---

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import select
@@ -28,10 +29,16 @@ class DuplicateRunnerNameException(Exception):
 #
 # A semaphore gates access so threads block (instead of crashing with PoolError)
 # when all connections are in use.
+#
+# Thread-local caching: `hold_connection()` pins one connection to the current
+# thread so nested `_get_conn()` calls share the same transaction — lets
+# `sync_workers_state` take `LOCK TABLE` once and have all subsequent
+# `mark_worker_*` calls respect it on the same connection.
 
 _pool: ThreadedConnectionPool | None = None
 _pool_semaphore: threading.Semaphore | None = None
 _pool_lock = threading.Lock()
+_thread_local = threading.local()
 
 
 def _init_pool() -> ThreadedConnectionPool:
@@ -57,11 +64,22 @@ class _PoolConnection:
     - Sets search_path on every borrowed connection.
     - Auto-commits on clean exit, auto-rollbacks on exception.
     - Releases the semaphore slot after returning the connection.
+
+    If the current thread has pinned a connection via `hold_connection()`, this
+    short-circuits: no new connection is borrowed, no commit/rollback happens on
+    exit (the outer `hold_connection` owns the lifecycle), and exceptions still
+    propagate so the outer block rolls back.
     """
     def __init__(self) -> None:
         self.conn = None
+        self._held = False
 
     def __enter__(self):
+        held = getattr(_thread_local, "conn", None)
+        if held is not None:
+            self.conn = held
+            self._held = True
+            return self.conn
         pool = _init_pool()
         _pool_semaphore.acquire()
         try:
@@ -77,6 +95,8 @@ class _PoolConnection:
         return self.conn
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._held:
+            return False
         if self.conn is not None:
             if exc_type is not None:
                 self.conn.rollback()
@@ -90,6 +110,37 @@ class _PoolConnection:
 
 def _get_conn() -> _PoolConnection:
     return _PoolConnection()
+
+
+@contextlib.contextmanager
+def hold_connection():
+    """Pin one pool connection to the current thread for the duration of the block.
+
+    Nested `_get_conn()` calls in the same thread reuse this connection so all
+    operations share a single transaction. COMMIT on clean exit, ROLLBACK on
+    exception. Used by `sync_workers_state` to hold `LOCK TABLE workers IN
+    EXCLUSIVE MODE` across all the `mark_worker_*` calls it makes.
+    """
+    assert getattr(_thread_local, "conn", None) is None, "held connection already active"
+    pool = _init_pool()
+    _pool_semaphore.acquire()
+    conn = None
+    try:
+        conn = pool.getconn()
+        with conn.cursor() as cur:
+            cur.execute(f"SET search_path TO {POSTGRES_SCHEMA}")
+        _thread_local.conn = conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        _thread_local.conn = None
+        if conn is not None:
+            pool.putconn(conn)
+        _pool_semaphore.release()
 
 
 # --- Schema bootstrap ---
@@ -233,7 +284,7 @@ def add_job(job_id: int, provider: str, entity_id: int, entity_name: str, entity
     return created
 
 
-def update_job_running(job_id: int) -> str | None:
+def mark_job_running(job_id: int) -> str | None:
     """Update job status to running. Returns previous status string or None.
 
     Only allows the transition: pending -> running.
@@ -262,7 +313,7 @@ def update_job_running(job_id: int) -> str | None:
             return existing[0]
 
 
-def update_job_completed(job_id: int) -> str | None:
+def mark_job_completed(job_id: int) -> str | None:
     """Update job status to completed. Returns previous status string or None.
 
     Allows transitions: pending|running -> completed.
@@ -290,7 +341,7 @@ def update_job_completed(job_id: int) -> str | None:
             return existing[0]
 
 
-def update_job_failed(job_id: int, failure_info: dict) -> str | None:
+def mark_job_failed(job_id: int, failure_info: dict) -> str | None:
     """Update job status to failed. Returns previous status string or None.
 
     Allows transitions: pending|running -> failed.
@@ -356,17 +407,21 @@ def get_total_workers_for_entity(entity_id: int) -> int:
     return row[0]
 
 
-def get_pending_jobs() -> list[str]:
-    """Return all pending job IDs in FIFO order."""
+def get_pending_jobs() -> list[dict]:
+    """Return all pending jobs in FIFO order as full row dicts.
+
+    Consumers (demand_match) read fields via `job["job_id"]`, `job["entity_id"]`,
+    etc., so we return RealDictCursor rows — not raw tuples.
+    """
     with _get_conn() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT job_id FROM jobs
+                SELECT *
+                FROM jobs
                 WHERE status = 'pending'
                 ORDER BY created_at
             """)
-            rows = cur.fetchall()
-    return [str(row[0]) for row in rows]
+            return cur.fetchall()
 
 
 def add_worker(provider: str, entity_id: int, entity_name: str, entity_type: str,
@@ -447,23 +502,17 @@ def mark_worker_failed(pod_name: str, k8s_node: str, failure_info: dict, complet
     logger.debug("Marked worker %s failed", pod_name)
 
 
-def get_job(job_id: int) -> dict[str, str]:
-    """Return the full job as a dict (string values), or empty dict."""
-    with _get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM jobs WHERE job_id = %s", (int(job_id),))
-            row = cur.fetchone()
-    if not row:
-        return {}
-    return _job_row_to_dict(row)
-
-
-def cleanup_job(job_id: int) -> None:
-    """Delete a completed job from the database."""
+def mark_worker_orphaned(pod_name: str):
     with _get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM jobs WHERE job_id = %s", (int(job_id),))
-    logger.debug("Cleaned up job %s", job_id)
+            cur.execute("""
+                UPDATE workers
+                SET status = 'completed',
+                    completed_at = COALESCE(completed_at, now()),
+                    updated_at = now()
+                WHERE pod_name = %s AND (status = 'pending' OR status = 'running')
+            """, (pod_name,))
+    logger.debug("Marked worker %s orphaned", pod_name)
 
 
 def get_active_jobs_and_workers() -> tuple[list[dict], list[dict]]:
@@ -487,6 +536,7 @@ def get_active_jobs_and_workers() -> tuple[list[dict], list[dict]]:
             workers = cur.fetchall()
 
     return jobs, workers
+
 
 def get_active_jobs() -> list[dict]:
     """Return active_jobs as raw rows from PostgreSQL."""
@@ -554,13 +604,12 @@ def get_workers_for_reconcile(terminal_lookback_seconds: int = 3600) -> list[dic
     """Return all active workers plus recently-terminal workers for reconciliation.
 
     Active = pending/running. Terminal = completed/failed within the lookback window.
-    Terminal rows are included so gh_reconcile_runners can delete their GitHub counterparts.
+    Terminal rows are included so sync_workers_state can delete their GitHub counterparts.
     """
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT pod_name, entity_id, entity_name, entity_type, installation_id,
-                       repo_full_name, k8s_pool, status, running_at, created_at, completed_at
+                SELECT *
                 FROM workers
                 WHERE status IN ('pending', 'running')
                    OR (status IN ('completed', 'failed')

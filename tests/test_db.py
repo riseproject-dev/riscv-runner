@@ -6,13 +6,15 @@ import pytest
 
 from db import (
     add_job,
-    update_job_running,
-    update_job_completed,
-    update_job_failed,
+    mark_job_running,
+    mark_job_completed,
+    mark_job_failed,
     get_pool_demand,
     get_pending_jobs,
     add_worker,
     mark_worker_failed,
+    hold_connection,
+    _get_conn,
     DuplicateRunnerNameException,
 )
 from constants import EntityType
@@ -96,103 +98,103 @@ def test_add_job_sorts_labels(mock_pool_fn):
     assert args[7] == '["a-label", "z-label"]'
 
 
-# --- update_job_running ---
+# --- mark_job_running ---
 
 @patch("db._init_pool")
-def test_update_job_running(mock_pool_fn):
+def test_mark_job_running(mock_pool_fn):
     """Successful pending -> running transition returns old status via RETURNING old.status."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.return_value = ("pending",)  # RETURNING old.status
 
-    prev = update_job_running(111)
+    prev = mark_job_running(111)
 
     assert prev == "pending"
 
 
 @patch("db._init_pool")
-def test_update_job_running_already_running(mock_pool_fn):
+def test_mark_job_running_already_running(mock_pool_fn):
     """Job already running: UPDATE matches nothing, SELECT returns 'running'."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, ("running",)]  # UPDATE no match, SELECT finds it
 
-    prev = update_job_running(111)
+    prev = mark_job_running(111)
 
     assert prev == "running"
 
 
 @patch("db._init_pool")
-def test_update_job_running_not_found(mock_pool_fn):
+def test_mark_job_running_not_found(mock_pool_fn):
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, None]  # UPDATE no match, SELECT no match
 
-    prev = update_job_running(111)
+    prev = mark_job_running(111)
 
     assert prev is None
 
 
-# --- update_job_completed ---
+# --- mark_job_completed ---
 
 @patch("db._init_pool")
-def test_update_job_completed_from_running(mock_pool_fn):
+def test_mark_job_completed_from_running(mock_pool_fn):
     """Successful running -> completed returns 'running' via RETURNING old.status."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.return_value = ("running",)
 
-    prev = update_job_completed(111)
+    prev = mark_job_completed(111)
 
     assert prev == "running"
 
 
 @patch("db._init_pool")
-def test_update_job_completed_from_pending(mock_pool_fn):
+def test_mark_job_completed_from_pending(mock_pool_fn):
     """Successful pending -> completed returns 'pending' via RETURNING old.status."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.return_value = ("pending",)
 
-    prev = update_job_completed(111)
+    prev = mark_job_completed(111)
 
     assert prev == "pending"
 
 
 @patch("db._init_pool")
-def test_update_job_completed_already(mock_pool_fn):
+def test_mark_job_completed_already(mock_pool_fn):
     """Job already completed: UPDATE matches nothing, SELECT returns 'completed'."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, ("completed",)]
 
-    prev = update_job_completed(111)
+    prev = mark_job_completed(111)
 
     assert prev == "completed"
 
 
 @patch("db._init_pool")
-def test_update_job_completed_not_found(mock_pool_fn):
+def test_mark_job_completed_not_found(mock_pool_fn):
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, None]
 
-    prev = update_job_completed(111)
+    prev = mark_job_completed(111)
 
     assert prev is None
 
 
-# --- update_job_failed ---
+# --- mark_job_failed ---
 
 @patch("db._init_pool")
-def test_update_job_failed_serializes_failure_info_as_json(mock_pool_fn):
+def test_mark_job_failed_serializes_failure_info_as_json(mock_pool_fn):
     """Successful pending -> failed passes failure_info as JSON string to SQL."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
     cur.fetchone.return_value = ("pending",)
 
     failure_info = {"version": 1, "message": "job not found"}
-    prev = update_job_failed(111, failure_info)
+    prev = mark_job_failed(111, failure_info)
 
     assert prev == "pending"
     # Verify the second parameter to the SQL query is a JSON string, not a dict
@@ -203,13 +205,13 @@ def test_update_job_failed_serializes_failure_info_as_json(mock_pool_fn):
 
 
 @patch("db._init_pool")
-def test_update_job_failed_requires_version_key(mock_pool_fn):
+def test_mark_job_failed_requires_version_key(mock_pool_fn):
     """failure_info must contain a 'version' key with an int value."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
 
     with pytest.raises(AssertionError, match="failure_info must have a failure_info"):
-        update_job_failed(111, {"message": "missing version"})
+        mark_job_failed(111, {"message": "missing version"})
 
 
 # --- get_pool_demand ---
@@ -232,11 +234,11 @@ def test_get_pool_demand(mock_pool_fn):
 def test_get_pending_jobs(mock_pool_fn):
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
-    cur.fetchall.return_value = [(333,), (111,)]
+    cur.fetchall.return_value = [{"job_id": 333}, {"job_id": 111}]
 
     result = get_pending_jobs()
 
-    assert result == ["333", "111"]
+    assert result == [{"job_id": 333}, {"job_id": 111}]
 
 
 # --- add worker / mark worker failed ---
@@ -288,3 +290,55 @@ def test_mark_worker_failed(mock_pool_fn):
     mark_worker_failed("pod-1", None, {"version": 2, "reason": "runner_never_registered"}, None)
 
     assert cur.execute.call_count >= 1
+
+
+# --- hold_connection ---
+
+@patch("db._init_pool")
+def test_hold_connection_reuses_connection_for_nested_get_conn(mock_pool_fn):
+    """Inside hold_connection, nested _get_conn() yields the held connection
+    without calling pool.getconn again."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+
+    with hold_connection() as held:
+        # mark_worker_failed borrows via _get_conn; should reuse `held`.
+        with _get_conn() as inner1:
+            assert inner1 is held
+        with _get_conn() as inner2:
+            assert inner2 is held
+
+    # Only one pool.getconn call even though we "borrowed" three times.
+    assert pool.getconn.call_count == 1
+
+
+@patch("db._init_pool")
+def test_hold_connection_commits_on_clean_exit(mock_pool_fn):
+    """Clean exit => commit the transaction and return the connection to the pool."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+
+    with hold_connection():
+        pass
+
+    conn.commit.assert_called_once()
+    conn.rollback.assert_not_called()
+    pool.putconn.assert_called_once_with(conn)
+
+
+@patch("db._init_pool")
+def test_hold_connection_rolls_back_on_exception(mock_pool_fn):
+    """Exception inside the block => rollback and still return the connection."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+
+    class MyError(Exception):
+        pass
+
+    with pytest.raises(MyError):
+        with hold_connection():
+            raise MyError("boom")
+
+    conn.rollback.assert_called_once()
+    conn.commit.assert_not_called()
+    pool.putconn.assert_called_once_with(conn)

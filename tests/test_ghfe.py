@@ -201,7 +201,7 @@ def test_webhook_queued_personal_account(mock_store):
         )
 
 
-@patch("db.update_job_running", return_value="pending")
+@patch("db.mark_job_running", return_value="pending")
 def test_webhook_in_progress(mock_update):
     """Test that an in_progress webhook updates job status."""
     from ghfe import app
@@ -225,7 +225,7 @@ def test_webhook_in_progress(mock_update):
         mock_update.assert_called_once_with(12345)
 
 
-@patch("db.update_job_completed", return_value="running")
+@patch("db.mark_job_completed", return_value="running")
 def test_webhook_completed(mock_complete):
     """Test that a completed webhook marks the job as completed."""
     from ghfe import app
