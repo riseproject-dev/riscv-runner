@@ -247,3 +247,86 @@ def test_webhook_completed(mock_complete):
         assert resp.status_code == 200
         assert b"completed" in resp.data
         mock_complete.assert_called_once_with(12345)
+
+
+# --- Setup redirect page ---
+
+def test_setup_missing_installation_id():
+    from ghfe import app
+    with app.test_client() as client:
+        resp = client.get("/setup/org")
+        assert resp.status_code == 400
+        assert b"Missing installation id" in resp.data
+
+
+@patch("ghfe.gh.get_installation")
+def test_setup_org_success(mock_get_installation):
+    from ghfe import app
+    mock_get_installation.return_value = {"account": {"type": "Organization", "login": "riseproject-dev"}}
+    with app.test_client() as client:
+        resp = client.get("/setup/org?installation_id=42")
+        assert resp.status_code == 200
+        assert b"All set" in resp.data
+        assert b"riseproject-dev" in resp.data
+    mock_get_installation.assert_called_once()
+    args, kwargs = mock_get_installation.call_args
+    assert args[0] == "42"
+    assert kwargs["entity_type"] == EntityType.ORGANIZATION
+
+
+@patch("ghfe.gh.get_installation")
+def test_setup_org_on_personal_account_mismatch(mock_get_installation):
+    from ghfe import app
+    mock_get_installation.return_value = {"account": {"type": "User", "login": "alice"}}
+    with app.test_client() as client:
+        resp = client.get("/setup/org?installation_id=42")
+        assert resp.status_code == 400
+        assert b"organization app on a personal account" in resp.data
+        assert b"rise-risc-v-runners-personal" in resp.data
+
+
+@patch("ghfe.gh.get_installation")
+def test_setup_personal_success(mock_get_installation):
+    from ghfe import app
+    mock_get_installation.return_value = {"account": {"type": "User", "login": "alice"}}
+    with app.test_client() as client:
+        resp = client.get("/setup/personal?installation_id=99")
+        assert resp.status_code == 200
+        assert b"All set" in resp.data
+        assert b"alice" in resp.data
+    args, kwargs = mock_get_installation.call_args
+    assert kwargs["entity_type"] == EntityType.USER
+
+
+@patch("ghfe.gh.get_installation")
+def test_setup_personal_on_org_mismatch(mock_get_installation):
+    from ghfe import app
+    mock_get_installation.return_value = {"account": {"type": "Organization", "login": "acme"}}
+    with app.test_client() as client:
+        resp = client.get("/setup/personal?installation_id=99")
+        assert resp.status_code == 400
+        assert b"personal app on an organization" in resp.data
+        assert b"apps/rise-risc-v-runners/installations/new" in resp.data
+
+
+@patch("ghfe.gh.get_installation")
+def test_setup_installation_not_found(mock_get_installation):
+    from ghfe import app
+    from github import GitHubAPIError
+    mock_get_installation.side_effect = GitHubAPIError(404, "Not Found")
+    with app.test_client() as client:
+        resp = client.get("/setup/org?installation_id=123")
+        assert resp.status_code == 404
+        assert b"Installation not found" in resp.data
+        assert b"rise-risc-v-runners-personal" in resp.data
+
+
+@patch("ghfe.gh.get_installation")
+def test_setup_upstream_error(mock_get_installation):
+    from ghfe import app
+    from github import GitHubAPIError
+    mock_get_installation.side_effect = GitHubAPIError(500, "boom")
+    with app.test_client() as client:
+        resp = client.get("/setup/org?installation_id=123")
+        assert resp.status_code == 502
+        assert b"Something went wrong" in resp.data

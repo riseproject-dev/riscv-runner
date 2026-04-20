@@ -7,7 +7,12 @@ import requests
 from flask import Flask, request, make_response
 
 import db
+import github as gh
 from constants import *
+
+
+ORG_APP_INSTALL_URL = "https://github.com/apps/rise-risc-v-runners/installations/new"
+PERSONAL_APP_INSTALL_URL = "https://github.com/apps/rise-risc-v-runners-personal/installations/new"
 
 app = Flask(__name__)
 
@@ -199,6 +204,102 @@ def match_labels_to_k8s(org_id, repo_full_name, job_labels):
 @app.route("/health", methods=['GET'])
 def health():
     return "ok"
+
+
+def _setup_page(title, body_html, status=200):
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 3rem auto; padding: 0 1rem; color: #222; }}
+h1 {{ font-size: 1.5rem; }}
+.ok {{ color: #0a7f2e; }}
+.err {{ color: #b00020; }}
+a.button {{ display: inline-block; background: #0969da; color: #fff; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; margin-top: 0.5rem; }}
+code {{ background: #f3f3f3; padding: 0.1rem 0.3rem; border-radius: 3px; }}
+</style></head>
+<body>{body_html}</body></html>"""
+    return make_response(html, status)
+
+
+def _render_setup(expected):
+    installation_id = request.args.get("installation_id")
+    if not installation_id:
+        return _setup_page(
+            "RISE RISC-V Runners — Setup",
+            f"""<h1 class="err">Missing installation id</h1>
+<p>This page is the post-install redirect target for the RISE RISC-V Runners GitHub Apps. It expects an <code>installation_id</code> query parameter, which GitHub normally appends after installation.</p>
+<p>If you got here by mistake, you can (re-)install one of the apps:</p>
+<p><a class="button" href="{ORG_APP_INSTALL_URL}">Install on an organization</a> <a class="button" href="{PERSONAL_APP_INSTALL_URL}">Install on a personal account</a></p>""",
+            status=400,
+        )
+
+    try:
+        installation = gh.get_installation(installation_id, entity_type=expected)
+    except gh.GitHubAPIError as e:
+        if e.status_code == 404:
+            wrong_app_name = "personal" if expected == EntityType.ORGANIZATION else "organization"
+            right_url = PERSONAL_APP_INSTALL_URL if expected == EntityType.ORGANIZATION else ORG_APP_INSTALL_URL
+            return _setup_page(
+                "RISE RISC-V Runners — Wrong app",
+                f"""<h1 class="err">Installation not found for this app</h1>
+<p>We couldn't find installation <code>{installation_id}</code> under the app you just installed. The most likely cause is that you installed the <strong>{"organization" if expected == EntityType.ORGANIZATION else "personal"} app</strong> on a <strong>{wrong_app_name} account</strong> — these two must match.</p>
+<p>Please uninstall it from your GitHub settings and install the correct app:</p>
+<p><a class="button" href="{right_url}">Install the {wrong_app_name} app</a></p>""",
+                status=404,
+            )
+        logger.error("Unexpected error fetching installation %s: %s", installation_id, e)
+        return _setup_page(
+            "RISE RISC-V Runners — Setup error",
+            f"""<h1 class="err">Something went wrong</h1>
+<p>GitHub returned an error while validating your installation (<code>{e.status_code}</code>). Please try again in a minute, or contact the RISE team if the problem persists.</p>""",
+            status=502,
+        )
+
+    account = installation.get("account") or {}
+    account_type = account.get("type")
+    account_login = account.get("login", "(unknown)")
+
+    if account_type == expected.value:
+        return _setup_page(
+            "RISE RISC-V Runners — Installed",
+            f"""<h1 class="ok">All set, {account_login}!</h1>
+<p>The RISE RISC-V Runners {"organization" if expected == EntityType.ORGANIZATION else "personal"} app is correctly installed on <code>{account_login}</code>.</p>
+<p>You can now trigger GitHub Actions jobs with the <code>ubuntu-24.04-riscv</code> label and they will be picked up automatically.</p>""",
+        )
+
+    # Mismatch: user installed this app on the wrong account type.
+    if expected == EntityType.ORGANIZATION:
+        logger.info("Entity %s installed Personal Account app on Organization, account_type=%s account_login=%s", account_login, account_type, account_login)
+        return _setup_page(
+            "RISE RISC-V Runners — Wrong account type",
+            f"""<h1 class="err">You installed the organization app on a personal account</h1>
+<p>The <strong>RISE RISC-V Runners</strong> (organization) app was installed on personal account <code>{account_login}</code>. It only works on GitHub <em>organizations</em>.</p>
+<p>For personal accounts, install the dedicated personal app instead:</p>
+<p><a class="button" href="{PERSONAL_APP_INSTALL_URL}">Install the personal app</a></p>
+<p>You should also uninstall the organization app from <code>{account_login}</code>'s GitHub settings to avoid confusion.</p>""",
+            status=400,
+        )
+    else:
+        logger.info("Entity %s installed Organization app on Personal Account, account_type=%s account_login=%s", account_login, account_type, account_login)
+        return _setup_page(
+            "RISE RISC-V Runners — Wrong account type",
+            f"""<h1 class="err">You installed the personal app on an organization</h1>
+<p>The <strong>RISE RISC-V Runners (personal)</strong> app was installed on organization <code>{account_login}</code>. It only works on personal GitHub accounts.</p>
+<p>For organizations, install the dedicated organization app instead:</p>
+<p><a class="button" href="{ORG_APP_INSTALL_URL}">Install the organization app</a></p>
+<p>You should also uninstall the personal app from <code>{account_login}</code>'s GitHub settings to avoid confusion.</p>""",
+            status=400,
+        )
+
+
+@app.route("/setup/org", methods=["GET"])
+def setup_org():
+    return _render_setup(expected=EntityType.ORGANIZATION)
+
+
+@app.route("/setup/personal", methods=["GET"])
+def setup_personal():
+    return _render_setup(expected=EntityType.USER)
 
 
 @app.route("/", methods=['POST'])

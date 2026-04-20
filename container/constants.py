@@ -11,7 +11,7 @@ STAGING_URL = os.environ["STAGING_URL"]
 
 K8S_KUBECONFIG = os.environ["K8S_KUBECONFIG"]
 
-GHAPP_ORG_ID = 2167633  # https://github.com/apps/rise-risc-v-runner
+GHAPP_ORG_ID = 2167633  # https://github.com/apps/rise-risc-v-runners
 GHAPP_ORG_PRIVATE_KEY = os.environ["GHAPP_ORG_PRIVATE_KEY"]  # PEM-encoded private key for the org GitHub App
 GHAPP_PERSONAL_ID = 3131217  # https://github.com/apps/rise-risc-v-runners-personal
 GHAPP_PERSONAL_PRIVATE_KEY = os.environ["GHAPP_PERSONAL_PRIVATE_KEY"]  # PEM-encoded private key for the personal GitHub App

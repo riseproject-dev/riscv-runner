@@ -69,6 +69,32 @@ def authenticate_app(installation_id, entity_type):
         raise GitHubAPIError(response.status_code, f"Failed to get installation access token: {error}")
 
 
+def get_installation(installation_id, entity_type):
+    """Fetch installation metadata for the app matching entity_type.
+
+    Returns the parsed JSON (includes account.type, account.login, app_id).
+    """
+    assert entity_type is not None
+    if entity_type == EntityType.USER:
+        jwt_token = generate_jwt(GHAPP_PERSONAL_ID, init_ghapp_private_key_personal())
+    else:
+        jwt_token = generate_jwt(GHAPP_ORG_ID, init_ghapp_private_key_org())
+
+    headers = {
+        "Authorization": f"Bearer {jwt_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    url = f"https://api.github.com/app/installations/{installation_id}"
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        error = response.json().get("message")
+        logger.error("Failed to get installation %s: %s", installation_id, error)
+        raise GitHubAPIError(response.status_code, f"Failed to get installation: {error}")
+
+
 def ensure_runner_group(entity_name, token, group_name):
     """Ensure the runner group exists and return its ID."""
     headers = {
