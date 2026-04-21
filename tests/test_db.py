@@ -313,7 +313,7 @@ def test_hold_connection_reuses_connection_for_nested_get_conn(mock_pool_fn):
 
 
 @patch("db._init_pool")
-def test_hold_connection_commits_on_clean_exit(mock_pool_fn):
+def test_hold_connection_does_not_do_transation(mock_pool_fn):
     """Clean exit => commit the transaction and return the connection to the pool."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
@@ -321,13 +321,13 @@ def test_hold_connection_commits_on_clean_exit(mock_pool_fn):
     with hold_connection():
         pass
 
-    conn.commit.assert_called_once()
+    conn.commit.assert_not_called()
     conn.rollback.assert_not_called()
     pool.putconn.assert_called_once_with(conn)
 
 
 @patch("db._init_pool")
-def test_hold_connection_rolls_back_on_exception(mock_pool_fn):
+def test_hold_connection_does_not_do_transation_even_on_exception(mock_pool_fn):
     """Exception inside the block => rollback and still return the connection."""
     pool, conn, cur = make_mock_pool()
     mock_pool_fn.return_value = pool
@@ -339,6 +339,38 @@ def test_hold_connection_rolls_back_on_exception(mock_pool_fn):
         with hold_connection():
             raise MyError("boom")
 
-    conn.rollback.assert_called_once()
+    conn.rollback.assert_not_called()
     conn.commit.assert_not_called()
+    pool.putconn.assert_called_once_with(conn)
+
+@patch("db._init_pool")
+def test_block_inside_hold_connection_does_transation(mock_pool_fn):
+    """Clean exit => commit the transaction and return the connection to the pool."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+
+    with hold_connection():
+        mark_job_running(1, "my-runner")
+
+    conn.commit.assert_called_once()
+    conn.rollback.assert_not_called()
+    pool.putconn.assert_called_once_with(conn)
+
+@patch("db._init_pool")
+def test_block_with_error_inside_hold_connection_does_rollback(mock_pool_fn):
+    """Clean exit => commit the transaction and return the connection to the pool."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+
+    class MyError(Exception):
+        pass
+
+    with pytest.raises(MyError):
+        with hold_connection():
+            # Do it inside the block because `hold_connection` does call `cur.execute`
+            cur.execute.side_effect = MyError("anything")
+            mark_job_running(1, "my-runner")
+
+    conn.commit.assert_not_called()
+    conn.rollback.assert_called_once()
     pool.putconn.assert_called_once_with(conn)

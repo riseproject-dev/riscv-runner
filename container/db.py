@@ -96,6 +96,11 @@ class _PoolConnection:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._held:
+            # Even if we are in a `db.hold_connection()` block, do the commit/rollback as it would normally
+            if exc_type is not None:
+                self.conn.rollback()
+            else:
+                self.conn.commit()
             return False
         if self.conn is not None:
             if exc_type is not None:
@@ -130,12 +135,7 @@ def hold_connection():
         with conn.cursor() as cur:
             cur.execute(f"SET search_path TO {POSTGRES_SCHEMA}")
         _thread_local.conn = conn
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        yield conn
     finally:
         _thread_local.conn = None
         if conn is not None:
