@@ -258,7 +258,7 @@ def sync_workers_state():
 
             gh_runners = _get_gh_runners(gh_runner_key, token)
 
-            logger.info(f"Checking for workers={RUNNER_NAME_PREFIX}%s in runners={RUNNER_NAME_PREFIX}%s for target=%s entity_type=%s",
+            logger.debug(f"Checking for workers={RUNNER_NAME_PREFIX}%s in runners={RUNNER_NAME_PREFIX}%s for target=%s entity_type=%s",
                         sorted([w["pod_name"].removeprefix(RUNNER_NAME_PREFIX) for w in workers]),
                         sorted([r.removeprefix(RUNNER_NAME_PREFIX) for r in gh_runners.keys()]),
                         gh_runner_target,
