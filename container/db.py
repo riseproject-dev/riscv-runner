@@ -537,16 +537,14 @@ def get_active_jobs_and_workers() -> tuple[list[dict], list[dict]]:
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT entity_id, entity_name, job_labels, k8s_pool, job_id,
-                       status, repo_full_name, html_url, created_at
+                SELECT *
                 FROM jobs WHERE status = 'pending' OR status = 'running'
                 ORDER BY created_at
             """)
             jobs = cur.fetchall()
 
             cur.execute("""
-                SELECT entity_id, entity_name, job_labels, k8s_pool, k8s_node, pod_name,
-                       status, created_at
+                SELECT *
                 FROM workers WHERE status = 'pending' OR status = 'running'
                 ORDER BY created_at
             """)
@@ -609,12 +607,14 @@ def get_all_jobs(start: str | None = None, end: str | None = None,
 
             page_params = params + [per_page, page * per_page]
             cur.execute(f"""
-                SELECT * FROM jobs {where}
+                SELECT *
+                FROM jobs
+                {where}
                 ORDER BY created_at DESC
                 LIMIT %s OFFSET %s
             """, page_params)
             rows = cur.fetchall()
-    return [_job_row_to_dict(row) for row in rows], total
+    return rows, total
 
 
 def get_workers_for_reconcile(terminal_lookback_seconds: int = 3600) -> list[dict]:
@@ -673,26 +673,3 @@ def wait_for_job(timeout: int) -> None:
             logger.debug("Woken by PG queue event: %d notifications", len(conn.notifies))
     # Drain all buffered notifications
     conn.notifies.clear()
-
-
-# --- Internal helpers ---
-
-def _job_row_to_dict(row: dict[str, Any]) -> dict[str, str]:
-    """Convert a PostgreSQL job row to a string-valued dict."""
-    d = {}
-    d["job_id"] = str(row["job_id"])
-    d["status"] = str(row["status"])
-    d["entity_id"] = str(row["entity_id"])
-    d["entity_name"] = row["entity_name"] or ""
-    d["entity_type"] = row["entity_type"] or ""
-    d["repo_full_name"] = row["repo_full_name"] or ""
-    d["installation_id"] = str(row["installation_id"]) if row["installation_id"] else ""
-    d["job_labels"] = json.dumps(row["job_labels"]) if row["job_labels"] is not None else "[]"
-    d["k8s_pool"] = row["k8s_pool"] or ""
-    d["k8s_image"] = row["k8s_image"] or ""
-    d["html_url"] = row["html_url"] or ""
-    if row["created_at"]:
-        d["created_at"] = str(row["created_at"].timestamp())
-    else:
-        d["created_at"] = ""
-    return d
