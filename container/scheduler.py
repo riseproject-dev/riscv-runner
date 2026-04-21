@@ -199,137 +199,130 @@ def sync_workers_state():
             ts = ts.replace(tzinfo=datetime.timezone.utc)
         return (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
 
-    # Serialize reconcile across scheduler containers: hold one DB connection for
-    # the full reconcile and lock the workers table exclusively. Thread-local
-    # caching in db.py ensures all nested mark_worker_* calls reuse this connection
-    # so they respect the lock without self-deadlocking on the pool.
-    with db.hold_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("LOCK TABLE workers IN EXCLUSIVE MODE")
 
-        pods_by_name = {p.metadata.name: p for p in k8s.list_pods()}
-        workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
+    pods_by_name = {p.metadata.name: p for p in k8s.list_pods()}
+    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
 
-        # --- Phase 1: Mark workers without any corresponding pods as orphaned ---
-        for pod_name, w in workers_by_name.items():
-            if pod_name not in pods_by_name and w["status"] in ["pending", "running"]:
-                # There are no pods for that worker
-                db.mark_worker_orphaned(pod_name)
+    # --- Phase 1: Mark workers without any corresponding pods as orphaned ---
+    for pod_name, w in workers_by_name.items():
+        if pod_name not in pods_by_name and w["status"] in ["pending", "running"]:
+            # There are no pods for that worker
+            db.mark_worker_orphaned(pod_name)
 
-        # --- Phase 2: Synchronize pods status with the database ---
-        for pod_name, pod in pods_by_name.items():
-            if pod.status.phase == "Running" and pod_name in workers_by_name and workers_by_name[pod_name]["status"] in ["pending"]:
-                db.mark_worker_running(pod_name, pod.spec.node_name, k8s.get_runner_running_at(pod))
-            elif pod.status.phase == "Succeeded" and pod_name in workers_by_name and workers_by_name[pod_name]["status"] in ["pending", "running"]:
-                db.mark_worker_completed(pod_name, pod.spec.node_name, k8s.get_pod_finished_at(pod))
-            elif pod.status.phase == "Failed" and pod_name in workers_by_name and workers_by_name[pod_name]["status"] in ["pending", "running"]:
-                try:
-                    failure_info = k8s.collect_pod_failure_info(pod, reason=FailureReason.POD_FAILED)
-                except Exception as e:
-                    logger.error("Failed to collect failure info for pod %s: %s", pod.metadata.name, e)
-                    failure_info = {
-                        "version": 2,
-                        "reason": FailureReason.POD_FAILED.value,
-                        "collect_error": str(e),
-                    }
-                assert failure_info and "version" in failure_info and isinstance(failure_info["version"], int), \
-                    f"Failed pod {pod_name} requires failure_info with int 'version' field"
-                db.mark_worker_failed(pod_name, pod.spec.node_name, failure_info, k8s.get_pod_finished_at(pod))
-
-        ### Refresh the list of workers
-        workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
-
-        # --- Phase 3: Github runner health checks ---
-        # Sort before groupby so workers with the same scope are grouped together
-        # (groupby only groups adjacent equal keys).
-        workers_by_gh_runner_key = itertools.groupby(sorted(
-            (w for w in workers_by_name.values() if w["status"] in ["pending", "running"]),
-            key=_gh_runner_key_for_worker), key=_gh_runner_key_for_worker)
-        for gh_runner_key, workers in workers_by_gh_runner_key:
-            installation_id, entity_type, entity_id, gh_runner_target = gh_runner_key
+    # --- Phase 2: Synchronize pods status with the database ---
+    for pod_name, pod in pods_by_name.items():
+        if pod.status.phase == "Running" and pod_name in workers_by_name and workers_by_name[pod_name]["status"] in ["pending"]:
+            db.mark_worker_running(pod_name, pod.spec.node_name, k8s.get_runner_running_at(pod))
+        elif pod.status.phase == "Succeeded" and pod_name in workers_by_name and workers_by_name[pod_name]["status"] in ["pending", "running"]:
+            db.mark_worker_completed(pod_name, pod.spec.node_name, k8s.get_pod_finished_at(pod))
+        elif pod.status.phase == "Failed" and pod_name in workers_by_name and workers_by_name[pod_name]["status"] in ["pending", "running"]:
             try:
-                token = gh.authenticate_app(installation_id, entity_type=entity_type)
-            except gh.GitHubAPIError as e:
-                logger.error("Failed to authenticate for installation_id=%s entity_type=%s gh_runner_target=%s: %s", installation_id, entity_type, gh_runner_target, e)
-                continue
-
-            # Consume the groupby elements into a list that we can iterate multiple times
-            workers = list(workers)
-
-            gh_runners = _get_gh_runners(gh_runner_key, token)
-
-            logger.debug(f"Checking for workers={RUNNER_NAME_PREFIX}%s in runners={RUNNER_NAME_PREFIX}%s for target=%s entity_type=%s",
-                        sorted([w["pod_name"].removeprefix(RUNNER_NAME_PREFIX) for w in workers]),
-                        sorted([r.removeprefix(RUNNER_NAME_PREFIX) for r in gh_runners.keys()]),
-                        gh_runner_target,
-                        entity_type)
-
-            for w in workers:
-                assert w["pod_name"] in pods_by_name
-                pod = pods_by_name[w["pod_name"]]
-
-                if w["status"] == "pending":
-                    if _age_seconds(pod.metadata.creation_timestamp) < POD_PENDING_TIMEOUT_SECONDS:
-                        logger.info("Worker worker=%s worker_status=%s is still pending", w["pod_name"], w["status"])
-                        continue
-                    logger.warning("Worker worker=%s worker_status=%s is still pending after more than %d seconds, marking as failed", w["pod_name"], w["status"], POD_PENDING_TIMEOUT_SECONDS)
-                    _fail_and_cleanup(w, pod, token, entity_type, gh_runner_target, gh_runners.get(w["pod_name"]),
-                                      reason=FailureReason.POD_STUCK_PENDING)
-                    continue
-
-                elif w["status"] == "running":
-                    if w["pod_name"] in gh_runners:
-                        logger.debug("Worker worker=%s worker_status=%s is known github runner", w["pod_name"], w["status"])
-                        continue
-                    if _age_seconds(w["running_at"]) < RUNNER_REGISTRATION_TIMEOUT_SECONDS:
-                        logger.info("Worker worker=%s worker_status=%s is not known github runner, but may still register", w["pod_name"], w["status"])
-                        continue
-                    logger.warning("Worker worker=%s worker_status=%s is not known github runner and failed to register in %d seconds, marking as failed", w["pod_name"], w["status"], RUNNER_REGISTRATION_TIMEOUT_SECONDS)
-                    _fail_and_cleanup(w, pod, token, entity_type, gh_runner_target, None,
-                                      reason=FailureReason.RUNNER_NEVER_REGISTERED)
-                    continue
-
-                else:
-                    logger.info("Worker worker=%s worker_status=%s skipped", w["pod_name"], w["status"])
-
-        ### Refresh the list of workers
-        workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
-
-        # --- Phase 4: GH-side cleanup (delete orphan/completed/failed runners in GitHub) ---
-        for gh_runner_key, gh_runners in gh_runners_by_target.items():
-            installation_id, entity_type, _, gh_runner_target = gh_runner_key
-            try:
-                token = gh.authenticate_app(installation_id, entity_type=entity_type)
-            except gh.GitHubAPIError as e:
-                logger.error("Failed to authenticate for installation_id=%s entity_type=%s gh_runner_target=%s: %s", installation_id, entity_type, gh_runner_target, e)
-                continue
-
-            for name, gh_runner in gh_runners.items():
-                if not name.startswith(RUNNER_NAME_PREFIX):
-                    continue
-                if name in workers_by_name and workers_by_name[name]["status"] in ("completed", "failed"):
-                    logging.info("Runner runner=%s has matching completed worker=%s", name, name)
-                    _delete_gh_runner(name, token, entity_type, gh_runner_target, gh_runner["id"])
-                elif name not in workers_by_name:
-                    logging.info("Runner runner=%s is unknown", name)
-                    _delete_gh_runner(name, token, entity_type, gh_runner_target, gh_runner["id"])
-
-
-        # --- Phase 5: Delete completed|failed pods only after the grace period. ---
-        now = datetime.datetime.now(datetime.timezone.utc)
-        for pod_name, pod in pods_by_name.items():
-            if pod.status.phase not in ("Succeeded", "Failed"):
-                continue
-            finished = k8s.get_pod_finished_at(pod) or pod.metadata.creation_timestamp
-            if finished and finished.tzinfo is None:
-                finished = finished.replace(tzinfo=datetime.timezone.utc)
-            elapsed = (now - finished).total_seconds() if finished else float("inf")
-            if elapsed < POD_DELETE_GRACE_SECONDS:
-                continue
-            try:
-                k8s.delete_pod(pod)
+                failure_info = k8s.collect_pod_failure_info(pod, reason=FailureReason.POD_FAILED)
             except Exception as e:
-                logger.error("Failed to delete pod %s: %s", pod.metadata.name, e)
+                logger.error("Failed to collect failure info for pod %s: %s", pod.metadata.name, e)
+                failure_info = {
+                    "version": 2,
+                    "reason": FailureReason.POD_FAILED.value,
+                    "collect_error": str(e),
+                }
+            assert failure_info and "version" in failure_info and isinstance(failure_info["version"], int), \
+                f"Failed pod {pod_name} requires failure_info with int 'version' field"
+            db.mark_worker_failed(pod_name, pod.spec.node_name, failure_info, k8s.get_pod_finished_at(pod))
+
+    ### Refresh the list of workers
+    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
+
+    # --- Phase 3: Github runner health checks ---
+    # Sort before groupby so workers with the same scope are grouped together
+    # (groupby only groups adjacent equal keys).
+    workers_by_gh_runner_key = itertools.groupby(sorted(
+        (w for w in workers_by_name.values() if w["status"] in ["pending", "running"]),
+        key=_gh_runner_key_for_worker), key=_gh_runner_key_for_worker)
+    for gh_runner_key, workers in workers_by_gh_runner_key:
+        installation_id, entity_type, entity_id, gh_runner_target = gh_runner_key
+        try:
+            token = gh.authenticate_app(installation_id, entity_type=entity_type)
+        except gh.GitHubAPIError as e:
+            logger.error("Failed to authenticate for installation_id=%s entity_type=%s gh_runner_target=%s: %s", installation_id, entity_type, gh_runner_target, e)
+            continue
+
+        # Consume the groupby elements into a list that we can iterate multiple times
+        workers = list(workers)
+
+        gh_runners = _get_gh_runners(gh_runner_key, token)
+
+        logger.debug(f"Checking for workers={RUNNER_NAME_PREFIX}%s in runners={RUNNER_NAME_PREFIX}%s for target=%s entity_type=%s",
+                    sorted([w["pod_name"].removeprefix(RUNNER_NAME_PREFIX) for w in workers]),
+                    sorted([r.removeprefix(RUNNER_NAME_PREFIX) for r in gh_runners.keys()]),
+                    gh_runner_target,
+                    entity_type)
+
+        for w in workers:
+            assert w["pod_name"] in pods_by_name
+            pod = pods_by_name[w["pod_name"]]
+
+            if w["status"] == "pending":
+                if _age_seconds(pod.metadata.creation_timestamp) < POD_PENDING_TIMEOUT_SECONDS:
+                    logger.info("Worker worker=%s worker_status=%s is still pending", w["pod_name"], w["status"])
+                    continue
+                logger.warning("Worker worker=%s worker_status=%s is still pending after more than %d seconds, marking as failed", w["pod_name"], w["status"], POD_PENDING_TIMEOUT_SECONDS)
+                _fail_and_cleanup(w, pod, token, entity_type, gh_runner_target, gh_runners.get(w["pod_name"]),
+                                    reason=FailureReason.POD_STUCK_PENDING)
+                continue
+
+            elif w["status"] == "running":
+                if w["pod_name"] in gh_runners:
+                    logger.debug("Worker worker=%s worker_status=%s is known github runner", w["pod_name"], w["status"])
+                    continue
+                if _age_seconds(w["running_at"]) < RUNNER_REGISTRATION_TIMEOUT_SECONDS:
+                    logger.info("Worker worker=%s worker_status=%s is not known github runner, but may still register", w["pod_name"], w["status"])
+                    continue
+                logger.warning("Worker worker=%s worker_status=%s is not known github runner and failed to register in %d seconds, marking as failed", w["pod_name"], w["status"], RUNNER_REGISTRATION_TIMEOUT_SECONDS)
+                _fail_and_cleanup(w, pod, token, entity_type, gh_runner_target, None,
+                                    reason=FailureReason.RUNNER_NEVER_REGISTERED)
+                continue
+
+            else:
+                logger.info("Worker worker=%s worker_status=%s skipped", w["pod_name"], w["status"])
+
+    ### Refresh the list of workers
+    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
+
+    # --- Phase 4: GH-side cleanup (delete orphan/completed/failed runners in GitHub) ---
+    for gh_runner_key, gh_runners in gh_runners_by_target.items():
+        installation_id, entity_type, _, gh_runner_target = gh_runner_key
+        try:
+            token = gh.authenticate_app(installation_id, entity_type=entity_type)
+        except gh.GitHubAPIError as e:
+            logger.error("Failed to authenticate for installation_id=%s entity_type=%s gh_runner_target=%s: %s", installation_id, entity_type, gh_runner_target, e)
+            continue
+
+        for name, gh_runner in gh_runners.items():
+            if not name.startswith(RUNNER_NAME_PREFIX):
+                continue
+            if name in workers_by_name and workers_by_name[name]["status"] in ("completed", "failed"):
+                logging.info("Runner runner=%s has matching completed worker=%s", name, name)
+                _delete_gh_runner(name, token, entity_type, gh_runner_target, gh_runner["id"])
+            elif name not in workers_by_name:
+                logging.info("Runner runner=%s is unknown", name)
+                _delete_gh_runner(name, token, entity_type, gh_runner_target, gh_runner["id"])
+
+
+    # --- Phase 5: Delete completed|failed pods only after the grace period. ---
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for pod_name, pod in pods_by_name.items():
+        if pod.status.phase not in ("Succeeded", "Failed"):
+            continue
+        finished = k8s.get_pod_finished_at(pod) or pod.metadata.creation_timestamp
+        if finished and finished.tzinfo is None:
+            finished = finished.replace(tzinfo=datetime.timezone.utc)
+        elapsed = (now - finished).total_seconds() if finished else float("inf")
+        if elapsed < POD_DELETE_GRACE_SECONDS:
+            continue
+        try:
+            k8s.delete_pod(pod)
+        except Exception as e:
+            logger.error("Failed to delete pod %s: %s", pod.metadata.name, e)
 
 
 
@@ -625,6 +618,19 @@ def history():
 
     return make_response(f"<title>{'History - Prod' if PROD else 'History - Staging'}</title><pre>{chr(10).join(lines)}</pre>", 200, {"Content-Type": "text/html"})
 
+def _scheduler_iteration():
+    # Serialize demand matching across scheduler containers: hold one DB connection
+    # for the full schduler and lock the workers table exclusively. Thread-local
+    # caching in db.py ensures all nested db calls reuse this connection
+    # so they respect the lock without self-deadlocking on the pool.
+    with db.hold_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("LOCK TABLE workers IN EXCLUSIVE MODE")
+
+        sync_jobs_state()
+        sync_workers_state()
+        demand_match()
+
 
 if __name__ == "__main__":
     # Set the logging level for all loggers to INFO
@@ -651,10 +657,8 @@ if __name__ == "__main__":
 
     while True:
         try:
-            sync_jobs_state()
-            sync_workers_state()
-            demand_match()
+            _scheduler_iteration()
         except Exception as e:
-            logger.error("Worker error: %s\n%s", e, traceback.format_exc())
+            logger.error("Scheduler error: %s\n%s", e, traceback.format_exc())
 
         db.wait_for_job(POLL_INTERVAL)

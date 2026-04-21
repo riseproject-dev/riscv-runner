@@ -19,6 +19,7 @@ from scheduler import (
     sync_workers_state,
     _parse_date_param,
     _build_link_header,
+    _scheduler_iteration,
 )
 
 
@@ -817,7 +818,9 @@ def test_reconcile_groupby_tolerates_unsorted_workers(
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods", return_value=[])
-def test_sync_workers_state_takes_table_lock(mock_list_pods, mock_db):
+@patch("scheduler.sync_jobs_state")
+@patch("scheduler.demand_match")
+def test_sync_workers_state_takes_table_lock(mock_demand_match, mock_sync_jobs_state, mock_list_pods, mock_db):
     """Verify the LOCK TABLE statement is executed inside hold_connection."""
     executed = []
     cur = MagicMock()
@@ -831,7 +834,7 @@ def test_sync_workers_state_takes_table_lock(mock_list_pods, mock_db):
     mock_db.hold_connection.return_value.__exit__ = MagicMock(return_value=False)
     mock_db.get_workers_for_reconcile.return_value = []
 
-    sync_workers_state()
+    _scheduler_iteration()
 
     assert any("LOCK TABLE workers IN EXCLUSIVE MODE" in s for s in executed)
 
