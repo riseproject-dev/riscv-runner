@@ -9,6 +9,7 @@ from db import (
     mark_job_running,
     mark_job_completed,
     mark_job_failed,
+    job_exists_for_pod,
     get_pool_demand,
     get_pending_jobs,
     add_worker,
@@ -144,7 +145,7 @@ def test_mark_job_completed_from_running(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.fetchone.return_value = ("running",)
 
-    prev = mark_job_completed(111)
+    prev = mark_job_completed(111, "my-runner")
 
     assert prev == "running"
 
@@ -156,7 +157,7 @@ def test_mark_job_completed_from_pending(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.fetchone.return_value = ("pending",)
 
-    prev = mark_job_completed(111)
+    prev = mark_job_completed(111, "my-runner")
 
     assert prev == "pending"
 
@@ -168,7 +169,7 @@ def test_mark_job_completed_already(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, ("completed",)]
 
-    prev = mark_job_completed(111)
+    prev = mark_job_completed(111, "my-runner")
 
     assert prev == "completed"
 
@@ -179,9 +180,43 @@ def test_mark_job_completed_not_found(mock_pool_fn):
     mock_pool_fn.return_value = pool
     cur.fetchone.side_effect = [None, None]
 
-    prev = mark_job_completed(111)
+    prev = mark_job_completed(111, "my-runner")
 
     assert prev is None
+
+
+@patch("db._init_pool")
+def test_mark_job_completed_sets_k8s_pod(mock_pool_fn):
+    """mark_job_completed should pass runner_name as the k8s_pod COALESCE arg."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = ("running",)
+
+    mark_job_completed(111, "rise-riscv-runner-abc")
+
+    update_call = cur.execute.call_args_list[1]  # first call is SET search_path
+    sql_params = update_call[0][1]
+    assert sql_params == (111, "rise-riscv-runner-abc", 111)
+
+
+# --- job_exists_for_pod ---
+
+@patch("db._init_pool")
+def test_job_exists_for_pod_true(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = (1,)
+
+    assert job_exists_for_pod("rise-riscv-runner-abc") is True
+
+
+@patch("db._init_pool")
+def test_job_exists_for_pod_false(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = None
+
+    assert job_exists_for_pod("rise-riscv-runner-abc") is False
 
 
 # --- mark_job_failed ---

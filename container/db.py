@@ -316,7 +316,7 @@ def mark_job_running(job_id: int, runner_name: str | None) -> str | None:
             return existing[0]
 
 
-def mark_job_completed(job_id: int) -> str | None:
+def mark_job_completed(job_id: int, runner_name: str | None) -> str | None:
     """Update job status to completed. Returns previous status string or None.
 
     Allows transitions: pending|running -> completed.
@@ -325,10 +325,13 @@ def mark_job_completed(job_id: int) -> str | None:
         with conn.cursor() as cur:
             cur.execute("""
                 WITH prev AS (SELECT status FROM jobs WHERE job_id = %s)
-                UPDATE jobs SET status = 'completed', updated_at = now()
+                UPDATE jobs
+                SET status = 'completed',
+                    k8s_pod = COALESCE(k8s_pod, %s),
+                    updated_at = now()
                 WHERE job_id = %s AND (status = 'pending' OR status = 'running')
                 RETURNING (SELECT status::text FROM prev) as prev_status
-            """, (int(job_id), int(job_id)))
+            """, (int(job_id), runner_name, int(job_id)))
             row = cur.fetchone()
 
             if row is not None:
@@ -371,6 +374,17 @@ def mark_job_failed(job_id: int, failure_info: dict) -> str | None:
                 logger.debug("Job %s not found in PostgreSQL", job_id)
                 return None
             return existing[0]
+
+
+def job_exists_for_pod(pod_name: str) -> bool:
+    """Return True if any job row has k8s_pod = pod_name."""
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE k8s_pod = %s LIMIT 1",
+                (pod_name,),
+            )
+            return cur.fetchone() is not None
 
 
 # --- Worker operations ---

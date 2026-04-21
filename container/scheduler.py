@@ -86,7 +86,7 @@ def sync_jobs_state():
 
         if gh_job_status == "completed":
             logger.info("GH reconcile: job %s is completed on GitHub (was %s in DB)", job_id, job["status"])
-            db.mark_job_completed(job_id)
+            db.mark_job_completed(job_id, gh_job.get("runner_name"))
         elif gh_job_status == "in_progress" and job["status"] == "pending":
             logger.info("GH reconcile: job %s is in_progress on GitHub (was pending in DB)", job_id)
             db.mark_job_running(job_id, gh_job.get("runner_name"))
@@ -273,6 +273,9 @@ def sync_workers_state():
             elif w["status"] == "running":
                 if w["pod_name"] in gh_runners:
                     logger.debug("Worker worker=%s worker_status=%s is known github runner", w["pod_name"], w["status"])
+                    continue
+                if db.job_exists_for_pod(w["pod_name"]):
+                    logger.info("Worker worker=%s worker_status=%s runner has already run a job and self-unregistered, skipping", w["pod_name"], w["status"])
                     continue
                 if _age_seconds(w["running_at"]) < RUNNER_REGISTRATION_TIMEOUT_SECONDS:
                     logger.info("Worker worker=%s worker_status=%s is not known github runner, but may still register", w["pod_name"], w["status"])

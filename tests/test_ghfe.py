@@ -232,7 +232,7 @@ def test_webhook_completed(mock_complete):
 
     payload = {
         "action": "completed",
-        "workflow_job": {"id": 12345, "name": "test", "labels": ["ubuntu-24.04-riscv"]},
+        "workflow_job": {"id": 12345, "name": "test", "labels": ["ubuntu-24.04-riscv"], "runner_name": "my-runner"},
         "repository": {"id": 100, "full_name": "riseproject-dev/sample", "owner": {"id": 152654596, "login": "riseproject-dev", "type": "Organization"}},
     }
     body = json.dumps(payload)
@@ -246,7 +246,7 @@ def test_webhook_completed(mock_complete):
         })
         assert resp.status_code == 200
         assert b"completed" in resp.data
-        mock_complete.assert_called_once_with(12345)
+        mock_complete.assert_called_once_with(12345, "my-runner")
 
 
 # --- Setup redirect page ---

@@ -258,6 +258,7 @@ def _configure_db_mock(mock_db, workers=None):
             state[pod_name].update(extra)
 
     mock_db.get_workers_for_reconcile.side_effect = get_workers
+    mock_db.job_exists_for_pod.return_value = False
     mock_db.mark_worker_orphaned.side_effect = lambda pn: _set(pn, "completed")
     mock_db.mark_worker_running.side_effect = lambda pn, node, ra: _set(
         pn, "running", k8s_node=node, running_at=ra)
@@ -407,6 +408,32 @@ def test_reconcile_fails_runner_that_never_registered_past_timeout(
     assert args[0] == "rise-riscv-runner-staging-pod-1"
     assert args[2]["reason"] == "runner_never_registered"
     mock_kill.assert_called_once_with(pod)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group", return_value=[])
+def test_reconcile_skips_runner_that_already_ran_a_job(
+        mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
+    """A runner missing from GH but with a matching jobs.k8s_pod row has already
+    run its job and self-unregistered — do not flag as runner_never_registered."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name=name, status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+    mock_db.job_exists_for_pod.return_value = True
+
+    sync_workers_state()
+
+    mock_db.job_exists_for_pod.assert_called_with(name)
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
 
 
 @patch("scheduler.db")
@@ -843,7 +870,7 @@ def test_sync_workers_state_takes_table_lock(mock_demand_match, mock_sync_jobs_s
 
 @patch("scheduler.db")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.get_job_info", return_value={"status": "completed"})
+@patch("scheduler.gh.get_job_info", return_value={"status": "completed", "runner_name": "my-runner"})
 def test_gh_reconcile_jobs_completes_job(mock_status, mock_auth, mock_db):
     """Reconciliation marks a job completed when GH says so."""
     job = make_job(111, status="running")
@@ -851,7 +878,7 @@ def test_gh_reconcile_jobs_completes_job(mock_status, mock_auth, mock_db):
 
     sync_jobs_state()
 
-    mock_db.mark_job_completed.assert_called_once_with("111")
+    mock_db.mark_job_completed.assert_called_once_with("111", "my-runner")
 
 
 @patch("scheduler.db")

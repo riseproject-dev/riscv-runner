@@ -382,7 +382,7 @@ def webhook():
             return f"Job {job_id} marked running (was {prev_status})."
 
         elif action == "completed":
-            prev_status = db.mark_job_completed(job_id)
+            prev_status = db.mark_job_completed(job_id, payload["workflow_job"].get("runner_name"))
             if prev_status is None:
                 logger.warning("Job %s not found on completed event", job_id)
                 return f"Job {job_id} not found."
