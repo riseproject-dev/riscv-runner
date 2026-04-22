@@ -438,7 +438,7 @@ def health():
     return "ok"
 
 
-_STATUS_COLORS = {"pending": "#d97706", "running": "#2563eb", "completed": "#16a34a"}
+_STATUS_COLORS = {"pending": "#ccc504", "running": "#2563eb", "completed": "#16a34a", "failed": "#d90606"}
 
 def _format_status(status):
     color = _STATUS_COLORS.get(status, "#666")
@@ -475,7 +475,7 @@ def render_job(job):
 
 
 def render_worker(worker):
-    status = worker['status']
+    status = _format_status(worker["status"])
     created_str = _format_timestamp(worker['created_at'])
     labels = _format_labels(worker['job_labels'])
     pod = worker['pod_name']
