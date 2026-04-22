@@ -288,6 +288,7 @@ def webhook():
         if PROD:
             repo_name = payload["repository"].get("name")
             if owner_id in STAGING_ENTITIES and repo_name and repo_name in STAGING_ENTITIES[owner_id]:
+                g.print_perf_log = True
                 logger.debug("Proxying request for entity=%s repo=%s to staging (%s)", owner_id, repo_name, STAGING_URL)
                 resp = requests.post(
                     STAGING_URL,
