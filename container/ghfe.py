@@ -282,9 +282,6 @@ def webhook():
     elif event == "workflow_job":
         payload, action = check_webhook_event(body)
 
-        # Only enable printing if we know we care for that webhook
-        g.print_perf_log = True
-
         owner_id, entity_type = authorize_entity(payload)
 
         # Check if we should redirect to staging
@@ -327,6 +324,9 @@ def webhook():
                     payload["repository"]["full_name"],
                     payload["workflow_job"]["labels"],
                     entity_type.value)
+
+        # Only enable printing if we know we care for that webhook
+        g.print_perf_log = True
 
         if action == "queued":
             installation_id = payload["installation"]["id"]
