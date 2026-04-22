@@ -47,6 +47,7 @@ jobs:
 
   deploy:
     if: github.repository_owner == 'riseproject-dev' && needs.resolve.outputs.environment != ''
+    name: "deploy to ${{ needs.resolve.outputs.environment }}"
     needs: [test, resolve]
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
