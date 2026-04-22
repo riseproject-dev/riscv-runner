@@ -45,12 +45,15 @@ def handle_assertion_error(e):
 
 @app.before_request
 def _start_timer():
+    g.print_perf_log = False
     g.request_start = time.perf_counter()
 
 
 @app.after_request
 def _log_duration(response):
     if request.method == "GET" and request.path == "/health":
+        pass
+    elif not g.print_perf_log:
         pass
     else:
         elapsed_ms = (time.perf_counter() - g.request_start) * 1000
@@ -278,6 +281,9 @@ def webhook():
 
     elif event == "workflow_job":
         payload, action = check_webhook_event(body)
+
+        # Only enable printing if we know we care for that webhook
+        g.print_perf_log = True
 
         owner_id, entity_type = authorize_entity(payload)
 
