@@ -53,47 +53,6 @@ def log_request(response):
     return response
 
 
-# --- Staging Proxy ---
-
-@app.before_request
-def proxy_to_staging():
-    if not PROD:
-        return
-
-    if request.method != "POST" or request.path != "/":
-        return
-
-    if request.headers.get("X-Github-Event") != "workflow_job":
-        # only redirect workflow_job events
-        return
-
-    body = request.get_data(as_text=True)
-    try:
-        payload = json.loads(body)
-    except (json.JSONDecodeError, TypeError):
-        return
-
-    entity_id = payload["repository"]["owner"]["id"]
-    if entity_id not in STAGING_ENTITIES:
-        logger.debug("Received request for entity=%s, not in staging entities, skipping proxy", entity_id)
-        return
-
-    repo_name = payload["repository"]["name"]
-    if repo_name not in STAGING_ENTITIES[entity_id]:
-        logger.debug("Received request for entity=%s repo=%s, not in staging entities, skipping proxy", entity_id, repo_name)
-        return
-
-    logger.debug("Proxying request for entity=%s repo=%s to staging (%s)", entity_id, repo_name, STAGING_URL)
-    resp = requests.post(
-        STAGING_URL,
-        data=request.get_data(),
-        headers={k: v for k, v in request.headers if k.lower() != "host"},
-        timeout=30,
-    )
-    logger.info("Proxied request for entity=%s repo=%s to staging, status=%s", entity_id, repo_name, resp.status_code)
-    return make_response(resp.content, resp.status_code)
-
-
 # --- Webhook validation ---
 
 def compute_signature(body, secret):
@@ -313,6 +272,20 @@ def webhook():
         payload, action = check_webhook_event(body)
 
         owner_id, entity_type = authorize_entity(payload)
+
+        # Check if we should redirect to staging
+        if PROD:
+            repo_name = payload["repository"].get("name")
+            if owner_id in STAGING_ENTITIES and repo_name and repo_name in STAGING_ENTITIES[owner_id]:
+                logger.debug("Proxying request for entity=%s repo=%s to staging (%s)", owner_id, repo_name, STAGING_URL)
+                resp = requests.post(
+                    STAGING_URL,
+                    data=request.get_data(),
+                    headers={k: v for k, v in request.headers if k.lower() != "host"},
+                    timeout=30,
+                )
+                logger.info("Proxied request for entity=%s repo=%s to staging, status=%s", owner_id, repo_name, resp.status_code)
+                return make_response(resp.content, resp.status_code)
 
         job_id = payload["workflow_job"]["id"]
         if not job_id:
