@@ -399,4 +399,4 @@ if __name__ == "__main__":
     PORT = 8080
 
     print(f"Starting server on http://{HOST}:{PORT}")
-    serve(app, host=HOST, port=PORT)
+    serve(app, host=HOST, port=PORT, threads=8) # it's pretty much only IO and CPU is at ~5%
