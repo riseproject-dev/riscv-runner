@@ -33,7 +33,6 @@ mock_constants.PYTORCH_ORG_ID = 21003710
 mock_constants.GGML_ORG_ORG_ID = 134263123
 mock_constants.RUNNER_IMAGE_UBUNTU_24_04 = "riscv-runner:ubuntu-24.04-latest"
 mock_constants.RUNNER_IMAGE_UBUNTU_26_04 = "riscv-runner:ubuntu-26.04-latest"
-mock_constants.RUNNER_IMAGE_DIND = "riscv-runner:dind"
 mock_constants.ENTITY_CONFIG = {
     152654596: {"max_workers": None, "pre_allocated": 0, "staging": True},
     21003710: {"max_workers": 20, "pre_allocated": 0, "staging": False},

@@ -37,7 +37,14 @@ def test_provision_runner_success(mock_core_v1_api, mock_init_client):
     assert 'riseproject.com/job_id' not in pod_manifest['metadata']['labels']
     assert pod_manifest['spec']['nodeSelector'] == {"riseproject.dev/board": "scw-em-rv1"}
     assert pod_manifest['spec']['containers'][0]['image'] == "test-image:latest"
-    assert "--jitconfig" in pod_manifest['spec']['containers'][0]['args'][0]
+    # No command/args override: the image ENTRYPOINT runs and reads the jit
+    # config from RUNNER_JITCONFIG in env.
+    assert 'command' not in pod_manifest['spec']['containers'][0]
+    assert 'args' not in pod_manifest['spec']['containers'][0]
+    env = {e['name']: e['value'] for e in pod_manifest['spec']['containers'][0]['env']}
+    assert env['RUNNER_JITCONFIG'] == "base64-jit-config"
+    # No dind sidecar anymore.
+    assert 'initContainers' not in pod_manifest['spec']
 
 
 def test_provision_runner_config_exception():

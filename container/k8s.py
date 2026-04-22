@@ -60,94 +60,17 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                         "name": "runner",
                         "image": k8s_image,
                         "imagePullPolicy": "IfNotPresent",
+                        # privileged is required so the in-container dockerd can set up iptables rules and the docker0 bridge.
                         "securityContext": {"privileged": True},
-                        "command": ["/bin/bash", "-eux", "-o", "pipefail", "-c"],
-                        "args": [
-                            f"""
-                            if [[ -n "${{RUNNER_VERSION+x}}" && -d "/home/runner/actions-runner/cached/${{RUNNER_VERSION}}" ]]; then
-                                /home/runner/actions-runner/cached/${{RUNNER_VERSION}}/run.sh --jitconfig {jit_config}
-                            elif [[ -f ./run.sh ]]; then
-                                ./run.sh --jitconfig {jit_config}
-                            else
-                                echo "can't find ./run.sh"
-                                exit 1
-                            fi
-                            """
-                        ],
                         "env": [
-                            {"name": "GITHUB_ACTIONS_RUNNER_TRACE", "value": "1"},
                             {"name": "RUNNER_WAIT_FOR_DOCKER_IN_SECONDS", "value": "60"},
-                            {"name": "DOCKER_HOST", "value": "tcp://localhost:2376"},
-                            {"name": "DOCKER_TLS_CERTDIR", "value": "/docker-certs"},
-                            {"name": "DOCKER_TLS_VERIFY", "value": "1"},
-                            {"name": "DOCKER_CERT_PATH", "value": "/docker-certs/client"},
-                        ],
-                        "volumeMounts": [
-                            {
-                                "name": "docker-certs",
-                                "mountPath": "/docker-certs",
-                                "readOnly": True,
-                            },
-                            {
-                                "name": "workspace",
-                                "mountPath": "/home/runner/work",
-                            },
+                            {"name": "RUNNER_JITCONFIG", "value": jit_config},
                         ],
                         "resources": {
                             "limits": {
                                 "riseproject.com/runner": "1",
                             }
                         }
-                    },
-                ],
-                "initContainers": [
-                    {
-                        # Docker-in-Docker sidecar for runner container to run DinD-enabled jobs
-                        "name": "dind",
-                        "image": RUNNER_IMAGE_DIND,
-                        "imagePullPolicy": "IfNotPresent",
-                        "restartPolicy": "Always", # makes it a "sidecar"
-                        "securityContext": {"privileged": True},
-                        "args": [
-                            # The DinD container's docker0 bridge defaults to MTU 1500, but the
-                            # underlying Flannel/CNI overlay network only supports 1450, causing
-                            # large packets (like TLS ClientHello) to be silently dropped and TLS
-                            # handshakes to hang.
-                            # Fix: set dockerd --mtu=1450 in the DinD container to match the pod
-                            # network's path MTU.
-                            "--mtu=1450",
-                        ],
-                        "env": [
-                            {"name": "DOCKER_TLS_CERTDIR", "value": "/docker-certs"},
-                        ],
-                        "volumeMounts": [
-                            {
-                                "name": "docker-certs",
-                                "mountPath": "/docker-certs",
-                            },
-                            {
-                                "name": "docker-storage",
-                                "mountPath": "/var/lib/docker",
-                            },
-                            {
-                                "name": "workspace",
-                                "mountPath": "/home/runner/work",
-                            },
-                        ],
-                    },
-                ],
-                "volumes": [
-                    {
-                        "name": "docker-certs",
-                        "emptyDir": {},
-                    },
-                    {
-                        "name": "docker-storage",
-                        "emptyDir": {},
-                    },
-                    {
-                        "name": "workspace",
-                        "emptyDir": {},
                     },
                 ],
             }
@@ -301,7 +224,7 @@ def collect_pod_failure_info(pod, reason: FailureReason) -> dict:
         container_info["logs"] = get_pod_logs(pod_name, cs.name)
         info["containers"][cs.name] = container_info
 
-    # Init container termination info + logs (dind sidecar is an init container)
+    # Init container termination info + logs (none today, but defensive for future use)
     for cs in (pod.status.init_container_statuses or []):
         container_info = _extract_container_info(cs)
         container_info["logs"] = get_pod_logs(pod_name, cs.name)
