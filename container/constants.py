@@ -40,11 +40,7 @@ ENTITY_CONFIG = {
         "max_workers": None,
         "pre_allocated": 0,
         "staging": [
-            "riscv-runner",
-            "riscv-runner-app",
-            "riscv-runner-images",
             "riscv-runner-sample",
-            "riscv-runner-device-plugin",
         ],
     },
     PYTORCH_ORG_ID: {
