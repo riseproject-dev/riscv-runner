@@ -463,15 +463,37 @@ def _format_timestamp(created_at):
 
 
 def render_job(job):
-    status = _format_status(job.get("status"))
-    job_id = job.get("job_id", "?")
-    repo = job.get("repo_full_name", "")
-    html_url = job.get("html_url", "")
-    labels = _format_labels(job.get("job_labels"))
+    status = _format_status(job["status"])
+    job_id = job["job_id"]
+    repo = job["repo_full_name"]
+    html_url = job["html_url"]
+    labels = _format_labels(job["job_labels"])
+    pod = job["k8s_pod"] or "<unknown pod>"
     created_str = _format_timestamp(job.get("created_at"))
     link = f'<a href="{html_url}">{repo}#{job_id}</a>' if html_url else f"{repo}#{job_id}"
-    return f'{status}  {created_str}  {labels}  {link}'
+    return f'{status}  {created_str}  {labels}  {pod}  {link}'
 
+
+def render_worker(worker):
+    status = worker['status']
+    created_str = _format_timestamp(worker['created_at'])
+    labels = _format_labels(worker['job_labels'])
+    pod = worker['pod_name']
+    node = worker['k8s_node'] or '<unknown node>'
+    lines = [f'{status}  {created_str}  {labels}  {pod}  (node: {node})']
+    try:
+        events = k8s.get_pod_events(worker["pod_name"])
+        if events:
+            for ev in events:
+                ts = ev.last_timestamp or ev.event_time or ev.metadata.creation_timestamp
+                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "unknown"
+                lines.append(f"  {ts_str}  [{ev.type}]  {ev.reason}: {ev.message}")
+        else:
+            lines.append(f"  Events: (none)")
+    except Exception:
+        lines.append(f"  Events: (error fetching)")
+
+    return lines
 
 def _wants_json():
     return request.path.endswith('.json') or request.accept_mimetypes.best == 'application/json'
@@ -517,19 +539,8 @@ def usage():
             lines.append("  Jobs: none")
         if group["workers"]:
             lines.append(f"  Workers ({len(group['workers'])}):")
-            for w in sorted(group["workers"], key=lambda w: w["created_at"]):
-                lines.append(f"    - {_format_status(w['status'])}  {_format_timestamp(w['created_at'])}  {_format_labels(w['job_labels'])}  {w['pod_name']}  (node: {w['k8s_node'] or '?'})")
-                try:
-                    events = k8s.get_pod_events(w["pod_name"])
-                    if events:
-                        for ev in events:
-                            ts = ev.last_timestamp or ev.event_time or ev.metadata.creation_timestamp
-                            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "unknown"
-                            lines.append(f"        {ts_str}  [{ev.type}]  {ev.reason}: {ev.message}")
-                    else:
-                        lines.append("      Events: (none)")
-                except Exception:
-                    lines.append("      Events: (error fetching)")
+            for worker in sorted(group["workers"], key=lambda w: w["created_at"]):
+                lines.append(f'    - {'\n      '.join(render_worker(worker))}')
         else:
             lines.append("  Workers: none")
         lines.append("")
