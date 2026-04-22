@@ -3,8 +3,9 @@ import hmac
 import json
 import logging
 import requests
+import time
 
-from flask import Flask, request, make_response
+from flask import Flask, g, request, make_response
 
 import db
 import github as gh
@@ -42,14 +43,21 @@ def handle_assertion_error(e):
     return make_response(str(e), 400)
 
 
+@app.before_request
+def _start_timer():
+    g.request_start = time.perf_counter()
+
+
 @app.after_request
-def log_request(response):
+def _log_duration(response):
     if request.method == "GET" and request.path == "/health":
         pass
-    elif response.status_code == 200:
-        logger.debug("%s %s %s", request.method, request.path, response.status_code)
     else:
-        logger.info("%s %s %s", request.method, request.path, response.status_code)
+        elapsed_ms = (time.perf_counter() - g.request_start) * 1000
+        logger.info(
+            "%s %s -> %d in %.1fms",
+            request.method, request.path, response.status_code, elapsed_ms,
+        )
     return response
 
 
