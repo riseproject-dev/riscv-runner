@@ -271,19 +271,30 @@ def sync_workers_state():
                 continue
 
             elif w["status"] == "running":
-                if w["pod_name"] in gh_runners:
-                    logger.debug("Worker worker=%s worker_status=%s is known github runner", w["pod_name"], w["status"])
+                gh_runner = gh_runners.get(w["pod_name"])
+                if gh_runner:
+                    if gh_runner["status"] != "offline":
+                        logger.debug("Worker worker=%s worker_status=%s is known github runner with runner_status=%s", w["pod_name"], w["status"], gh_runner["status"])
+                        continue
+                    if _age_seconds(w["running_at"]) < RUNNER_REGISTRATION_TIMEOUT_SECONDS:
+                        logger.info("Worker worker=%s worker_status=%s is known github runner and may still register", w["pod_name"], w["status"])
+                        continue
+                    logger.warning("Worker worker=%s worker_status=%s is known github runner and failed to register in %d seconds, marking as failed", w["pod_name"], w["status"], RUNNER_REGISTRATION_TIMEOUT_SECONDS)
+                    _fail_and_cleanup(w, pod, token, entity_type, gh_runner_target, gh_runner,
+                                        reason=FailureReason.RUNNER_NEVER_REGISTERED)
                     continue
-                if db.job_exists_for_pod(w["pod_name"]):
-                    logger.info("Worker worker=%s worker_status=%s runner has already run a job and self-unregistered, skipping", w["pod_name"], w["status"])
+
+                else:
+                    if db.job_exists_for_pod(w["pod_name"]):
+                        logger.info("Worker worker=%s worker_status=%s runner has already run a job and self-unregistered, skipping", w["pod_name"], w["status"])
+                        continue
+                    if _age_seconds(w["running_at"]) < RUNNER_REGISTRATION_TIMEOUT_SECONDS:
+                        logger.info("Worker worker=%s worker_status=%s is not known github runner and may still register", w["pod_name"], w["status"])
+                        continue
+                    logger.warning("Worker worker=%s worker_status=%s is not known github runner and failed to register in %d seconds, marking as failed", w["pod_name"], w["status"], RUNNER_REGISTRATION_TIMEOUT_SECONDS)
+                    _fail_and_cleanup(w, pod, token, entity_type, gh_runner_target, None,
+                                        reason=FailureReason.RUNNER_NEVER_REGISTERED)
                     continue
-                if _age_seconds(w["running_at"]) < RUNNER_REGISTRATION_TIMEOUT_SECONDS:
-                    logger.info("Worker worker=%s worker_status=%s is not known github runner, but may still register", w["pod_name"], w["status"])
-                    continue
-                logger.warning("Worker worker=%s worker_status=%s is not known github runner and failed to register in %d seconds, marking as failed", w["pod_name"], w["status"], RUNNER_REGISTRATION_TIMEOUT_SECONDS)
-                _fail_and_cleanup(w, pod, token, entity_type, gh_runner_target, None,
-                                    reason=FailureReason.RUNNER_NEVER_REGISTERED)
-                continue
 
             else:
                 logger.info("Worker worker=%s worker_status=%s skipped", w["pod_name"], w["status"])

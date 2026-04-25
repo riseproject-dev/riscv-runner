@@ -469,8 +469,61 @@ def test_reconcile_keeps_registered_runner(
     name = "rise-riscv-runner-staging-pod-1"
     pod = make_running_pod(name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name}]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online"}]
     worker = make_worker(pod_name=name, status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "runner_never_registered"})
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+def test_reconcile_fails_offline_runner_past_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    """A runner registered with GH but reported as `offline` past the registration
+    timeout must be treated like an unregistered runner and marked failed."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline"}]
+    worker = make_worker(pod_name=name, status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+
+    sync_workers_state()
+
+    mock_db.mark_worker_failed.assert_called_once()
+    args = mock_db.mark_worker_failed.call_args[0]
+    assert args[0] == name
+    assert args[2]["reason"] == "runner_never_registered"
+    mock_kill.assert_called_once_with(pod)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+def test_reconcile_keeps_offline_runner_within_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
+    """An offline runner within the registration timeout window must be left alone —
+    it may still come online before the deadline."""
+    recent = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=10)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline"}]
+    worker = make_worker(pod_name=name, status="running", running_at=recent)
     _configure_db_mock(mock_db, workers=[worker])
 
     sync_workers_state()
@@ -628,8 +681,8 @@ def test_reconcile_deletes_gh_runner_for_terminal_worker(
     name = "rise-riscv-runner-staging-pod-1"
     active_pod = make_running_pod("rise-riscv-runner-staging-pod-active")
     mock_list_pods.return_value = [active_pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name},
-                                  {"id": 12, "name": "rise-riscv-runner-staging-pod-active"}]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online"},
+                                  {"id": 12, "name": "rise-riscv-runner-staging-pod-active", "status": "online"}]
     terminal_worker = make_worker(pod_name=name, status="completed")
     active_worker = make_worker(pod_name="rise-riscv-runner-staging-pod-active",
                                 status="running",
@@ -653,8 +706,8 @@ def test_reconcile_deletes_gh_runner_with_no_worker_row(
     orphan_name = "rise-riscv-runner-staging-pod-orphan"
     pod = make_running_pod(active_name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": active_name},
-                                  {"id": 99, "name": orphan_name}]
+    mock_list_gh.return_value = [{"id": 11, "name": active_name, "status": "online"},
+                                  {"id": 99, "name": orphan_name, "status": "online"}]
     active_worker = make_worker(pod_name=active_name, status="running",
                                 running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[active_worker])
@@ -675,7 +728,7 @@ def test_reconcile_keeps_gh_runner_with_active_worker(
     name = "rise-riscv-runner-staging-pod-1"
     pod = make_running_pod(name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name}]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online"}]
     worker = make_worker(pod_name=name, status="running",
                          running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[worker])
@@ -698,8 +751,8 @@ def test_reconcile_skips_gh_runners_without_prefix(
     mock_list_pods.return_value = [pod]
     # A foreign runner (no matching prefix) must never be deleted even if there is no
     # corresponding worker row.
-    mock_list_gh.return_value = [{"id": 11, "name": active_name},
-                                  {"id": 99, "name": "some-other-teams-runner"}]
+    mock_list_gh.return_value = [{"id": 11, "name": active_name, "status": "online"},
+                                  {"id": 99, "name": "some-other-teams-runner", "status": "online"}]
     active_worker = make_worker(pod_name=active_name, status="running",
                                 running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[active_worker])
@@ -789,8 +842,8 @@ def test_reconcile_uses_repo_listing_for_user(
     # Two runners returned: one of ours, one foreign. The call-side filter in
     # _get_gh_runners strips the foreign one because it doesn't start with RUNNER_NAME_PREFIX.
     mock_list_repo.return_value = [
-        {"id": 11, "name": name},
-        {"id": 22, "name": "random-self-hosted"},
+        {"id": 11, "name": name, "status": "online"},
+        {"id": 22, "name": "random-self-hosted", "status": "online"},
     ]
     worker = make_worker(pod_name=name, status="running",
                          entity_type=EntityType.USER,
