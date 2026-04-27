@@ -6,7 +6,7 @@ nav_order: 4
 
 # Container Images
 
-The runner environment consists of two container images: the **runner image** (main container) and the **DinD sidecar** (Docker-in-Docker). Both are built for `linux/riscv64` and stored in the Scaleway Container Registry.
+Each runner pod uses a single unified container image: the GitHub Actions runner together with the full set of tools listed below. The image is built for `linux/riscv64` and stored in the Scaleway Container Registry.
 
 **Source:** [riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)
 
@@ -14,69 +14,42 @@ The runner environment consists of two container images: the **runner image** (m
 
 **Dockerfile:** [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu)
 
-The runner image is a multi-stage build based on Ubuntu (24.04 or 26.04). It includes:
+The runner image is a multi-stage build based on Ubuntu (24.04 or 26.04). It contains:
 
 ### GitHub Actions Runner
 
-The [GitHub Actions Runner](https://github.com/actions/runner) (v2.331.0) for RISC-V, built with .NET 8. This is the process that registers with GitHub, receives the job, and executes workflow steps.
-
-The runner starts with:
-```
-./run.sh --jitconfig {config}
-```
-
-The JIT config is a base64-encoded token obtained from the GitHub API by the worker at pod creation time.
+The [GitHub Actions Runner for RISC-V](https://github.com/Cloud-V-10xE/github-runner-riscv), built with .NET 8. This is the process that registers with GitHub, receives the job, and executes workflow steps. The JIT runner config is passed in via the `RUNNER_JITCONFIG` environment variable; the worker obtains it from the GitHub API at pod creation time.
 
 ### Pre-installed software
 
 | Category | Packages |
 |----------|----------|
-| **Python** | 3.10, 3.11, 3.12 (default), 3.13, 3.14 (built from source with shared libraries) |
-| **Compilers** | GCC, G++ |
-| **Build tools** | Make, Autoconf, Automake, Libtool, Flex, Bison, Binutils |
-| **Docker** | Docker CLI, Buildx, Compose |
+| **Languages** | Python 3.10–3.14 (including free-threaded variants), Node.js, Go, Rust, Java (Temurin 17/21/25), PHP, Ruby, Perl, Lua, R |
+| **Compilers** | GCC, G++, Clang |
+| **Build tools** | Make, CMake, Ninja, Autoconf, Automake, Libtool, Flex, Bison, Binutils, Gradle, Maven, Ant |
+| **Container tooling** | Docker (CLI, Buildx, Compose, daemon), podman, buildah, skopeo, runc, kubectl |
 | **VCS** | Git, Mercurial |
 | **Networking** | curl, wget, openssh-client, netcat, dnsutils |
 | **Compression** | bzip2, lz4, xz, zip, 7z, aria2 |
 | **Packaging** | dpkg, rpm, fakeroot |
 | **Utilities** | jq, shellcheck, tree, rsync, sudo, parallel |
 
+The image aims to track the [official GitHub Actions Ubuntu runner images](https://github.com/actions/runner-images). Pinned versions live in [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/versions-map.json). If your workflow needs a package that isn't in the image, [open an issue](https://github.com/riseproject-dev/riscv-runner-images/issues).
+
 ### User configuration
 
-The image creates a non-root `runner` user with passwordless sudo access. All jobs run as this user.
-
-## DinD sidecar
-
-**Dockerfile:** [`dind/Dockerfile`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/dind/Dockerfile)
-
-A minimal Debian-based image that runs the Docker daemon. It runs as an init container in the runner pod, providing Docker-in-Docker support.
-
-### TLS setup
-
-The DinD entrypoint script (`dockerd-entrypoint.sh`) automatically generates TLS certificates:
-
-- Creates a CA and signs server + client certificates
-- Certificates are written to a shared `emptyDir` volume
-- The runner container connects to the Docker daemon over TLS on port 2376
-- Certificates are valid for 825 days and regenerated on each pod startup
-
-### Exposed ports
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 2375 | TCP | Unencrypted Docker API (disabled when TLS is configured) |
-| 2376 | TCP | TLS-encrypted Docker API |
+The image creates a non-root `runner` user with passwordless sudo. All workflow steps run inside this single container. The pod runs with `privileged: true` so the in-pod Docker daemon can program iptables and bridge devices.
 
 ## Build pipeline
 
 **Workflow:** [`.github/workflows/release.yml`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/.github/workflows/release.yml)
 
-Images are built and pushed automatically:
+A single `build-runner` job builds the runner image, currently for Ubuntu 24.04 (26.04 is staged behind a matrix entry).
 
-- **Trigger:** Daily at 06:00 UTC, on push to `main`, or manual dispatch
-- **Platform:** `linux/riscv64`
-- **Cross-compilation:** Ubuntu 24.04 images build on native RISC-V runners. Ubuntu 26.04 images are built with QEMU emulation on x86 runners (requires RVA23 CPU).
-- **Caching:** GitHub Actions Cache for Docker layer caching
+- **Trigger:** push to `main` or `staging`, daily schedule, or manual dispatch.
+- **Platform:** `linux/riscv64`, built natively on `ubuntu-24.04-riscv` self-hosted RISC-V runners (no QEMU emulation in the build path).
+- **Caching:** GitHub Actions Cache (`type=gha`) for Docker layer reuse. A concurrency group ensures only one build runs per branch.
+- **Versioning:** [`scripts/update-versions.py`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/scripts/update-versions.py) syncs pinned versions in `versions-map.json` from upstream releases, then a scheduled workflow opens a PR with the diff.
 
 ## Registry
 
@@ -88,17 +61,16 @@ rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner
 
 ### Image tags
 
-| Tag | Image |
-|-----|-------|
-| `ubuntu-24.04-2.331.0` | Runner image, Ubuntu 24.04 |
-| `ubuntu-26.04-2.331.0` | Runner image, Ubuntu 26.04 |
-| `dind` | Docker-in-Docker sidecar |
+| Tag | Image | Source branch |
+|-----|-------|---------------|
+| `ubuntu-24.04-latest` | Runner image, Ubuntu 24.04 | `main` |
+| `ubuntu-26.04-latest` | Runner image, Ubuntu 26.04 | `main` |
 
 ## Source files
 
 | File | Role |
 |------|------|
-| [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu) | Runner image (multi-stage, Python builds, tools) |
-| [`dind/Dockerfile`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/dind/Dockerfile) | DinD sidecar image |
-| [`dind/dockerd-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/dind/dockerd-entrypoint.sh) | Docker daemon entrypoint with TLS cert generation |
+| [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu) | Runner image (multi-stage; tools, language runtimes, container tooling) |
+| [`runner/riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/riscv-runner-entrypoint.sh) | PID-1 entrypoint, execs `run.sh --jitconfig "$RUNNER_JITCONFIG"` |
+| [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/versions-map.json) | Pinned versions for all bundled tools and runtimes |
 | [`.github/workflows/release.yml`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/.github/workflows/release.yml) | CI/CD pipeline |
