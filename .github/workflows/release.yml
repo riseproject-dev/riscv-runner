@@ -59,19 +59,20 @@ jobs:
             BASE_REF_NAME="refs/heads/${{ github.event.pull_request.base.ref }}"
             BASE_REF_URL="${{ github.event.pull_request.base.repo.html_url }}/tree/${BASE_SHA}"
           elif [[ "${{ github.event_name }}" = "push" ]]; then
-            BASE_SHA="${{ github.event.before }}"
-            BASE_REF_NAME="${{ github.ref }}"
-            # First push to a branch reports 40 zeros — no base to diff against, skip.
-            if [[ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]]; then
-              if [[ -n "${{ needs.setup.outputs.environment }}" ]]; then
-                # If we are on main or staging, there _SHOULD_ be a `github.event.before`
-                echo "::error::.github/workflows/release.yml Branch ${{ github.ref_name}} SHOULD have a previous value, but github.event.before = ${{ github.event.before }}"
+            if [[ -n "${{ needs.setup.outputs.environment }}" ]]; then
+              # If we are on main or staging
+              if [[ "${{ github.event.forced }}" = "true" ]]; then
+                # If we are force-pushing, we don't know what's the previous commit to compare to
+                echo "::error::.github/workflows/release.yml Branch ${{ github.ref_name}} was just force-pushed, can't measure diff-coverage"
                 exit 0 # do not fail the workflow nonetheless
               fi
+              BASE_SHA="${{ github.event.before }}"
+              BASE_REF_NAME="${{ github.ref }}"
+            else
               # If we are not on main or staging, compare to staging
               git fetch origin staging # Make sure origin/staging is available
               BASE_SHA="$(git rev-parse origin/staging)"
-              BASE_REF_NAME="origin/staging"
+              BASE_REF_NAME="ref/heads/staging"
             fi
             BASE_REF_URL="${{ github.event.repository.html_url }}/tree/${BASE_SHA}"
           fi
