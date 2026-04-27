@@ -550,17 +550,42 @@ def render_worker(worker) -> list[str]:
     pod = worker['pod_name']
     node = worker['k8s_node'] or '<unknown node>'
     lines = [f'{status}  {created_str}  {labels}  {pod}  (node: {node})']
-    try:
-        events = k8s.get_pod_events(worker["pod_name"])
-        if events:
-            for ev in events:
-                ts = ev.last_timestamp or ev.event_time or ev.metadata.creation_timestamp
-                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "unknown"
-                lines.append(f"  {ts_str}  [{ev.type}]  {ev.reason}: {ev.message}")
+    if worker["status"] == "failed" and worker["failure_info"]:
+        failure_info = worker["failure_info"]
+        version = failure_info.get("version", 1)
+        if version == 1:
+            pass
         else:
-            lines.append(f"  Events: (none)")
-    except Exception:
-        lines.append(f"  Events: (error fetching)")
+            if failure_info.get("reason"):
+                lines.append(f"  Reason: {failure_info['reason']}")
+        pod_reason = failure_info.get("pod_reason")
+        pod_message = failure_info.get("pod_message")
+        if pod_reason or pod_message:
+            lines.append(f"  Pod: {pod_reason or '?'}  {pod_message or ''}".rstrip())
+        for name, container in (failure_info.get("containers") or {}).items():
+            exit_code = container.get("exit_code")
+            c_reason = container.get("reason") or "?"
+            c_message = container.get("message") or ""
+            lines.append(f"  Container {name}: exit={exit_code}  {c_reason}  {c_message}".rstrip())
+            logs = container.get("logs")
+            if logs:
+                for log_line in logs.splitlines():
+                    lines.append(f"    | {log_line}")
+        for ev in failure_info.get("events") or []:
+            ts = ev.get("last_seen") or ev.get("first_seen") or "unknown"
+            lines.append(f"  {ts}  [{ev['type']}]  {ev['reason']}: {ev['message']}")
+    else:
+        try:
+            events = k8s.get_pod_events(worker["pod_name"])
+            if events:
+                for ev in events:
+                    ts = ev.last_timestamp or ev.event_time or ev.metadata.creation_timestamp
+                    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "unknown"
+                    lines.append(f"  {ts_str}  [{ev.type}]  {ev.reason}: {ev.message}")
+            else:
+                lines.append(f"  Events: (none)")
+        except Exception:
+            lines.append(f"  Events: (error fetching)")
 
     return lines
 

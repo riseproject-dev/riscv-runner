@@ -15,6 +15,7 @@ from constants import (
 from k8s import FailureReason
 from scheduler import (
     app,
+    render_worker,
     demand_match,
     sync_jobs_state,
     sync_workers_state,
@@ -1760,3 +1761,264 @@ def test_workers_html_with_workers(mock_events, mock_db):
         body = resp.get_data(as_text=True)
         assert "pod-1" in body
         assert "node-1" in body
+
+
+# --- render_worker tests ---
+
+def _make_worker(status="running", k8s_node="node-1", failure_info=None, **kwargs):
+    base = _make_active_worker(status=status, k8s_node=k8s_node, **kwargs)
+    base["failure_info"] = failure_info
+    return base
+
+
+def _make_event_obj(type_="Normal", reason="Started", message="msg",
+                    last_timestamp=None, event_time=None, creation_timestamp=None):
+    ev = MagicMock()
+    ev.type = type_
+    ev.reason = reason
+    ev.message = message
+    ev.last_timestamp = last_timestamp
+    ev.event_time = event_time
+    ev.metadata.creation_timestamp = creation_timestamp
+    return ev
+
+
+@patch("scheduler.k8s.get_pod_events")
+def test_render_worker_running_with_events(mock_events):
+    ts = datetime.datetime(2026, 4, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    mock_events.return_value = [_make_event_obj(
+        type_="Warning", reason="BackOff", message="back-off pulling", last_timestamp=ts)]
+
+    lines = render_worker(_make_worker(status="running", pod_name="pod-1"))
+
+    assert "pod-1" in lines[0]
+    assert "(node: node-1)" in lines[0]
+    assert lines[1] == "  2026-04-20 12:00:00  [Warning]  BackOff: back-off pulling"
+
+
+@patch("scheduler.k8s.get_pod_events")
+def test_render_worker_running_falls_back_to_event_time(mock_events):
+    ts = datetime.datetime(2026, 4, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    mock_events.return_value = [_make_event_obj(event_time=ts)]
+
+    lines = render_worker(_make_worker(status="running"))
+
+    assert "2026-04-20 12:00:00" in lines[1]
+
+
+@patch("scheduler.k8s.get_pod_events")
+def test_render_worker_running_falls_back_to_creation_timestamp(mock_events):
+    ts = datetime.datetime(2026, 4, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    mock_events.return_value = [_make_event_obj(creation_timestamp=ts)]
+
+    lines = render_worker(_make_worker(status="running"))
+
+    assert "2026-04-20 12:00:00" in lines[1]
+
+
+@patch("scheduler.k8s.get_pod_events")
+def test_render_worker_running_event_with_no_timestamp(mock_events):
+    mock_events.return_value = [_make_event_obj()]
+
+    lines = render_worker(_make_worker(status="running"))
+
+    assert "unknown" in lines[1]
+
+
+@patch("scheduler.k8s.get_pod_events", return_value=[])
+def test_render_worker_running_no_events(mock_events):
+    lines = render_worker(_make_worker(status="running"))
+
+    assert lines[-1] == "  Events: (none)"
+
+
+@patch("scheduler.k8s.get_pod_events", side_effect=RuntimeError("boom"))
+def test_render_worker_running_event_fetch_error(mock_events):
+    lines = render_worker(_make_worker(status="running"))
+
+    assert lines[-1] == "  Events: (error fetching)"
+
+
+@patch("scheduler.k8s.get_pod_events", return_value=[])
+def test_render_worker_completed_uses_event_branch(mock_events):
+    lines = render_worker(_make_worker(status="completed"))
+
+    mock_events.assert_called_once()
+    assert lines[-1] == "  Events: (none)"
+
+
+@patch("scheduler.k8s.get_pod_events", return_value=[])
+def test_render_worker_unknown_node_placeholder(mock_events):
+    lines = render_worker(_make_worker(status="running", k8s_node=None))
+
+    assert "<unknown node>" in lines[0]
+
+
+@patch("scheduler.k8s.get_pod_events", return_value=[])
+def test_render_worker_failed_without_failure_info_uses_event_branch(mock_events):
+    lines = render_worker(_make_worker(status="failed", failure_info=None))
+
+    mock_events.assert_called_once()
+    assert lines[-1] == "  Events: (none)"
+
+
+def test_render_worker_failed_v2_full_payload():
+    failure_info = {
+        "version": 2,
+        "reason": "runner_never_registered",
+        "pod_reason": None,
+        "pod_message": None,
+        "containers": {
+            "runner": {
+                "exit_code": 0,
+                "reason": "Completed",
+                "message": None,
+                "logs": "line1\nline2\nline3",
+            },
+        },
+        "events": [{
+            "type": "Normal", "reason": "Scheduled", "message": "assigned",
+            "first_seen": "2026-04-20 16:07:33+00:00",
+            "last_seen": "2026-04-20 16:07:34+00:00",
+        }],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert "  Reason: runner_never_registered" in lines
+    assert "  Container runner: exit=0  Completed" in lines
+    assert "    | line1" in lines
+    assert "    | line2" in lines
+    assert "    | line3" in lines
+    assert "  2026-04-20 16:07:34+00:00  [Normal]  Scheduled: assigned" in lines
+
+
+def test_render_worker_failed_v2_prints_all_log_lines():
+    log_body = "\n".join(f"line-{i}" for i in range(50))
+    failure_info = {
+        "version": 2,
+        "reason": "pod_failed",
+        "containers": {"runner": {"exit_code": 1, "reason": "Error", "logs": log_body}},
+        "events": [],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    log_lines = [l for l in lines if l.startswith("    | line-")]
+    assert len(log_lines) == 50
+    assert "    | line-0" in lines
+    assert "    | line-49" in lines
+
+
+def test_render_worker_failed_v2_pod_reason_only():
+    failure_info = {
+        "version": 2,
+        "reason": "pod_failed",
+        "pod_reason": "Evicted",
+        "pod_message": None,
+        "containers": {},
+        "events": [],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert "  Pod: Evicted" in lines
+
+
+def test_render_worker_failed_v2_pod_message_only():
+    failure_info = {
+        "version": 2,
+        "reason": "pod_failed",
+        "pod_reason": None,
+        "pod_message": "node pressure",
+        "containers": {},
+        "events": [],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert "  Pod: ?  node pressure" in lines
+
+
+def test_render_worker_failed_v2_container_with_null_fields():
+    failure_info = {
+        "version": 2,
+        "reason": "runner_never_registered",
+        "containers": {"dind": {"exit_code": None, "reason": None, "message": None, "logs": None}},
+        "events": [],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert "  Container dind: exit=None  ?" in lines
+    assert not any(l.startswith("    | ") for l in lines)
+
+
+def test_render_worker_failed_v2_event_falls_back_to_first_seen():
+    failure_info = {
+        "version": 2,
+        "reason": "pod_failed",
+        "containers": {},
+        "events": [{
+            "type": "Warning", "reason": "DNSConfigForming", "message": "limit",
+            "first_seen": "2026-04-20 16:07:33+00:00",
+            "last_seen": None,
+        }],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert "  2026-04-20 16:07:33+00:00  [Warning]  DNSConfigForming: limit" in lines
+
+
+def test_render_worker_failed_v2_event_unknown_timestamp():
+    failure_info = {
+        "version": 2,
+        "reason": "pod_failed",
+        "containers": {},
+        "events": [{"type": "Warning", "reason": "X", "message": "y",
+                    "first_seen": None, "last_seen": None}],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert "  unknown  [Warning]  X: y" in lines
+
+
+def test_render_worker_failed_v2_without_reason_field():
+    failure_info = {
+        "version": 2,
+        "reason": None,
+        "containers": {},
+        "events": [],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert not any(l.startswith("  Reason:") for l in lines)
+
+
+def test_render_worker_failed_v1_skips_top_level_reason():
+    failure_info = {
+        "version": 1,
+        "reason": "should_be_ignored_in_v1",
+        "containers": {"runner": {"exit_code": 0, "reason": "Completed", "logs": None}},
+        "events": [],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert not any(l.startswith("  Reason:") for l in lines)
+    assert "  Container runner: exit=0  Completed" in lines
+
+
+def test_render_worker_failed_unversioned_treated_as_v1():
+    failure_info = {
+        "containers": {"runner": {"exit_code": 0, "reason": "Completed", "logs": None}},
+        "events": [],
+    }
+
+    lines = render_worker(_make_worker(status="failed", failure_info=failure_info))
+
+    assert not any(l.startswith("  Reason:") for l in lines)
+    assert "  Container runner: exit=0  Completed" in lines
