@@ -2,4 +2,6 @@
 
 requests-mock==1.12.1
 pytest
+pytest-cov
 pytest-xdist
+diff-cover

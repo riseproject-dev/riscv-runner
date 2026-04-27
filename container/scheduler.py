@@ -6,7 +6,8 @@ import random
 import string
 import threading
 import traceback
-from collections import defaultdict
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import db
 from db import DuplicateRunnerNameException
@@ -92,124 +93,104 @@ def sync_jobs_state():
             db.mark_job_running(job_id, gh_job.get("runner_name"))
 
 
-def sync_workers_state():
+def _gh_runner_key_for_worker(worker):
+    """Return (installation_id, entity_type, entity_id, gh_runner_target).
+
+    For organizations: gh_runner_target = entity_name.
+    For users:         gh_runner_target = repo_full_name.
     """
-    Reconcile worker state across Kubernetes, GitHub, and the workers table.
+    entity_type = EntityType(worker["entity_type"])
+    target = worker["entity_name"] if entity_type == EntityType.ORGANIZATION else worker["repo_full_name"]
+    return (int(worker["installation_id"]), entity_type, int(worker["entity_id"]), target)
 
-    Runs under `db.hold_connection` + `LOCK TABLE workers IN EXCLUSIVE MODE` so
-    only one scheduler at a time executes these phases (even across replicas).
 
-    Phases:
-      1. Orphan sweep — workers in `pending`/`running` with no matching k8s pod
-         are marked completed.
-      2. Pod phase sync — k8s Running/Succeeded/Failed phases propagate to the
-         workers table (setting running_at / completed_at / failure_info).
-      3. Health checks — for pending/running workers grouped by GitHub runner
-         scope: if a Running pod older than RUNNER_REGISTRATION_TIMEOUT_SECONDS
-         is still missing from GH, or a Pending pod is older than
-         POD_PENDING_TIMEOUT_SECONDS, kill the pod (activeDeadlineSeconds=1)
-         so it transitions to Failed; the worker is marked failed with
-         diagnostics. If GitHub refuses to delete the runner (e.g. 422 "busy"),
-         abort cleanup for that worker — it may genuinely be running a job.
-      4. GitHub-side cleanup — any runner matching RUNNER_NAME_PREFIX whose
-         worker row is terminal or missing gets deleted on GitHub.
-      5. Delete k8s pods in Succeeded/Failed phase after POD_DELETE_GRACE_SECONDS
-         have elapsed since container termination, so operators can still
-         `kubectl logs` them during the grace window.
-    """
-
-    # GitHub runners registered to a given (installation_id, entity_type, entity_id, target)
-    gh_runners_by_target: dict[tuple, dict] = {}
-
-    def _gh_runner_key_for_worker(worker):
-        """Return (installation_id, entity_type, gh_runner_target).
-
-        For organizations: gh_runner_target = entity_name.
-        For users:         gh_runner_target = repo_full_name.
-        """
-        entity_type = EntityType(worker["entity_type"])
-        target = worker["entity_name"] if entity_type == EntityType.ORGANIZATION else worker["repo_full_name"]
-        return (int(worker["installation_id"]), entity_type, int(worker["entity_id"]), target)
-
-    def _get_gh_runners(gh_runner_key, token):
-        if gh_runner_key not in gh_runners_by_target:
-            _, entity_type, _, target = gh_runner_key
-            try:
-                if entity_type == EntityType.ORGANIZATION:
-                    group_id = gh.ensure_runner_group(target, token, RUNNER_GROUP_NAME)
-                    raw = gh.list_runners_org_group(token, target, group_id)
-                else:
-                    raw = [r for r in gh.list_runners_repo(token, target)
-                           if r.get("name", "").startswith(RUNNER_NAME_PREFIX)]
-            except gh.GitHubAPIError as e:
-                logger.error("Failed to list GH runners for %s/%s: %s", entity_type, target, e)
-                gh_runners_by_target[gh_runner_key] = {}
-                return gh_runners_by_target[gh_runner_key]
-            gh_runners_by_target[gh_runner_key] = {r["name"]: r for r in raw}
-        return gh_runners_by_target[gh_runner_key]
-
-    def _delete_gh_runner(worker_name, token, entity_type, gh_runner_target, runner_id):
-        """Delete a GH runner by id. Logs on failure, swallows exceptions."""
+def _get_gh_runners(gh_runner_key, token, gh_runners_by_target):
+    if gh_runner_key not in gh_runners_by_target:
+        _, entity_type, _, target = gh_runner_key
         try:
             if entity_type == EntityType.ORGANIZATION:
-                gh.delete_runner_org(token, gh_runner_target, runner_id)
+                group_id = gh.ensure_runner_group(target, token, RUNNER_GROUP_NAME)
+                raw = gh.list_runners_org_group(token, target, group_id)
             else:
-                gh.delete_runner_repo(token, gh_runner_target, runner_id)
-            logger.info("Deleted GH runner name=%s id=%s from entity=%s", worker_name, runner_id, gh_runner_target)
-            return True
-        except Exception as e:
-            logger.error("Failed to delete GH runner name=%s id=%s from entity=%s: %s", worker_name, runner_id, gh_runner_target, e)
-            return False
-
-    def _fail_and_cleanup(worker, pod, token, entity_type, gh_runner_target, gh_runner: dict | None, reason: FailureReason):
-        """Mark a worker failed, kill its pod, and remove any stale GH registration.
-
-        If GitHub has a runner for this worker (gh_runner is not None), try to delete
-        it first. A non-2xx from GitHub (e.g. 422 "runner is busy") is our signal
-        that GH thinks a job is actually executing — abort cleanup so we don't kill
-        a worker that is doing useful work we missed signal for. Otherwise proceed:
-        collect diagnostics, mark the worker failed, and kill the pod so its slot
-        frees up. Phase 5's grace window later removes the Failed pod.
-        """
-        logger.warning("Health check failed for pod=%s reason=%s", worker["pod_name"], reason.value)
-        if gh_runner:
-            if not _delete_gh_runner(worker["pod_name"], token, entity_type, gh_runner_target, gh_runner["id"]):
-                logger.warning("Aborting cleanup for worker=%s: GitHub refused to delete the runner (may be running a job)",
-                               worker["pod_name"])
-                return
-        try:
-            failure_info = k8s.collect_pod_failure_info(pod, reason=reason)
-        except Exception as e:
-            logger.error("collect_pod_failure_info failed for %s: %s", worker["pod_name"], e)
-            failure_info = {"version": 2, "reason": reason.value, "collect_error": str(e)}
-        db.mark_worker_failed(worker["pod_name"],
-                              pod.spec.node_name or worker["k8s_node"],
-                              failure_info,
-                              datetime.datetime.now(datetime.timezone.utc))
-        try:
-            k8s.kill_pod(pod)
-        except Exception as e:
-            logger.error("kill_pod failed for %s: %s", pod.metadata.name, e)
-
-    def _age_seconds(ts):
-        """Seconds elapsed since ts (a datetime, possibly naive). Returns +inf if ts is None."""
-        if ts is None:
-            return float("inf")
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=datetime.timezone.utc)
-        return (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+                raw = [r for r in gh.list_runners_repo(token, target)
+                       if r.get("name", "").startswith(RUNNER_NAME_PREFIX)]
+        except gh.GitHubAPIError as e:
+            logger.error("Failed to list GH runners for %s/%s: %s", entity_type, target, e)
+            gh_runners_by_target[gh_runner_key] = {}
+            return gh_runners_by_target[gh_runner_key]
+        gh_runners_by_target[gh_runner_key] = {r["name"]: r for r in raw}
+    return gh_runners_by_target[gh_runner_key]
 
 
-    pods_by_name = {p.metadata.name: p for p in k8s.list_pods()}
-    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
+def _delete_gh_runner(worker_name, token, entity_type, gh_runner_target, runner_id):
+    """Delete a GH runner by id. Logs on failure, swallows exceptions."""
+    try:
+        if entity_type == EntityType.ORGANIZATION:
+            gh.delete_runner_org(token, gh_runner_target, runner_id)
+        else:
+            gh.delete_runner_repo(token, gh_runner_target, runner_id)
+        logger.info("Deleted GH runner name=%s id=%s from entity=%s", worker_name, runner_id, gh_runner_target)
+        return True
+    except Exception as e:
+        logger.error("Failed to delete GH runner name=%s id=%s from entity=%s: %s", worker_name, runner_id, gh_runner_target, e)
+        return False
 
-    # --- Phase 1: Mark workers without any corresponding pods as orphaned ---
+
+def _fail_and_cleanup(worker, pod, token, entity_type, gh_runner_target, gh_runner: dict | None, reason: FailureReason):
+    """Mark a worker failed, kill its pod, and remove any stale GH registration.
+
+    If GitHub has a runner for this worker (gh_runner is not None), try to delete
+    it first. A non-2xx from GitHub (e.g. 422 "runner is busy") is our signal
+    that GH thinks a job is actually executing — abort cleanup so we don't kill
+    a worker that is doing useful work we missed signal for. Otherwise proceed:
+    collect diagnostics, mark the worker failed, and kill the pod so its slot
+    frees up. Phase 5's grace window later removes the Failed pod.
+    """
+    logger.warning("Health check failed for pod=%s reason=%s", worker["pod_name"], reason.value)
+    if gh_runner:
+        if not _delete_gh_runner(worker["pod_name"], token, entity_type, gh_runner_target, gh_runner["id"]):
+            logger.warning("Aborting cleanup for worker=%s: GitHub refused to delete the runner (may be running a job)",
+                           worker["pod_name"])
+            return
+    try:
+        failure_info = k8s.collect_pod_failure_info(pod, reason=reason)
+    except Exception as e:
+        logger.error("collect_pod_failure_info failed for %s: %s", worker["pod_name"], e)
+        failure_info = {"version": 2, "reason": reason.value, "collect_error": str(e)}
+    db.mark_worker_failed(worker["pod_name"],
+                          pod.spec.node_name or worker["k8s_node"],
+                          failure_info,
+                          datetime.datetime.now(datetime.timezone.utc))
+    try:
+        k8s.kill_pod(pod)
+    except Exception as e:
+        logger.error("kill_pod failed for %s: %s", pod.metadata.name, e)
+
+
+def _age_seconds(ts):
+    """Seconds elapsed since ts (a datetime, possibly naive). Returns +inf if ts is None."""
+    if ts is None:
+        return float("inf")
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    return (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+
+
+def _group_by(elements: Iterable, key: Callable[[Any], Any]):
+    # itertools.groupby requires sorted elements by key before grouping by key
+    return itertools.groupby(sorted(elements, key=key), key=key)
+
+
+def _sync_workers_state_phase_1_orphan_sweep(pods_by_name, workers_by_name):
+    """Phase 1 of sync_workers_state: mark workers without any corresponding pods as orphaned."""
     for pod_name, w in workers_by_name.items():
         if pod_name not in pods_by_name and w["status"] in ["pending", "running"]:
             # There are no pods for that worker
             db.mark_worker_orphaned(pod_name)
 
-    # --- Phase 2: Synchronize pods status with the database ---
+
+def _sync_workers_state_phase_2_pod_phase_sync(pods_by_name, workers_by_name):
+    """Phase 2 of sync_workers_state: synchronize pod phases with worker status in the database."""
     for pod_name, pod in pods_by_name.items():
         if pod.status.phase == "Running" and pod_name in workers_by_name and workers_by_name[pod_name]["status"] in ["pending"]:
             db.mark_worker_running(pod_name, pod.spec.node_name, k8s.get_runner_running_at(pod))
@@ -229,15 +210,18 @@ def sync_workers_state():
                 f"Failed pod {pod_name} requires failure_info with int 'version' field"
             db.mark_worker_failed(pod_name, pod.spec.node_name, failure_info, k8s.get_pod_finished_at(pod))
 
-    ### Refresh the list of workers
-    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
 
-    # --- Phase 3: Github runner health checks ---
+def _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target):
+    """Phase 3 of sync_workers_state: GitHub runner health checks.
+
+    For pending/running workers grouped by GitHub runner scope: if a Running pod older
+    than RUNNER_REGISTRATION_TIMEOUT_SECONDS is still missing from GH, or a Pending pod
+    is older than POD_PENDING_TIMEOUT_SECONDS, kill the pod and mark the worker failed.
+    Populates ``gh_runners_by_target`` as a side effect for Phase 4 to consume.
+    """
     # Sort before groupby so workers with the same scope are grouped together
     # (groupby only groups adjacent equal keys).
-    workers_by_gh_runner_key = itertools.groupby(sorted(
-        (w for w in workers_by_name.values() if w["status"] in ["pending", "running"]),
-        key=_gh_runner_key_for_worker), key=_gh_runner_key_for_worker)
+    workers_by_gh_runner_key = _group_by((w for w in workers_by_name.values() if w["status"] in ["pending", "running"]), key=_gh_runner_key_for_worker)
     for gh_runner_key, workers in workers_by_gh_runner_key:
         installation_id, entity_type, entity_id, gh_runner_target = gh_runner_key
         try:
@@ -249,7 +233,7 @@ def sync_workers_state():
         # Consume the groupby elements into a list that we can iterate multiple times
         workers = list(workers)
 
-        gh_runners = _get_gh_runners(gh_runner_key, token)
+        gh_runners = _get_gh_runners(gh_runner_key, token, gh_runners_by_target)
 
         logger.debug(f"Checking for workers={RUNNER_NAME_PREFIX}%s in runners={RUNNER_NAME_PREFIX}%s for target=%s entity_type=%s",
                     sorted([w["pod_name"].removeprefix(RUNNER_NAME_PREFIX) for w in workers]),
@@ -296,13 +280,16 @@ def sync_workers_state():
                                         reason=FailureReason.RUNNER_NEVER_REGISTERED)
                     continue
 
-            else:
-                logger.info("Worker worker=%s worker_status=%s skipped", w["pod_name"], w["status"])
+            else: # pragma: no cover
+                assert False, f"unexpected worker status {w['status']!r} for {w['pod_name']}: the groupby filter restricts to pending/running"
 
-    ### Refresh the list of workers
-    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
 
-    # --- Phase 4: GH-side cleanup (delete orphan/completed/failed runners in GitHub) ---
+def _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target):
+    """Phase 4 of sync_workers_state: delete orphan/completed/failed runners on GitHub.
+
+    Any runner matching RUNNER_NAME_PREFIX whose worker row is terminal or missing
+    gets deleted on GitHub. Reads the cache populated by Phase 3.
+    """
     for gh_runner_key, gh_runners in gh_runners_by_target.items():
         installation_id, entity_type, _, gh_runner_target = gh_runner_key
         try:
@@ -322,7 +309,13 @@ def sync_workers_state():
                 _delete_gh_runner(name, token, entity_type, gh_runner_target, gh_runner["id"])
 
 
-    # --- Phase 5: Delete completed|failed pods only after the grace period. ---
+def _sync_workers_state_phase_5_delete_terminal_pods(pods_by_name):
+    """Phase 5 of sync_workers_state: delete completed|failed pods after the grace period.
+
+    Pods in Succeeded/Failed phase are kept for POD_DELETE_GRACE_SECONDS so operators
+    can still inspect them via ``kubectl logs``; once the grace window elapses they
+    are deleted from the cluster.
+    """
     now = datetime.datetime.now(datetime.timezone.utc)
     for pod_name, pod in pods_by_name.items():
         if pod.status.phase not in ("Succeeded", "Failed"):
@@ -337,6 +330,42 @@ def sync_workers_state():
             k8s.delete_pod(pod)
         except Exception as e:
             logger.error("Failed to delete pod %s: %s", pod.metadata.name, e)
+
+
+def sync_workers_state():
+    """Reconcile worker state across Kubernetes, GitHub, and the workers table."""
+    pods_by_name = {p.metadata.name: p for p in k8s.list_pods()}
+
+    # GitHub runners registered to a given (installation_id, entity_type, entity_id, target).
+    # Phase 3 populates this lazily; Phase 4 reads from it.
+    gh_runners_by_target: dict[tuple, dict] = {}
+
+    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()}
+    # 1. Orphan sweep — workers in `pending`/`running` with no matching k8s pod
+    #    are marked completed.
+    _sync_workers_state_phase_1_orphan_sweep(pods_by_name, workers_by_name)
+    # 2. Pod phase sync — k8s Running/Succeeded/Failed phases propagate to the
+    #    workers table (setting running_at / completed_at / failure_info).
+    _sync_workers_state_phase_2_pod_phase_sync(pods_by_name, workers_by_name)
+
+    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()} # refresh workers
+    # 3. Health checks — for pending/running workers grouped by GitHub runner
+    #    scope: if a Running pod older than RUNNER_REGISTRATION_TIMEOUT_SECONDS
+    #    is still missing from GH, or a Pending pod is older than
+    #    POD_PENDING_TIMEOUT_SECONDS, kill the pod (activeDeadlineSeconds=1)
+    #    so it transitions to Failed; the worker is marked failed with
+    #    diagnostics. If GitHub refuses to delete the runner (e.g. 422 "busy"),
+    #    abort cleanup for that worker — it may genuinely be running a job.
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
+
+    workers_by_name = {w["pod_name"]: w for w in db.get_workers_for_reconcile()} # refresh workers
+    # 4. GitHub-side cleanup — any runner matching RUNNER_NAME_PREFIX whose
+    #    worker row is terminal or missing gets deleted on GitHub.
+    _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target)
+    # 5. Delete k8s pods in Succeeded/Failed phase after POD_DELETE_GRACE_SECONDS
+    #    have elapsed since container termination, so operators can still
+    #    `kubectl logs` them during the grace window.
+    _sync_workers_state_phase_5_delete_terminal_pods(pods_by_name)
 
 
 

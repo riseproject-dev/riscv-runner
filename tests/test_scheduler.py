@@ -20,6 +20,15 @@ from scheduler import (
     _parse_date_param,
     _build_link_header,
     _scheduler_iteration,
+    _age_seconds,
+    _delete_gh_runner,
+    _get_gh_runners,
+    _gh_runner_key_for_worker,
+    _sync_workers_state_phase_1_orphan_sweep,
+    _sync_workers_state_phase_2_pod_phase_sync,
+    _sync_workers_state_phase_3_health_checks,
+    _sync_workers_state_phase_4_gh_cleanup,
+    _sync_workers_state_phase_5_delete_terminal_pods,
 )
 
 
@@ -276,40 +285,123 @@ def _configure_db_mock(mock_db, workers=None):
     return conn, cur
 
 
+def _phase_state(mock_db, mock_list_pods):
+    """Build the (pods_by_name, workers_by_name, gh_runners_by_target) tuple that
+    sync_workers_state would pass to each phase. Use in tests that call a single
+    phase function directly so the orchestrator's setup is mirrored exactly.
+    """
+    pods = list(mock_list_pods.return_value or [])
+    pods_by_name = {p.metadata.name: p for p in pods}
+    workers_by_name = {w["pod_name"]: w for w in mock_db.get_workers_for_reconcile()}
+    return pods_by_name, workers_by_name, {}
+
+
+def _phase_state_with_gh_cache(mock_db, mock_list_pods, gh_runners):
+    """Same as _phase_state but pre-populates gh_runners_by_target with the given
+    runners under the scope of each pending/running worker (mirroring what Phase 3
+    would have built). Use in Phase 4 tests that bypass Phase 3.
+    """
+    pods_by_name, workers_by_name, cache = _phase_state(mock_db, mock_list_pods)
+    runner_dict = {r["name"]: r for r in gh_runners}
+    for w in workers_by_name.values():
+        if w["status"] not in ("pending", "running"):
+            continue
+        cache[_gh_runner_key_for_worker(w)] = runner_dict
+    return pods_by_name, workers_by_name, cache
+
+
+# sync_workers_state helpers — unit tests for module-private utilities used by the phases
+
+def test_age_seconds_returns_inf_for_none():
+    assert _age_seconds(None) == float("inf")
+
+
+def test_age_seconds_treats_naive_datetime_as_utc():
+    naive = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) \
+        - datetime.timedelta(seconds=42)
+    assert _age_seconds(naive) == pytest.approx(42, abs=1)
+
+
+@patch("scheduler.gh.list_runners_org_group")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+def test_get_gh_runners_returns_empty_on_github_api_error(mock_group, mock_list_gh):
+    """A GitHubAPIError while listing runners must yield an empty cache entry,
+    not propagate up — Phase 3 depends on this to keep processing other scopes."""
+    from github import GitHubAPIError
+    mock_list_gh.side_effect = GitHubAPIError(503, "service unavailable")
+    cache = {}
+    key = (999, EntityType.ORGANIZATION, 1000, "test-org")
+
+    result = _get_gh_runners(key, "token-123", cache)
+
+    assert result == {}
+    assert cache[key] == {}
+
+
+@patch("scheduler.gh.list_runners_org_group")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+def test_get_gh_runners_uses_cache_on_subsequent_calls(mock_group, mock_list_gh):
+    """When the same (installation, scope) key is queried twice, the second call
+    must return the cached dict without hitting the GitHub API again — this is what
+    lets Phase 4 reuse Phase 3's listing under the same orchestrator invocation."""
+    key = (999, EntityType.ORGANIZATION, 1000, "test-org")
+    cache = {key: {"runner-1": {"id": 7, "name": "runner-1", "status": "online"}}}
+
+    result = _get_gh_runners(key, "token-123", cache)
+
+    assert result is cache[key]
+    mock_list_gh.assert_not_called()
+    mock_group.assert_not_called()
+
+
+@patch("scheduler.gh.delete_runner_repo")
+def test_delete_gh_runner_user_branch_calls_repo_endpoint(mock_delete_repo):
+    """The USER branch dispatches to gh.delete_runner_repo — Phase 3/4's ORG-only
+    tests don't exercise this path."""
+    ok = _delete_gh_runner("rise-riscv-runner-staging-pod-1", "token-user",
+                            EntityType.USER, "someuser/myrepo", 77)
+
+    assert ok is True
+    mock_delete_repo.assert_called_once_with("token-user", "someuser/myrepo", 77)
+
+
 # Phase 1 — orphan sweep
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods", return_value=[])
-def test_reconcile_orphans_worker_with_no_pod(mock_list, mock_db):
+def test_phase_1_orphans_worker_with_no_pod(mock_list, mock_db):
     worker = make_worker(pod_name="pod-1", status="pending")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
 
-    sync_workers_state()
+    _sync_workers_state_phase_1_orphan_sweep(pods_by_name, workers_by_name)
 
     mock_db.mark_worker_orphaned.assert_called_once_with("pod-1")
 
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods", return_value=[])
-def test_reconcile_does_not_orphan_terminal_workers(mock_list, mock_db):
+def test_phase_1_does_not_orphan_terminal_workers(mock_list, mock_db):
     w1 = make_worker(pod_name="pod-completed", status="completed")
     w2 = make_worker(pod_name="pod-failed", status="failed")
     _configure_db_mock(mock_db, workers=[w1, w2])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
 
-    sync_workers_state()
+    _sync_workers_state_phase_1_orphan_sweep(pods_by_name, workers_by_name)
 
     mock_db.mark_worker_orphaned.assert_not_called()
 
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
-def test_reconcile_does_not_orphan_worker_with_matching_pod(mock_list, mock_db):
+def test_phase_1_does_not_orphan_worker_with_matching_pod(mock_list, mock_db):
     pod = make_running_pod("pod-1")
     mock_list.return_value = [pod]
     worker = make_worker(pod_name="pod-1", status="running")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
 
-    sync_workers_state()
+    _sync_workers_state_phase_1_orphan_sweep(pods_by_name, workers_by_name)
 
     mock_db.mark_worker_orphaned.assert_not_called()
 
@@ -318,14 +410,15 @@ def test_reconcile_does_not_orphan_worker_with_matching_pod(mock_list, mock_db):
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
-def test_reconcile_syncs_pending_to_running(mock_list, mock_db):
+def test_phase_2_syncs_pending_to_running(mock_list, mock_db):
     started_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
     pod = make_running_pod("pod-1", running_at=started_at)
     mock_list.return_value = [pod]
     worker = make_worker(pod_name="pod-1", status="pending")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
 
-    sync_workers_state()
+    _sync_workers_state_phase_2_pod_phase_sync(pods_by_name, workers_by_name)
 
     mock_db.mark_worker_running.assert_called_once()
     args = mock_db.mark_worker_running.call_args[0]
@@ -335,14 +428,15 @@ def test_reconcile_syncs_pending_to_running(mock_list, mock_db):
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
-def test_reconcile_syncs_to_completed_on_succeeded(mock_list, mock_db):
+def test_phase_2_syncs_to_completed_on_succeeded(mock_list, mock_db):
     finished_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
     pod = make_terminal_pod("pod-1", phase="Succeeded", finished_at=finished_at)
     mock_list.return_value = [pod]
     worker = make_worker(pod_name="pod-1", status="running")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
 
-    sync_workers_state()
+    _sync_workers_state_phase_2_pod_phase_sync(pods_by_name, workers_by_name)
 
     mock_db.mark_worker_completed.assert_called_once()
     args = mock_db.mark_worker_completed.call_args[0]
@@ -353,14 +447,15 @@ def test_reconcile_syncs_to_completed_on_succeeded(mock_list, mock_db):
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "pod_failed"})
-def test_reconcile_syncs_to_failed_on_pod_failed(mock_collect, mock_list, mock_db):
+def test_phase_2_syncs_to_failed_on_pod_failed(mock_collect, mock_list, mock_db):
     finished_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
     pod = make_terminal_pod("pod-1", phase="Failed", finished_at=finished_at)
     mock_list.return_value = [pod]
     worker = make_worker(pod_name="pod-1", status="running")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
 
-    sync_workers_state()
+    _sync_workers_state_phase_2_pod_phase_sync(pods_by_name, workers_by_name)
 
     mock_db.mark_worker_failed.assert_called_once()
     args = mock_db.mark_worker_failed.call_args[0]
@@ -370,16 +465,38 @@ def test_reconcile_syncs_to_failed_on_pod_failed(mock_collect, mock_list, mock_d
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
-def test_reconcile_skips_sync_when_worker_already_terminal(mock_list, mock_db):
+def test_phase_2_skips_sync_when_worker_already_terminal(mock_list, mock_db):
     pod = make_running_pod("pod-1")
     mock_list.return_value = [pod]
     worker = make_worker(pod_name="pod-1", status="completed")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
 
-    sync_workers_state()
+    _sync_workers_state_phase_2_pod_phase_sync(pods_by_name, workers_by_name)
 
     mock_db.mark_worker_running.assert_not_called()
     mock_db.mark_worker_failed.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.collect_pod_failure_info", side_effect=RuntimeError("boom"))
+def test_phase_2_falls_back_when_collect_pod_failure_info_raises(mock_collect, mock_list, mock_db):
+    """k8s.collect_pod_failure_info exception must not abort the sync — the worker is
+    still marked failed with a fallback failure_info dict carrying the collect_error."""
+    finished_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    pod = make_terminal_pod("pod-1", phase="Failed", finished_at=finished_at)
+    mock_list.return_value = [pod]
+    worker = make_worker(pod_name="pod-1", status="running")
+    _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, _ = _phase_state(mock_db, mock_list)
+
+    _sync_workers_state_phase_2_pod_phase_sync(pods_by_name, workers_by_name)
+
+    mock_db.mark_worker_failed.assert_called_once()
+    failure_info = mock_db.mark_worker_failed.call_args[0][2]
+    assert failure_info["reason"] == "pod_failed"
+    assert failure_info["collect_error"] == "boom"
 
 
 # Phase 3 — stuck-runner health checks
@@ -391,7 +508,7 @@ def test_reconcile_skips_sync_when_worker_already_terminal(mock_list, mock_db):
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group", return_value=[])
-def test_reconcile_fails_runner_that_never_registered_past_timeout(
+def test_phase_3_fails_runner_that_never_registered_past_timeout(
         mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
     old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
@@ -400,8 +517,9 @@ def test_reconcile_fails_runner_that_never_registered_past_timeout(
     worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
                          status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_called_once()
     args = mock_db.mark_worker_failed.call_args[0]
@@ -416,7 +534,7 @@ def test_reconcile_fails_runner_that_never_registered_past_timeout(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group", return_value=[])
-def test_reconcile_skips_runner_that_already_ran_a_job(
+def test_phase_3_skips_runner_that_already_ran_a_job(
         mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
     """A runner missing from GH but with a matching jobs.k8s_pod row has already
     run its job and self-unregistered — do not flag as runner_never_registered."""
@@ -428,8 +546,9 @@ def test_reconcile_skips_runner_that_already_ran_a_job(
     worker = make_worker(pod_name=name, status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
     mock_db.job_exists_for_pod.return_value = True
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.job_exists_for_pod.assert_called_with(name)
     mock_db.mark_worker_failed.assert_not_called()
@@ -442,7 +561,7 @@ def test_reconcile_skips_runner_that_already_ran_a_job(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group", return_value=[])
-def test_reconcile_keeps_runner_within_registration_timeout(
+def test_phase_3_keeps_runner_within_registration_timeout(
         mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
     recent = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=10)
     pod = make_running_pod("rise-riscv-runner-staging-pod-1")
@@ -450,8 +569,9 @@ def test_reconcile_keeps_runner_within_registration_timeout(
     worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
                          status="running", running_at=recent)
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_not_called()
     mock_kill.assert_not_called()
@@ -463,7 +583,7 @@ def test_reconcile_keeps_runner_within_registration_timeout(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group")
-def test_reconcile_keeps_registered_runner(
+def test_phase_3_keeps_registered_runner(
         mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
     old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
     name = "rise-riscv-runner-staging-pod-1"
@@ -472,8 +592,9 @@ def test_reconcile_keeps_registered_runner(
     mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online"}]
     worker = make_worker(pod_name=name, status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_not_called()
     mock_kill.assert_not_called()
@@ -486,7 +607,7 @@ def test_reconcile_keeps_registered_runner(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group")
-def test_reconcile_fails_offline_runner_past_timeout(
+def test_phase_3_fails_offline_runner_past_timeout(
         mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
     """A runner registered with GH but reported as `offline` past the registration
     timeout must be treated like an unregistered runner and marked failed."""
@@ -498,8 +619,9 @@ def test_reconcile_fails_offline_runner_past_timeout(
     mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline"}]
     worker = make_worker(pod_name=name, status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_called_once()
     args = mock_db.mark_worker_failed.call_args[0]
@@ -514,7 +636,7 @@ def test_reconcile_fails_offline_runner_past_timeout(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group")
-def test_reconcile_keeps_offline_runner_within_timeout(
+def test_phase_3_keeps_offline_runner_within_timeout(
         mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
     """An offline runner within the registration timeout window must be left alone —
     it may still come online before the deadline."""
@@ -525,8 +647,9 @@ def test_reconcile_keeps_offline_runner_within_timeout(
     mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline"}]
     worker = make_worker(pod_name=name, status="running", running_at=recent)
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_not_called()
     mock_kill.assert_not_called()
@@ -539,7 +662,7 @@ def test_reconcile_keeps_offline_runner_within_timeout(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group", return_value=[])
-def test_reconcile_fails_stuck_pending_pod_past_timeout(
+def test_phase_3_fails_stuck_pending_pod_past_timeout(
         mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
     old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         seconds=POD_PENDING_TIMEOUT_SECONDS + 60)
@@ -548,8 +671,9 @@ def test_reconcile_fails_stuck_pending_pod_past_timeout(
     mock_list_pods.return_value = [pod]
     worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1", status="pending")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_called_once()
     args = mock_db.mark_worker_failed.call_args[0]
@@ -563,15 +687,16 @@ def test_reconcile_fails_stuck_pending_pod_past_timeout(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group", return_value=[])
-def test_reconcile_keeps_pending_pod_within_timeout(
+def test_phase_3_keeps_pending_pod_within_timeout(
         mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
     pod = make_pod("rise-riscv-runner-staging-pod-1", phase="Pending")
     pod.spec.node_name = None
     mock_list_pods.return_value = [pod]
     worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1", status="pending")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_not_called()
     mock_kill.assert_not_called()
@@ -584,7 +709,7 @@ def test_reconcile_keeps_pending_pod_within_timeout(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group", return_value=[])
-def test_reconcile_fail_and_cleanup_is_best_effort_on_kill_failure(
+def test_phase_3_fail_and_cleanup_is_best_effort_on_kill_failure(
         mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
     """kill_pod failure must not prevent the mark_worker_failed call."""
     old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
@@ -594,8 +719,9 @@ def test_reconcile_fail_and_cleanup_is_best_effort_on_kill_failure(
     worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
                          status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_called_once()
     mock_kill.assert_called_once_with(pod)
@@ -609,7 +735,7 @@ def test_reconcile_fail_and_cleanup_is_best_effort_on_kill_failure(
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group")
 @patch("scheduler.gh.delete_runner_org", side_effect=Exception("422 runner is busy"))
-def test_reconcile_aborts_cleanup_when_github_refuses_delete(
+def test_phase_3_aborts_cleanup_when_github_refuses_delete(
         mock_delete, mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill,
         mock_list_pods, mock_db):
     """If GitHub refuses to delete the runner (e.g. 422 "runner is busy") we must
@@ -625,8 +751,9 @@ def test_reconcile_aborts_cleanup_when_github_refuses_delete(
     mock_list_gh.return_value = [{"id": 77, "name": name}]
     worker = make_worker(pod_name=name, status="pending")
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     # We attempted the delete.
     mock_delete.assert_called_once_with("token-123", "test-org", 77)
@@ -643,7 +770,7 @@ def test_reconcile_aborts_cleanup_when_github_refuses_delete(
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
 @patch("scheduler.gh.list_runners_org_group", return_value=[])
-def test_reconcile_fail_and_cleanup_is_best_effort_on_collect_failure(
+def test_phase_3_fail_and_cleanup_is_best_effort_on_collect_failure(
         mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
     """collect_pod_failure_info exception -> mark_worker_failed still called with fallback."""
     old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
@@ -653,8 +780,9 @@ def test_reconcile_fail_and_cleanup_is_best_effort_on_collect_failure(
     worker = make_worker(pod_name="rise-riscv-runner-staging-pod-1",
                          status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
 
     mock_db.mark_worker_failed.assert_called_once()
     failure_info = mock_db.mark_worker_failed.call_args[0][2]
@@ -662,34 +790,62 @@ def test_reconcile_fail_and_cleanup_is_best_effort_on_collect_failure(
     assert "collect_error" in failure_info
 
 
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.list_runners_org_group")
+def test_phase_3_skips_scope_when_authenticate_fails(
+        mock_list_gh, mock_kill, mock_list_pods, mock_db):
+    """A GitHubAPIError from authenticate_app must skip the entire scope without
+    killing pods or marking workers failed. We override the autouse default."""
+    from github import GitHubAPIError
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    worker = make_worker(pod_name=name, status="running",
+                         running_at=datetime.datetime.now(datetime.timezone.utc))
+    _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
+
+    with patch("scheduler.gh.authenticate_app",
+               side_effect=GitHubAPIError(500, "internal server error")):
+        _sync_workers_state_phase_3_health_checks(
+            pods_by_name, workers_by_name, gh_runners_by_target)
+
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
+    # We never reached the GH listing because auth failed first.
+    mock_list_gh.assert_not_called()
+
+
 # Phase 4 — GH-side cleanup
 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods", return_value=[])
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.ensure_runner_group", return_value=42)
-@patch("scheduler.gh.list_runners_org_group")
 @patch("scheduler.gh.delete_runner_org")
-def test_reconcile_deletes_gh_runner_for_terminal_worker(
-        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+def test_phase_4_deletes_gh_runner_for_terminal_worker(
+        mock_delete, mock_auth, mock_list_pods, mock_db):
     """A terminal worker's GH runner must be deleted.
 
-    Phase 3 listing is per-scope and driven off pending/running workers; we need at
-    least one pending/running worker in the same scope so that the listing is fetched
-    and Phase 4 sees the terminal runner.
+    Phase 3 populates the gh_runners_by_target cache, keyed by the scope of any
+    pending/running worker; Phase 4 reads from that cache. We pre-populate it
+    via _phase_state_with_gh_cache so this test can exercise Phase 4 alone.
     """
     name = "rise-riscv-runner-staging-pod-1"
     active_pod = make_running_pod("rise-riscv-runner-staging-pod-active")
     mock_list_pods.return_value = [active_pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online"},
-                                  {"id": 12, "name": "rise-riscv-runner-staging-pod-active", "status": "online"}]
+    gh_runners = [{"id": 11, "name": name, "status": "online"},
+                  {"id": 12, "name": "rise-riscv-runner-staging-pod-active", "status": "online"}]
     terminal_worker = make_worker(pod_name=name, status="completed")
     active_worker = make_worker(pod_name="rise-riscv-runner-staging-pod-active",
                                 status="running",
                                 running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[terminal_worker, active_worker])
+    _, workers_by_name, gh_runners_by_target = _phase_state_with_gh_cache(
+        mock_db, mock_list_pods, gh_runners)
 
-    sync_workers_state()
+    _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target)
 
     mock_delete.assert_any_call("token-123", "test-org", 11)
 
@@ -697,22 +853,22 @@ def test_reconcile_deletes_gh_runner_for_terminal_worker(
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.ensure_runner_group", return_value=42)
-@patch("scheduler.gh.list_runners_org_group")
 @patch("scheduler.gh.delete_runner_org")
-def test_reconcile_deletes_gh_runner_with_no_worker_row(
-        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+def test_phase_4_deletes_gh_runner_with_no_worker_row(
+        mock_delete, mock_auth, mock_list_pods, mock_db):
     active_name = "rise-riscv-runner-staging-pod-active"
     orphan_name = "rise-riscv-runner-staging-pod-orphan"
     pod = make_running_pod(active_name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": active_name, "status": "online"},
-                                  {"id": 99, "name": orphan_name, "status": "online"}]
+    gh_runners = [{"id": 11, "name": active_name, "status": "online"},
+                  {"id": 99, "name": orphan_name, "status": "online"}]
     active_worker = make_worker(pod_name=active_name, status="running",
                                 running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[active_worker])
+    _, workers_by_name, gh_runners_by_target = _phase_state_with_gh_cache(
+        mock_db, mock_list_pods, gh_runners)
 
-    sync_workers_state()
+    _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target)
 
     mock_delete.assert_any_call("token-123", "test-org", 99)
 
@@ -720,20 +876,20 @@ def test_reconcile_deletes_gh_runner_with_no_worker_row(
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.ensure_runner_group", return_value=42)
-@patch("scheduler.gh.list_runners_org_group")
 @patch("scheduler.gh.delete_runner_org")
-def test_reconcile_keeps_gh_runner_with_active_worker(
-        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+def test_phase_4_keeps_gh_runner_with_active_worker(
+        mock_delete, mock_auth, mock_list_pods, mock_db):
     name = "rise-riscv-runner-staging-pod-1"
     pod = make_running_pod(name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online"}]
+    gh_runners = [{"id": 11, "name": name, "status": "online"}]
     worker = make_worker(pod_name=name, status="running",
                          running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[worker])
+    _, workers_by_name, gh_runners_by_target = _phase_state_with_gh_cache(
+        mock_db, mock_list_pods, gh_runners)
 
-    sync_workers_state()
+    _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target)
 
     mock_delete.assert_not_called()
 
@@ -741,27 +897,51 @@ def test_reconcile_keeps_gh_runner_with_active_worker(
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
-@patch("scheduler.gh.ensure_runner_group", return_value=42)
-@patch("scheduler.gh.list_runners_org_group")
 @patch("scheduler.gh.delete_runner_org")
-def test_reconcile_skips_gh_runners_without_prefix(
-        mock_delete, mock_list_gh, mock_group, mock_auth, mock_list_pods, mock_db):
+def test_phase_4_skips_gh_runners_without_prefix(
+        mock_delete, mock_auth, mock_list_pods, mock_db):
     active_name = "rise-riscv-runner-staging-pod-active"
     pod = make_running_pod(active_name)
     mock_list_pods.return_value = [pod]
     # A foreign runner (no matching prefix) must never be deleted even if there is no
     # corresponding worker row.
-    mock_list_gh.return_value = [{"id": 11, "name": active_name, "status": "online"},
-                                  {"id": 99, "name": "some-other-teams-runner", "status": "online"}]
+    gh_runners = [{"id": 11, "name": active_name, "status": "online"},
+                  {"id": 99, "name": "some-other-teams-runner", "status": "online"}]
     active_worker = make_worker(pod_name=active_name, status="running",
                                 running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[active_worker])
+    _, workers_by_name, gh_runners_by_target = _phase_state_with_gh_cache(
+        mock_db, mock_list_pods, gh_runners)
 
-    sync_workers_state()
+    _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target)
 
     # Only called (if at all) for runners matching our prefix — never for the foreign name.
     for call_args in mock_delete.call_args_list:
         assert call_args[0][2] != 99, "foreign runner must not be deleted"
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.gh.delete_runner_org")
+def test_phase_4_skips_scope_when_authenticate_fails(
+        mock_delete, mock_list_pods, mock_db):
+    """If authenticate_app fails for a scope in Phase 4, no delete calls are issued
+    for that scope — we simply skip and continue."""
+    from github import GitHubAPIError
+    name = "rise-riscv-runner-staging-pod-1"
+    mock_list_pods.return_value = []
+    terminal_worker = make_worker(pod_name=name, status="completed")
+    _configure_db_mock(mock_db, workers=[terminal_worker])
+    # Pre-populate cache as if Phase 3 had built it.
+    key = _gh_runner_key_for_worker(terminal_worker)
+    workers_by_name = {w["pod_name"]: w for w in mock_db.get_workers_for_reconcile()}
+    gh_runners_by_target = {key: {name: {"id": 11, "name": name, "status": "online"}}}
+
+    with patch("scheduler.gh.authenticate_app",
+               side_effect=GitHubAPIError(500, "internal server error")):
+        _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target)
+
+    mock_delete.assert_not_called()
 
 
 # Phase 5 — grace period for terminal pods
@@ -769,14 +949,15 @@ def test_reconcile_skips_gh_runners_without_prefix(
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
-def test_reconcile_deletes_terminal_pod_past_grace(mock_delete, mock_list_pods, mock_db):
+def test_phase_5_deletes_terminal_pod_past_grace(mock_delete, mock_list_pods, mock_db):
     old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         seconds=POD_DELETE_GRACE_SECONDS + 60)
     pod = make_terminal_pod("pod-1", phase="Succeeded", finished_at=old)
     mock_list_pods.return_value = [pod]
     _configure_db_mock(mock_db, workers=[])
+    pods_by_name, _, _ = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_5_delete_terminal_pods(pods_by_name)
 
     mock_delete.assert_called_once_with(pod)
 
@@ -784,12 +965,13 @@ def test_reconcile_deletes_terminal_pod_past_grace(mock_delete, mock_list_pods, 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
-def test_reconcile_keeps_terminal_pod_within_grace(mock_delete, mock_list_pods, mock_db):
+def test_phase_5_keeps_terminal_pod_within_grace(mock_delete, mock_list_pods, mock_db):
     pod = make_terminal_pod("pod-1", phase="Succeeded")
     mock_list_pods.return_value = [pod]
     _configure_db_mock(mock_db, workers=[])
+    pods_by_name, _, _ = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_5_delete_terminal_pods(pods_by_name)
 
     mock_delete.assert_not_called()
 
@@ -797,14 +979,53 @@ def test_reconcile_keeps_terminal_pod_within_grace(mock_delete, mock_list_pods, 
 @patch("scheduler.db")
 @patch("scheduler.k8s.list_pods")
 @patch("scheduler.k8s.delete_pod")
-def test_reconcile_does_not_delete_running_pod(mock_delete, mock_list_pods, mock_db):
+def test_phase_5_does_not_delete_running_pod(mock_delete, mock_list_pods, mock_db):
     pod = make_running_pod("rise-riscv-runner-staging-pod-1")
     mock_list_pods.return_value = [pod]
     _configure_db_mock(mock_db, workers=[])
+    pods_by_name, _, _ = _phase_state(mock_db, mock_list_pods)
 
-    sync_workers_state()
+    _sync_workers_state_phase_5_delete_terminal_pods(pods_by_name)
 
     mock_delete.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.delete_pod")
+def test_phase_5_treats_naive_finished_timestamp_as_utc(mock_delete, mock_list_pods, mock_db):
+    """A pod whose container.terminated.finished_at is a naive datetime past the grace
+    window must still be deleted — Phase 5 normalizes to UTC before comparing."""
+    naive_old = (datetime.datetime.now(datetime.timezone.utc)
+                 - datetime.timedelta(seconds=POD_DELETE_GRACE_SECONDS + 60)).replace(tzinfo=None)
+    pod = make_terminal_pod("pod-1", phase="Succeeded", finished_at=naive_old)
+    mock_list_pods.return_value = [pod]
+    _configure_db_mock(mock_db, workers=[])
+    pods_by_name, _, _ = _phase_state(mock_db, mock_list_pods)
+
+    _sync_workers_state_phase_5_delete_terminal_pods(pods_by_name)
+
+    mock_delete.assert_called_once_with(pod)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.delete_pod", side_effect=Exception("k8s api unreachable"))
+def test_phase_5_continues_when_delete_pod_fails(mock_delete, mock_list_pods, mock_db):
+    """k8s.delete_pod failure must be swallowed so the rest of the pod list is
+    still processed — the worker row is independent of pod deletion."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=POD_DELETE_GRACE_SECONDS + 60)
+    pod1 = make_terminal_pod("pod-1", phase="Succeeded", finished_at=old)
+    pod2 = make_terminal_pod("pod-2", phase="Succeeded", finished_at=old)
+    mock_list_pods.return_value = [pod1, pod2]
+    _configure_db_mock(mock_db, workers=[])
+    pods_by_name, _, _ = _phase_state(mock_db, mock_list_pods)
+
+    # Should not raise even though every delete_pod call fails.
+    _sync_workers_state_phase_5_delete_terminal_pods(pods_by_name)
+
+    assert mock_delete.call_count == 2
 
 
 # Cross-cutting

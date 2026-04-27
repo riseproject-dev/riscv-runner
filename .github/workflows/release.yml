@@ -17,27 +17,33 @@ env:
   STAGING_URL: https://riseriscvrunnerappst73ndwr0w-ghfe.functions.fnc.fr-par.scw.cloud
 
 jobs:
-  resolve:
+  setup:
     runs-on: ubuntu-latest
     outputs:
-      environment: ${{ steps.env.outputs.result }}
+      environment: ${{ steps.env.outputs.environment }}
     steps:
       - id: env
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "result=main" >> $GITHUB_OUTPUT
+            echo "environment=main" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "result=staging" >> $GITHUB_OUTPUT
+            echo "environment=staging" >> $GITHUB_OUTPUT
           fi
 
   test:
     runs-on: ubuntu-latest
+    needs: [setup]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0  # diff-cover needs the base commit
+      - name: Setup Python 3.12
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
-      - run: |
+      - name: Run tests
+        run: |
           python -m venv .venv
           source .venv/bin/activate
           pip install --upgrade pip
@@ -45,12 +51,50 @@ jobs:
           pip install -r requirements-dev.txt
           PYTHONPATH=${{ github.workspace }}/container pytest
 
+      - name: Add diff coverage to step summary
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        run: |
+          if [[ "${{ github.event_name }}" = "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            BASE_REF_NAME="refs/heads/${{ github.event.pull_request.base.ref }}"
+            BASE_REF_URL="${{ github.event.pull_request.base.repo.html_url }}/tree/${BASE_SHA}"
+          elif [[ "${{ github.event_name }}" = "push" ]]; then
+            BASE_SHA="${{ github.event.before }}"
+            BASE_REF_NAME="${{ github.ref }}"
+            # First push to a branch reports 40 zeros — no base to diff against, skip.
+            if [[ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]]; then
+              if [[ -n "${{ needs.setup.outputs.environment }}" ]]; then
+                # If we are on main or staging, there _SHOULD_ be a `github.event.before`
+                echo "::error::.github/workflows/release.yml Branch ${{ github.ref_name}} SHOULD have a previous value, but github.event.before = ${{ github.event.before }}"
+                exit 0 # do not fail the workflow nonetheless
+              fi
+              # If we are not on main or staging, compare to staging
+              git fetch origin staging # Make sure origin/staging is available
+              BASE_SHA="$(git rev-parse origin/staging)"
+              BASE_REF_NAME="origin/staging"
+            fi
+            BASE_REF_URL="${{ github.event.repository.html_url }}/tree/${BASE_SHA}"
+          fi
+          if [[ -n "${BASE_SHA}" ]]; then
+            source .venv/bin/activate
+            diff-cover coverage.xml \
+              --compare-branch "${BASE_SHA}" \
+              --markdown-report diff-cover.md \
+              --fail-under 80
+            {
+              echo ""
+              echo "**Base ref: [${BASE_REF_NAME}](${BASE_REF_URL})**"
+              echo ""
+              cat diff-cover.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   deploy:
-    if: github.repository_owner == 'riseproject-dev' && needs.resolve.outputs.environment != ''
-    name: "deploy to ${{ needs.resolve.outputs.environment }}"
-    needs: [test, resolve]
+    if: github.repository_owner == 'riseproject-dev' && needs.setup.outputs.environment != ''
+    name: "deploy to ${{ needs.setup.outputs.environment }}"
+    needs: [test, setup]
     runs-on: ubuntu-latest
-    environment: ${{ needs.resolve.outputs.environment }}
+    environment: ${{ needs.setup.outputs.environment }}
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: false
@@ -80,8 +124,8 @@ jobs:
           file: container/Dockerfile
           target: ghfe
           tags: |
-            ${{ needs.resolve.outputs.environment == 'main'    && format('{0}/{1}:ghfe-latest', env.REGISTRY, env.IMAGE) || '' }}
-            ${{ needs.resolve.outputs.environment == 'staging' && format('{0}/{1}:ghfe-staging', env.REGISTRY, env.IMAGE) || '' }}
+            ${{ needs.setup.outputs.environment == 'main'    && format('{0}/{1}:ghfe-latest', env.REGISTRY, env.IMAGE) || '' }}
+            ${{ needs.setup.outputs.environment == 'staging' && format('{0}/{1}:ghfe-staging', env.REGISTRY, env.IMAGE) || '' }}
           cache-from: |
             type=gha,scope=ghfe-main
             ${{ format('type=gha,scope=type=gha,scope=ghfe-{0}', env.GITHUB_REF_NAME_SLUG) }}
@@ -97,8 +141,8 @@ jobs:
           file: container/Dockerfile
           target: scheduler
           tags: |
-            ${{ needs.resolve.outputs.environment == 'main'    && format('{0}/{1}:scheduler-latest', env.REGISTRY, env.IMAGE) || '' }}
-            ${{ needs.resolve.outputs.environment == 'staging' && format('{0}/{1}:scheduler-staging', env.REGISTRY, env.IMAGE) || '' }}
+            ${{ needs.setup.outputs.environment == 'main'    && format('{0}/{1}:scheduler-latest', env.REGISTRY, env.IMAGE) || '' }}
+            ${{ needs.setup.outputs.environment == 'staging' && format('{0}/{1}:scheduler-staging', env.REGISTRY, env.IMAGE) || '' }}
           cache-from: |
             type=gha,scope=scheduler-main
             ${{ format('type=gha,scope=type=gha,scope=scheduler-{0}', env.GITHUB_REF_NAME_SLUG) }}
@@ -107,7 +151,7 @@ jobs:
           push: true
 
       - name: Deploy to Scaleway
-        run: npm ci && npx serverless@3 deploy --stage=${{ needs.resolve.outputs.environment }}
+        run: npm ci && npx serverless@3 deploy --stage=${{ needs.setup.outputs.environment }}
         env:
           SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
           GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
@@ -117,10 +161,10 @@ jobs:
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
 
       - name: Health check
-        run: python3 ./bin/check-health.py ${{ needs.resolve.outputs.environment == 'staging' && '--staging' || '' }}
+        run: python3 ./bin/check-health.py ${{ needs.setup.outputs.environment == 'staging' && '--staging' || '' }}
 
       - name: Trigger sample workflow
-        if: needs.resolve.outputs.environment == 'staging'
+        if: needs.setup.outputs.environment == 'staging'
         env:
           GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_ACCESS_TOKEN }}
           GH_REPO: riseproject-dev/riscv-runner-sample

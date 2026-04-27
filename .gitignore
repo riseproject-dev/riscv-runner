@@ -8,3 +8,7 @@ package/
 *.py[cod]
 *$py.class
 *.so
+
+.coverage
+coverage.xml
+.pytest_cache/

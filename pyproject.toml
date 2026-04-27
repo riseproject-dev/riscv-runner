@@ -1,0 +1,15 @@
+[tool.coverage.run]
+source = ["container"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.pytest.ini_options]
+addopts = "--cov --cov-report=term-missing --cov-report=xml"
