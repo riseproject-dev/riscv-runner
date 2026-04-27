@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class FailureReason(str, Enum):
+    POD_ALLOCATION_FAILURE  = "pod_allocation_failure"
     POD_FAILED              = "pod_failed"
     POD_STUCK_PENDING       = "pod_stuck_pending"
     RUNNER_NEVER_REGISTERED = "runner_never_registered"

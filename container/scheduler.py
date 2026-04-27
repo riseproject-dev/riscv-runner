@@ -498,6 +498,15 @@ def demand_match():
 
         except Exception as e:
             logger.error("Failed to provision runner %s for entity=%s pool=%s, error: %s", runner_name, entity_name, k8s_pool, str(e))
+            failure_info = {
+                "version": 2, # bump when the structure changes
+                "reason": FailureReason.POD_ALLOCATION_FAILURE.value,
+                "containers": {},
+                "events": [],
+                "pod_message": None,
+                "pod_reason": None,
+            }
+            db.mark_worker_failed(runner_name, k8s_node=None, failure_info=failure_info, completed_at=None)
 
 
 # --- HTTP Handlers ---
