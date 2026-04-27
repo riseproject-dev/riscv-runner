@@ -8,8 +8,7 @@ A GitHub App that listens for `workflow_job` webhooks and provisions ephemeral R
 
 ### Installation
 
-1. Install the app on your organization from https://github.com/apps/rise-risc-v-runners.
-2. Contact the app administrators to have your organization added to the allowlist.
+See [Install the GitHub App](https://riseproject-dev.github.io/riscv-runner/docs/getting-started/install) on the public documentation site for the up-to-date instructions and the differences between the organization and personal-account variants.
 
 ### Running workflows on RISC-V
 
@@ -87,6 +86,8 @@ Scheduler (scheduler.py)
   v
 Kubernetes (runner pods)
 ```
+
+Each runner pod is a single container running the [riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images) image. The pod runs `privileged: true` (required by the in-pod Docker daemon) and receives its JIT runner config through the `RUNNER_JITCONFIG` environment variable.
 
 Only one scheduler at a time may run `sync_workers_state`: each invocation holds `LOCK TABLE workers IN EXCLUSIVE MODE` for its duration, using a thread-local connection pin (`db.hold_connection`) so all `mark_worker_*` calls share the locked transaction. If a second scheduler container is deployed, it will block on the lock until the first commits.
 
