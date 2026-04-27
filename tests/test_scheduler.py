@@ -55,9 +55,9 @@ def make_pod(name, phase="Running", entity_id=None, board=None, creation_timesta
     pod.metadata.name = name
     pod.metadata.labels = {"app": "rise-riscv-runner"}
     if entity_id:
-        pod.metadata.labels["riseproject.com/entity_id"] = str(entity_id)
+        pod.metadata.labels["riseproject.dev/entity_id"] = str(entity_id)
     if board:
-        pod.metadata.labels["riseproject.com/board"] = board
+        pod.metadata.labels["riseproject.dev/board"] = board
     pod.metadata.creation_timestamp = creation_timestamp or datetime.datetime.now(datetime.timezone.utc)
     pod.status.phase = phase
     pod.status.container_statuses = []
@@ -89,7 +89,7 @@ def make_job(job_id, entity_id="1000", entity_name="test-org", k8s_pool="scw-em-
 # --- demand_match tests ---
 
 @patch("scheduler.db")
-@patch("scheduler.k8s.has_available_slot", return_value=True)
+@patch("scheduler.k8s.get_available_slots", return_value=10)
 @patch("scheduler.k8s.provision_runner")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)
@@ -111,7 +111,7 @@ def test_demand_match_provisions_org_job(mock_jit, mock_group, mock_auth, mock_p
 
 
 @patch("scheduler.db")
-@patch("scheduler.k8s.has_available_slot", return_value=True)
+@patch("scheduler.k8s.get_available_slots", return_value=10)
 @patch("scheduler.k8s.provision_runner")
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.create_jit_runner_config_repo", return_value="jit-config-repo")
@@ -135,7 +135,7 @@ def test_demand_match_provisions_personal_job(mock_jit_repo, mock_auth, mock_pro
 
 
 @patch("scheduler.db")
-@patch("scheduler.k8s.has_available_slot", return_value=True)
+@patch("scheduler.k8s.get_available_slots", return_value=10)
 @patch("scheduler.k8s.provision_runner")
 def test_demand_match_skips_when_demand_met(mock_provision, mock_slot, mock_db):
     """Test that jobs are skipped when pool demand is already met."""
@@ -149,7 +149,7 @@ def test_demand_match_skips_when_demand_met(mock_provision, mock_slot, mock_db):
 
 
 @patch("scheduler.db")
-@patch("scheduler.k8s.has_available_slot", return_value=False)
+@patch("scheduler.k8s.get_available_slots", return_value=0)
 @patch("scheduler.k8s.provision_runner")
 def test_demand_match_skips_no_k8s_capacity(mock_provision, mock_slot, mock_db):
     """Test that jobs are skipped when no k8s capacity."""
@@ -164,7 +164,7 @@ def test_demand_match_skips_no_k8s_capacity(mock_provision, mock_slot, mock_db):
 
 
 @patch("scheduler.db")
-@patch("scheduler.k8s.has_available_slot", return_value=True)
+@patch("scheduler.k8s.get_available_slots", return_value=10)
 @patch("scheduler.k8s.provision_runner")
 def test_demand_match_respects_max_workers(mock_provision, mock_slot, mock_db):
     """Test that max_workers cap is respected."""
@@ -179,7 +179,7 @@ def test_demand_match_respects_max_workers(mock_provision, mock_slot, mock_db):
 
 
 @patch("scheduler.db")
-@patch("scheduler.k8s.has_available_slot", return_value=True)
+@patch("scheduler.k8s.get_available_slots", return_value=10)
 @patch("scheduler.k8s.provision_runner", side_effect=Exception("K8s error"))
 @patch("scheduler.gh.authenticate_app", return_value="token-123")
 @patch("scheduler.gh.ensure_runner_group", return_value=42)

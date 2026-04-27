@@ -44,9 +44,9 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                 "name": runner_name,
                 "labels": {
                     "app": "rise-riscv-runner",
-                    "riseproject.com/entity_id": str(entity_id),
-                    "riseproject.com/entity_name": str(entity_name),
-                    "riseproject.com/board": k8s_pool,
+                    "riseproject.dev/entity_id": str(entity_id),
+                    "riseproject.dev/entity_name": str(entity_name),
+                    "riseproject.dev/board": k8s_pool,
                 },
             },
             "spec": {
@@ -124,32 +124,21 @@ def kill_pod(pod):
             raise
 
 
-def has_available_slot(node_selector):
+def get_available_slots(label_selector):
     """Check if there's an available runner slot on nodes matching the selector."""
     with _init_client() as client:
         api = k8s.client.CoreV1Api(client)
 
-        nodes = api.list_node()
-        matching_nodes = [
-            node for node in nodes.items
-            if all(node.metadata.labels.get(k) == v for k, v in node_selector.items())
-        ]
-        total = sum(
-            int(node.status.allocatable.get("riseproject.com/runner", "0"))
-            for node in matching_nodes
-        )
+        nodes = api.list_node(label_selector=label_selector)
+        total = sum(int(node.status.allocatable.get("riseproject.com/runner", "0")) for node in nodes.items)
 
-        pods = api.list_namespaced_pod(label_selector="app=rise-riscv-runner", namespace="default")
-        active = sum(
-            1 for p in pods.items
-            if p.status.phase in ("Pending", "Running")
-            and p.spec.node_selector == node_selector
-        )
+        pods = api.list_namespaced_pod(label_selector=f"app=rise-riscv-runner,{label_selector}", namespace="default")
+        active = sum(1 for p in pods.items if p.status.phase in ("Pending", "Running"))
 
         available = total - active
-        logger.debug("Capacity check: node_selector=%s, total=%d, active=%d, available=%d",
-                     node_selector, total, active, available)
-        return available > 0
+        logger.debug("Capacity check: label_selector=%s, total=%d, active=%d, available=%d",
+                     label_selector, total, active, available)
+        return available
 
 
 def get_pod_events(pod_name):

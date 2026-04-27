@@ -415,98 +415,100 @@ def demand_match():
 
     logger.info("Processing %d pending jobs: [%s]", len(pending_jobs), ', '.join([str(j["job_id"]) for j in pending_jobs]))
 
-    # Cache per-org worker counts
-    entity_worker_counts = {}
+    jobs_by_pool = _group_by(pending_jobs, key=lambda j: j["k8s_pool"])
 
-    for job in pending_jobs:
-        job_id = job["job_id"]
-        if job.get("status") != "pending":
-            logger.info("Job %s status is %s, not pending, skipping", job_id, job.get("status"))
+    for k8s_pool, jobs in jobs_by_pool:
+        available_slots = k8s.get_available_slots(label_selector=f"riseproject.dev/board={k8s_pool}")
+        logger.info("Capacity for k8s_pool=%s available_slots=%s", k8s_pool, available_slots)
+        if available_slots == 0:
             continue
 
-        k8s_pool = job["k8s_pool"]
-        k8s_image = job["k8s_image"]
-        installation_id = job["installation_id"]
-        entity_name = job["entity_name"]
-        labels = job["job_labels"]
-        entity_type = EntityType(job["entity_type"])
-        entity_id = job["entity_id"]
-        repo_full_name = job["repo_full_name"]
-        provider = job["provider"]
+        for job in jobs:
+            assert available_slots >= 1
 
-        # Check demand vs supply (matched by entity_id + job_labels, not k8s_pool)
-        job_count, worker_count = db.get_pool_demand(entity_id, labels)
-        if job_count <= worker_count:
-            logger.info("Job %s: entity %s labels %s demand met (jobs=%d, workers=%d)",
-                        job_id, entity_id, labels, job_count, worker_count)
-            continue
-
-        # Check max_workers cap
-        entity_config = ENTITY_CONFIG.get(int(entity_id), {"max_workers": 20})
-        max_workers = entity_config.get("max_workers")
-        if max_workers is not None:
-            if entity_id not in entity_worker_counts:
-                entity_worker_counts[entity_id] = db.get_total_workers_for_entity(entity_id)
-            if entity_worker_counts[entity_id] >= max_workers:
-                logger.info("Job %s: entity %s at max_workers (%d/%d)",
-                            job_id, entity_name, entity_worker_counts[entity_id], max_workers)
+            job_id = job["job_id"]
+            if job.get("status") != "pending":
+                logger.info("Job %s status is %s, not pending, skipping", job_id, job.get("status"))
                 continue
 
-        # Check k8s capacity
-        node_selector = {"riseproject.dev/board": k8s_pool}
-        if not k8s.has_available_slot(node_selector):
-            logger.info("Job %s: no k8s capacity for pool %s", job_id, k8s_pool)
-            continue
+            k8s_pool = job["k8s_pool"]
+            k8s_image = job["k8s_image"]
+            installation_id = job["installation_id"]
+            entity_name = job["entity_name"]
+            labels = job["job_labels"]
+            entity_type = EntityType(job["entity_type"])
+            entity_id = job["entity_id"]
+            repo_full_name = job["repo_full_name"]
+            provider = job["provider"]
 
-        # Reserve name in DB first — detects collision before creating k8s pod
-        runner_name = None
-        for _ in range(5):  # max retries for name collision
-            suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=9))
-            candidate = f"{RUNNER_NAME_PREFIX}{suffix}"
+            # Check demand vs supply, matched by entity_id + job_labels
+            job_count, worker_count = db.get_pool_demand(entity_id, labels)
+            if job_count <= worker_count:
+                logger.info("Demand met for entity=%s entity_id=%s entity_type=%s labels=%s, jobs_count=%d workers_count=%d",
+                            entity_name, entity_id, entity_type, labels, job_count, worker_count)
+                continue
+
+            # Check max_workers cap
+            entity_config = ENTITY_CONFIG.get(int(entity_id), {"max_workers": 20})
+            max_workers = entity_config.get("max_workers")
+            if max_workers is not None:
+                entity_worker_count = db.get_total_workers_for_entity(entity_id)
+                if entity_worker_count >= max_workers:
+                    logger.info("Max workers allocated for entity=%s entity_id=%s entity_type=%s labels=%s workers_count=%d max_workers=%d)",
+                                entity_name, entity_id, entity_type, labels, entity_worker_count, max_workers)
+                    continue
+
+            # Reserve name in DB first — detects collision before creating k8s pod
+            runner_name = None
+            for _ in range(5):  # max retries for name collision
+                suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=9))
+                candidate = f"{RUNNER_NAME_PREFIX}{suffix}"
+                try:
+                    db.add_worker(provider, entity_id, entity_name, entity_type.value,
+                                  installation_id,
+                                  repo_full_name if entity_type == EntityType.USER else None,
+                                  k8s_pool, candidate,
+                                  job_labels=labels, k8s_image=k8s_image)
+                    runner_name = candidate
+                    break
+                except DuplicateRunnerNameException:
+                    logger.warning("Runner name %s collision, regenerating", candidate)
+                    continue
+
+            if runner_name is None:
+                logger.error("Failed to generate unique runner name for entity=%s entity_id=%s entity_type=%s pool=%s after retries", entity_name, entity_id, entity_type, k8s_pool)
+                continue
+
+            # Name reserved in DB, now safe to provision
             try:
-                db.add_worker(provider, entity_id, entity_name, entity_type.value,
-                              installation_id,
-                              repo_full_name if entity_type == EntityType.USER else None,
-                              k8s_pool, candidate,
-                              job_labels=labels, k8s_image=k8s_image)
-                runner_name = candidate
+                token = gh.authenticate_app(int(installation_id), entity_type=entity_type)
+
+                if entity_type == EntityType.ORGANIZATION:
+                    group_id = gh.ensure_runner_group(entity_name, token, RUNNER_GROUP_NAME)
+                    jit_config = gh.create_jit_runner_config_org(token, group_id, labels, entity_name, runner_name)
+                else:
+                    jit_config = gh.create_jit_runner_config_repo(token, labels, repo_full_name, runner_name)
+
+                k8s.provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, entity_name)
+
+                logger.info("Provisioned runner %s for entity=%s entity_id=%s entity_type=%s pool=%s", runner_name, entity_name, entity_id, entity_type, k8s_pool)
+
+            except Exception as e:
+                logger.error("Failed to provision runner %s for entity=%s entity_id=%s entity_type=%s pool=%s, error: %s", runner_name, entity_name, entity_id, entity_type, k8s_pool, str(e))
+                failure_info = {
+                    "version": 2, # bump when the structure changes
+                    "reason": FailureReason.POD_ALLOCATION_FAILURE.value,
+                    "containers": {},
+                    "events": [],
+                    "pod_message": None,
+                    "pod_reason": None,
+                }
+                db.mark_worker_failed(runner_name, k8s_node=None, failure_info=failure_info, completed_at=None)
+
+            available_slots -= 1
+            if available_slots == 0:
+                logger.debug("Capacity for k8s_pool=%s is now 0", k8s_pool)
                 break
-            except DuplicateRunnerNameException:
-                logger.warning("Runner name %s collision, regenerating", candidate)
-                continue
-
-        if runner_name is None:
-            logger.error("Failed to generate unique runner name for entity=%s pool=%s after retries", entity_name, k8s_pool)
-            continue
-
-        # Name reserved in DB, now safe to provision
-        try:
-            token = gh.authenticate_app(int(installation_id), entity_type=entity_type)
-
-            if entity_type == EntityType.ORGANIZATION:
-                group_id = gh.ensure_runner_group(entity_name, token, RUNNER_GROUP_NAME)
-                jit_config = gh.create_jit_runner_config_org(token, group_id, labels, entity_name, runner_name)
-            else:
-                jit_config = gh.create_jit_runner_config_repo(token, labels, repo_full_name, runner_name)
-
-            k8s.provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, entity_name)
-
-            # Update local cache
-            entity_worker_counts[entity_id] = entity_worker_counts.get(entity_id, 0) + 1
-
-            logger.info("Provisioned runner %s for entity=%s pool=%s entity_type=%s", runner_name, entity_name, k8s_pool, entity_type.value)
-
-        except Exception as e:
-            logger.error("Failed to provision runner %s for entity=%s pool=%s, error: %s", runner_name, entity_name, k8s_pool, str(e))
-            failure_info = {
-                "version": 2, # bump when the structure changes
-                "reason": FailureReason.POD_ALLOCATION_FAILURE.value,
-                "containers": {},
-                "events": [],
-                "pod_message": None,
-                "pod_reason": None,
-            }
-            db.mark_worker_failed(runner_name, k8s_node=None, failure_info=failure_info, completed_at=None)
 
 
 # --- HTTP Handlers ---

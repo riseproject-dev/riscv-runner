@@ -110,7 +110,7 @@ Scheduler: for each pending job:
   - get_pool_demand(entity_id, job_labels) -> (jobs, workers)
   - if jobs <= workers: skip (demand met)
   - if entity total workers >= max_workers: skip
-  - has_available_slot(node_selector): skip if no capacity
+  - get_available_slots(node_selector): skip if no capacity
   - add_worker(entity_id, k8s_pool, name, labels, image) -> reserve name in DB
   - authenticate_app(installation_id, entity_type) -> token
   - [org] ensure_runner_group(entity_name, token) -> group_id
