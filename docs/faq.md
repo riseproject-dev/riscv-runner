@@ -11,7 +11,7 @@ nav_order: 4
 
 ## Is Docker available?
 
-**Yes.** Every runner includes a Docker-in-Docker sidecar. You can use `docker build`, `docker run`, Docker Compose, and Buildx out of the box. Docker communicates over TLS within the pod.
+**Yes.** `docker`, `docker compose`, and `docker buildx` are pre-installed and work out of the box.
 
 ## What architectures are supported?
 
@@ -50,7 +50,7 @@ No. Runners are ephemeral and not accessible outside the job execution context. 
 
 ## What happens if a runner pod crashes?
 
-The worker's cleanup loop (every 15 seconds) detects pods in `Failed` state and deletes them. The corresponding Redis worker record is also cleaned up. GitHub will mark the job as failed. You can re-run the job from the GitHub Actions UI.
+The scheduler detects pods in the `Failed` state, marks the corresponding worker row in PostgreSQL as `failed` with diagnostics in `failure_info`, and (after a 6-hour grace period during which logs and events remain inspectable via `kubectl`) deletes the pod. GitHub marks the job as failed. You can re-run the job from the GitHub Actions UI.
 
 ## Where are the runner images hosted?
 

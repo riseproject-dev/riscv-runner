@@ -17,12 +17,12 @@ Run GitHub Actions workflows on real RISC-V hardware. No emulation, no cross-com
 ## How it works
 
 1. Your workflow triggers a `workflow_job` webhook
-2. The webhook handler validates the request and records demand in Redis
-3. A background worker provisions a Kubernetes pod on a matching RISC-V node
+2. The webhook handler validates the request and records demand in PostgreSQL
+3. A scheduler service provisions a Kubernetes pod on a matching RISC-V node
 4. The pod registers as a just-in-time GitHub Actions runner and executes your job
 5. On completion, the pod is cleaned up automatically
 
-Runners are **ephemeral**. Each job gets a fresh environment. Docker-in-Docker is available in every run.
+Runners are **ephemeral**. Each job gets a fresh environment.
 
 ## Quick start
 
@@ -49,9 +49,9 @@ See the full [Runner Labels Reference](docs/getting-started/labels) for hardware
 
 The system spans four repositories:
 
-- **[riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app)**: GitHub App webhook handler and background worker
+- **[riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app)**: GitHub App webhook handler and scheduler
 - **[riscv-runner-device-plugin](https://github.com/riseproject-dev/riscv-runner-device-plugin)**: Kubernetes device plugin and node labeller
-- **[riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)**: Runner and DinD container images
+- **[riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)**: Runner container image (Ubuntu + tools)
 - **[riscv-runner-sample](https://github.com/riseproject-dev/riscv-runner-sample)**: Sample repository demonstrating usage
 
 See the [Architecture Overview](docs/architecture/) for details.

@@ -20,7 +20,7 @@ jobs:
 
 ## Related repositories
 
-- **[riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app)**: GitHub App webhook handler and background worker. Receives `workflow_job` events, validates requests, and provisions ephemeral runner pods on Kubernetes.
-- **[riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)**: Container images for the runner and Docker-in-Docker sidecar. Built for RISC-V and published to the project's container registry.
+- **[riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app)**: GitHub App webhook handler and scheduler. Receives `workflow_job` events, validates requests, and provisions ephemeral runner pods on Kubernetes.
+- **[riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)**: Runner container image (Ubuntu + the standard set of CI tools). Built for RISC-V and published to the project's container registry.
 - **[riscv-runner-device-plugin](https://github.com/riseproject-dev/riscv-runner-device-plugin)**: Kubernetes device plugin and node labeller. Exposes RISC-V board capabilities so the scheduler can place runner pods on matching hardware.
 - **[riscv-runner-sample](https://github.com/riseproject-dev/riscv-runner-sample)**: Sample repository demonstrating how to configure a GitHub Actions workflow to use RISC-V runners.

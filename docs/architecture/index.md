@@ -12,9 +12,9 @@ has_children: true
 
 | Repository | Language | Role |
 |------------|----------|------|
-| [riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app) | Python | Webhook handler, background worker, GitHub API integration |
+| [riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app) | Python | Webhook handler (`ghfe`), scheduler, GitHub API integration |
 | [riscv-runner-device-plugin](https://github.com/riseproject-dev/riscv-runner-device-plugin) | Go | Kubernetes device plugin (1 pod/node), node labeller (SoC detection) |
-| [riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images) | Dockerfile | Runner image (Ubuntu + tools), DinD sidecar |
+| [riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images) | Dockerfile | Runner image (Ubuntu + tools) |
 | [riscv-runner-sample](https://github.com/riseproject-dev/riscv-runner-sample) | YAML | Example workflows for end users |
 
 ## End-to-end flow
@@ -22,45 +22,45 @@ has_children: true
 ```mermaid
 sequenceDiagram
     participant GH as GitHub
-    participant H as Webhook Handler
-    participant R as Redis
-    participant W as Worker
+    participant H as ghfe (Webhook Handler)
+    participant DB as PostgreSQL
+    participant S as Scheduler
     participant K as Kubernetes
     participant N as RISC-V Node
 
     GH->>H: workflow_job (queued)
     H->>H: Validate signature (HMAC-SHA256)
     H->>H: Match labels → K8s pool + image
-    H->>R: Store job (HSET + SADD)
-    H->>W: Signal queue event
+    H->>DB: INSERT job + NOTIFY queue_event
+    DB-->>S: LISTEN wakes scheduler
 
-    W->>R: Get pending jobs (FIFO)
-    W->>W: Check demand > supply
-    W->>W: Check max_workers cap
-    W->>K: Check available slots (node selector)
-    W->>GH: Authenticate (GitHub App)
-    W->>GH: Create JIT runner config (org or repo scoped)
-    W->>K: Provision runner pod
+    S->>DB: SELECT pending jobs (FIFO)
+    S->>S: Check demand > supply
+    S->>S: Check max_workers cap
+    S->>K: Check available slots (node selector)
+    S->>GH: Authenticate (GitHub App)
+    S->>GH: Create JIT runner config (org or repo scoped)
+    S->>K: Provision runner pod (with RUNNER_JITCONFIG)
     K->>N: Schedule pod on RISC-V node
     N->>GH: Register as JIT runner
 
     GH->>H: workflow_job (in_progress)
-    H->>R: Update job status → running
+    H->>DB: UPDATE job status → running
 
     Note over N: Job executes on RISC-V hardware
 
     GH->>H: workflow_job (completed)
-    H->>R: Update job status → completed
+    H->>DB: UPDATE job status → completed
 
-    W->>K: Cleanup completed pods
-    W->>R: Remove worker records
+    S->>K: Reconcile pod phase, kill stuck pods
+    S->>K: Delete pods past 6h grace period
 ```
 
 ## Key design decisions
 
-**Demand-driven provisioning.** Webhooks record demand (pending jobs in Redis). The worker creates supply (Kubernetes pods) to match. This separation keeps webhook responses fast: no GitHub API calls or Kubernetes operations on the webhook path.
+**Demand-driven provisioning.** Webhooks record demand (pending jobs in PostgreSQL). The scheduler creates supply (Kubernetes pods) to match. This separation keeps webhook responses fast: no GitHub API calls or Kubernetes operations on the webhook path. The scheduler is woken by `LISTEN/NOTIFY` (or a 15s timeout) rather than polling.
 
-**Ephemeral runners.** Each job gets a fresh pod. No state persists between jobs. Pods are deleted after completion by the worker's cleanup loop.
+**Ephemeral runners.** Each job gets a fresh pod. No state persists between jobs. Pods are kept for 6 hours after completion so logs and events remain inspectable, then deleted by the scheduler.
 
 **One pod per node.** The device plugin advertises a single `riseproject.com/runner` resource per node. The Kubernetes scheduler enforces exclusive access: only one runner pod can be scheduled on each RISC-V node at a time.
 
@@ -72,7 +72,7 @@ sequenceDiagram
 
 ## Components
 
-- [Webhook Handler](handler): request validation, label matching, Redis storage
-- [Worker & Scheduling](worker): reconciliation loop, demand matching, pod lifecycle
+- [GitHub Frontend](ghfe): request validation, label matching, PostgreSQL storage
+- [Scheduler](scheduler): reconciliation loop, demand matching, pod lifecycle
 - [Kubernetes Infrastructure](kubernetes): device plugin, node labeller, scheduling
-- [Container Images](images): runner image, DinD sidecar, build pipeline
+- [Container Images](images): runner image and build pipeline

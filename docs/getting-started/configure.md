@@ -35,9 +35,15 @@ Save this as `.github/workflows/riscv.yml` in your repository.
 
 See the [Runner Labels Reference](labels) for full hardware specs.
 
-## Docker support
+## Pre-installed tools
 
-Every runner includes Docker-in-Docker. Build and run containers natively on RISC-V:
+The runner image aims to mirror the standard GitHub Actions Ubuntu runner. Highlights:
+
+- **Languages and runtimes:** Python 3.10–3.14 (including free-threaded variants), Node.js, Go, Rust, Java (Temurin 17/21/25), PHP, Ruby, Perl, Lua, R.
+- **Compilers:** GCC, G++, Clang.
+- **Build tools:** Make, CMake, Ninja, Autoconf, Automake, Libtool, Gradle, Maven, Ant.
+- **Container tooling:** Docker (CLI + daemon, Buildx, Compose), podman, buildah, skopeo, runc, kubectl.
+- **Utilities:** Git, curl, wget, jq, shellcheck, rsync.
 
 ```yaml
 jobs:
@@ -49,19 +55,7 @@ jobs:
       - run: docker run myapp
 ```
 
-Docker Buildx and Docker Compose are also available.
-
-## Pre-installed tools
-
-The runner image includes:
-
-- **Languages**: Python 3.10–3.14, GCC, G++
-- **Build tools**: Make, Autoconf, Automake, CMake, Libtool
-- **Docker**: Docker CLI, Buildx, Compose
-- **Utilities**: Git, curl, wget, jq, shellcheck, rsync
-- **Package managers**: dpkg, rpm, pip
-
-See [riseproject-dev/riscv-runner-images:runner/Dockerfile.ubuntu](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu) for the complete list
+See [riseproject-dev/riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu) for the complete list and [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/versions-map.json) for pinned versions.
 
 ## Runner lifecycle
 
