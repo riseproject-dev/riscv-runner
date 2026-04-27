@@ -25,6 +25,7 @@ RUNNER_GROUP_NAME = f"RISE RISC-V Runners{'' if PROD else " (staging)"}"
 RUNNER_NAME_PREFIX = f"rise-riscv-runner{'' if PROD else '-staging'}-"
 
 RUNNER_REGISTRATION_TIMEOUT_SECONDS = 120           # pod Running but GH never sees runner
+RUNNER_PENDING_TIMEOUT_SECONDS      = 600        # pod Running but GH never picks up the runner
 POD_PENDING_TIMEOUT_SECONDS         = 600           # pod stuck Pending (no capacity, image pull, etc.)
 POD_DELETE_GRACE_SECONDS            = 6 * 60 * 60   # keep terminal pods around so logs remain inspectable
 

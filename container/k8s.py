@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 class FailureReason(str, Enum):
     POD_FAILED              = "pod_failed"
-    RUNNER_NEVER_REGISTERED = "runner_never_registered"
     POD_STUCK_PENDING       = "pod_stuck_pending"
+    RUNNER_NEVER_REGISTERED = "runner_never_registered"
+    RUNNER_IDLE             = "runner_idle"
 
 
 @functools.lru_cache(maxsize=1)

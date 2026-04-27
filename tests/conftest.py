@@ -25,6 +25,7 @@ mock_constants.POSTGRES_MAXCONN = 10
 mock_constants.RUNNER_GROUP_NAME = "RISE RISC-V Runners"
 mock_constants.RUNNER_NAME_PREFIX = "rise-riscv-runner-staging-"
 mock_constants.RUNNER_REGISTRATION_TIMEOUT_SECONDS = 120
+mock_constants.RUNNER_PENDING_TIMEOUT_SECONDS = 600
 mock_constants.POD_PENDING_TIMEOUT_SECONDS = 600
 mock_constants.POD_DELETE_GRACE_SECONDS = 6 * 60 * 60
 mock_constants.K8S_KUBECONFIG = None

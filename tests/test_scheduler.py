@@ -9,6 +9,7 @@ from constants import (
     POD_DELETE_GRACE_SECONDS,
     POD_PENDING_TIMEOUT_SECONDS,
     RUNNER_NAME_PREFIX,
+    RUNNER_PENDING_TIMEOUT_SECONDS,
     RUNNER_REGISTRATION_TIMEOUT_SECONDS,
 )
 from k8s import FailureReason
@@ -345,7 +346,7 @@ def test_get_gh_runners_uses_cache_on_subsequent_calls(mock_group, mock_list_gh)
     must return the cached dict without hitting the GitHub API again — this is what
     lets Phase 4 reuse Phase 3's listing under the same orchestrator invocation."""
     key = (999, EntityType.ORGANIZATION, 1000, "test-org")
-    cache = {key: {"runner-1": {"id": 7, "name": "runner-1", "status": "online"}}}
+    cache = {key: {"runner-1": {"id": 7, "name": "runner-1", "status": "online", "busy": True}}}
 
     result = _get_gh_runners(key, "token-123", cache)
 
@@ -589,7 +590,7 @@ def test_phase_3_keeps_registered_runner(
     name = "rise-riscv-runner-staging-pod-1"
     pod = make_running_pod(name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online"}]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online", "busy": True}]
     worker = make_worker(pod_name=name, status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
     pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
@@ -616,7 +617,7 @@ def test_phase_3_fails_offline_runner_past_timeout(
     name = "rise-riscv-runner-staging-pod-1"
     pod = make_running_pod(name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline"}]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline", "busy": False}]
     worker = make_worker(pod_name=name, status="running", running_at=old)
     _configure_db_mock(mock_db, workers=[worker])
     pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
@@ -644,7 +645,7 @@ def test_phase_3_keeps_offline_runner_within_timeout(
     name = "rise-riscv-runner-staging-pod-1"
     pod = make_running_pod(name)
     mock_list_pods.return_value = [pod]
-    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline"}]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "offline", "busy": False}]
     worker = make_worker(pod_name=name, status="running", running_at=recent)
     _configure_db_mock(mock_db, workers=[worker])
     pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
@@ -653,6 +654,119 @@ def test_phase_3_keeps_offline_runner_within_timeout(
 
     mock_db.mark_worker_failed.assert_not_called()
     mock_kill.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+def test_phase_3_keeps_idle_online_runner_within_pending_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
+    """An online runner that hasn't picked up a job yet must be left alone if it is
+    still within RUNNER_PENDING_TIMEOUT_SECONDS — GH may still hand it work."""
+    recent = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=10)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online", "busy": False}]
+    worker = make_worker(pod_name=name, status="running", running_at=recent)
+    _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
+
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
+
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "runner_idle"})
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+def test_phase_3_fails_idle_online_runner_past_pending_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    """An online runner that has been idle (busy=False) past RUNNER_PENDING_TIMEOUT_SECONDS
+    must be marked failed with reason RUNNER_IDLE — GH never assigned it a job, so the
+    slot is occupied for nothing and we want it freed for a retry."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_PENDING_TIMEOUT_SECONDS + 30)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "online", "busy": False}]
+    worker = make_worker(pod_name=name, status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
+
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
+
+    mock_db.mark_worker_failed.assert_called_once()
+    args = mock_db.mark_worker_failed.call_args[0]
+    assert args[0] == name
+    assert args[2]["reason"] == FailureReason.RUNNER_IDLE.value
+    mock_kill.assert_called_once_with(pod)
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+def test_phase_3_keeps_runner_with_unknown_status_within_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_kill, mock_list_pods, mock_db):
+    """A runner reporting an unrecognised status (anything other than online/offline)
+    within the registration window must be left alone — GH may still settle into a
+    known state before the deadline."""
+    recent = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=10)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "starting", "busy": False}]
+    worker = make_worker(pod_name=name, status="running", running_at=recent)
+    _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
+
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
+
+    mock_db.mark_worker_failed.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.list_pods")
+@patch("scheduler.k8s.kill_pod")
+@patch("scheduler.k8s.collect_pod_failure_info", return_value={"version": 2, "reason": "runner_never_registered"})
+@patch("scheduler.gh.authenticate_app", return_value="token-123")
+@patch("scheduler.gh.ensure_runner_group", return_value=42)
+@patch("scheduler.gh.list_runners_org_group")
+def test_phase_3_fails_runner_with_unknown_status_past_timeout(
+        mock_list_gh, mock_group, mock_auth, mock_collect, mock_kill, mock_list_pods, mock_db):
+    """A runner stuck in an unrecognised status past RUNNER_REGISTRATION_TIMEOUT_SECONDS
+    must be marked failed as RUNNER_NEVER_REGISTERED — we treat any non-online state past
+    the deadline as a failed registration."""
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUNNER_REGISTRATION_TIMEOUT_SECONDS + 30)
+    name = "rise-riscv-runner-staging-pod-1"
+    pod = make_running_pod(name)
+    mock_list_pods.return_value = [pod]
+    mock_list_gh.return_value = [{"id": 11, "name": name, "status": "starting", "busy": False}]
+    worker = make_worker(pod_name=name, status="running", running_at=old)
+    _configure_db_mock(mock_db, workers=[worker])
+    pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
+
+    _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_runners_by_target)
+
+    mock_db.mark_worker_failed.assert_called_once()
+    args = mock_db.mark_worker_failed.call_args[0]
+    assert args[0] == name
+    assert args[2]["reason"] == "runner_never_registered"
+    mock_kill.assert_called_once_with(pod)
 
 
 @patch("scheduler.db")
@@ -748,7 +862,7 @@ def test_phase_3_aborts_cleanup_when_github_refuses_delete(
     pod.spec.node_name = None
     mock_list_pods.return_value = [pod]
     # GH has the runner listed (so gh_runner is not None in _fail_and_cleanup).
-    mock_list_gh.return_value = [{"id": 77, "name": name}]
+    mock_list_gh.return_value = [{"id": 77, "name": name, "status": "online", "busy": False}]
     worker = make_worker(pod_name=name, status="pending")
     _configure_db_mock(mock_db, workers=[worker])
     pods_by_name, workers_by_name, gh_runners_by_target = _phase_state(mock_db, mock_list_pods)
@@ -835,8 +949,8 @@ def test_phase_4_deletes_gh_runner_for_terminal_worker(
     name = "rise-riscv-runner-staging-pod-1"
     active_pod = make_running_pod("rise-riscv-runner-staging-pod-active")
     mock_list_pods.return_value = [active_pod]
-    gh_runners = [{"id": 11, "name": name, "status": "online"},
-                  {"id": 12, "name": "rise-riscv-runner-staging-pod-active", "status": "online"}]
+    gh_runners = [{"id": 11, "name": name, "status": "online", "busy": True},
+                  {"id": 12, "name": "rise-riscv-runner-staging-pod-active", "status": "online", "busy": True}]
     terminal_worker = make_worker(pod_name=name, status="completed")
     active_worker = make_worker(pod_name="rise-riscv-runner-staging-pod-active",
                                 status="running",
@@ -860,8 +974,8 @@ def test_phase_4_deletes_gh_runner_with_no_worker_row(
     orphan_name = "rise-riscv-runner-staging-pod-orphan"
     pod = make_running_pod(active_name)
     mock_list_pods.return_value = [pod]
-    gh_runners = [{"id": 11, "name": active_name, "status": "online"},
-                  {"id": 99, "name": orphan_name, "status": "online"}]
+    gh_runners = [{"id": 11, "name": active_name, "status": "online", "busy": True},
+                  {"id": 99, "name": orphan_name, "status": "online", "busy": True}]
     active_worker = make_worker(pod_name=active_name, status="running",
                                 running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[active_worker])
@@ -882,7 +996,7 @@ def test_phase_4_keeps_gh_runner_with_active_worker(
     name = "rise-riscv-runner-staging-pod-1"
     pod = make_running_pod(name)
     mock_list_pods.return_value = [pod]
-    gh_runners = [{"id": 11, "name": name, "status": "online"}]
+    gh_runners = [{"id": 11, "name": name, "status": "online", "busy": True}]
     worker = make_worker(pod_name=name, status="running",
                          running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[worker])
@@ -905,8 +1019,8 @@ def test_phase_4_skips_gh_runners_without_prefix(
     mock_list_pods.return_value = [pod]
     # A foreign runner (no matching prefix) must never be deleted even if there is no
     # corresponding worker row.
-    gh_runners = [{"id": 11, "name": active_name, "status": "online"},
-                  {"id": 99, "name": "some-other-teams-runner", "status": "online"}]
+    gh_runners = [{"id": 11, "name": active_name, "status": "online", "busy": True},
+                  {"id": 99, "name": "some-other-teams-runner", "status": "online", "busy": True}]
     active_worker = make_worker(pod_name=active_name, status="running",
                                 running_at=datetime.datetime.now(datetime.timezone.utc))
     _configure_db_mock(mock_db, workers=[active_worker])
@@ -935,7 +1049,7 @@ def test_phase_4_skips_scope_when_authenticate_fails(
     # Pre-populate cache as if Phase 3 had built it.
     key = _gh_runner_key_for_worker(terminal_worker)
     workers_by_name = {w["pod_name"]: w for w in mock_db.get_workers_for_reconcile()}
-    gh_runners_by_target = {key: {name: {"id": 11, "name": name, "status": "online"}}}
+    gh_runners_by_target = {key: {name: {"id": 11, "name": name, "status": "online", "busy": True}}}
 
     with patch("scheduler.gh.authenticate_app",
                side_effect=GitHubAPIError(500, "internal server error")):
@@ -1063,8 +1177,8 @@ def test_reconcile_uses_repo_listing_for_user(
     # Two runners returned: one of ours, one foreign. The call-side filter in
     # _get_gh_runners strips the foreign one because it doesn't start with RUNNER_NAME_PREFIX.
     mock_list_repo.return_value = [
-        {"id": 11, "name": name, "status": "online"},
-        {"id": 22, "name": "random-self-hosted", "status": "online"},
+        {"id": 11, "name": name, "status": "online", "busy": True},
+        {"id": 22, "name": "random-self-hosted", "status": "online", "busy": True},
     ]
     worker = make_worker(pod_name=name, status="running",
                          entity_type=EntityType.USER,
