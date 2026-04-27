@@ -12,6 +12,7 @@ from db import (
     job_exists_for_pod,
     get_pool_demand,
     get_pending_jobs,
+    get_all_workers,
     add_worker,
     mark_worker_failed,
     hold_connection,
@@ -409,3 +410,53 @@ def test_block_with_error_inside_hold_connection_does_rollback(mock_pool_fn):
     conn.commit.assert_not_called()
     conn.rollback.assert_called_once()
     pool.putconn.assert_called_once_with(conn)
+
+
+# --- get_all_workers ---
+
+@patch("db._init_pool")
+def test_get_all_workers(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = {"total": 2}
+    cur.fetchall.return_value = [{"pod_name": "pod-1"}, {"pod_name": "pod-2"}]
+
+    rows, total = get_all_workers()
+
+    assert total == 2
+    assert len(rows) == 2
+
+
+@patch("db._init_pool")
+def test_get_all_workers_with_date_filters(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = {"total": 0}
+    cur.fetchall.return_value = []
+
+    rows, total = get_all_workers(start="2026-01-01", end="2026-02-01")
+
+    assert total == 0
+    assert rows == []
+    # Check that WHERE conditions were applied (call 1 = SET search_path, call 2 = COUNT)
+    count_call = cur.execute.call_args_list[1]
+    assert "created_at >=" in count_call[0][0]
+    assert "created_at <" in count_call[0][0]
+
+
+@patch("db._init_pool")
+def test_get_all_workers_with_paging(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = {"total": 50}
+    cur.fetchall.return_value = [{"pod_name": "pod-10"}]
+
+    rows, total = get_all_workers(page=1, per_page=10)
+
+    assert total == 50
+    assert len(rows) == 1
+    # Check paging params: LIMIT 10, OFFSET 10 (SET search_path, COUNT, SELECT)
+    select_call = cur.execute.call_args_list[2]
+    params = select_call[0][1]
+    assert params[-2] == 10  # per_page (LIMIT)
+    assert params[-1] == 10  # page * per_page (OFFSET)

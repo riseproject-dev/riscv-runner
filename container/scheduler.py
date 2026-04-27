@@ -531,7 +531,7 @@ def _format_timestamp(created_at):
     return datetime.datetime.fromtimestamp(float(created_at), tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def render_job(job):
+def render_job(job) -> str:
     status = _format_status(job["status"])
     job_id = job["job_id"]
     repo = job["repo_full_name"]
@@ -543,7 +543,7 @@ def render_job(job):
     return f'{status}  {created_str}  {labels}  {pod}  {link}'
 
 
-def render_worker(worker):
+def render_worker(worker) -> list[str]:
     status = _format_status(worker["status"])
     created_str = _format_timestamp(worker['created_at'])
     labels = _format_labels(worker['job_labels'])
@@ -657,7 +657,9 @@ def _build_link_header(base_url: str, page: int, per_page: int, total: int,
 
 @app.route("/history", methods=['GET'])
 @app.route("/history.json", methods=['GET'])
-def history():
+@app.route("/jobs", methods=['GET'])
+@app.route("/jobs.json", methods=['GET'])
+def jobs():
     start = _parse_date_param(request.args.get("start"))
     end = _parse_date_param(request.args.get("end"))
     page = request.args.get("page", 0, type=int)
@@ -697,9 +699,57 @@ def history():
     for job in jobs:
         lines.append(render_job(job))
     if not lines:
-        lines.append("No jobs found.")
+        lines = ["No jobs found."]
 
     return make_response(f"<title>{'History - Prod' if PROD else 'History - Staging'}</title><pre>{chr(10).join(lines)}</pre>", 200, {"Content-Type": "text/html"})
+
+
+@app.route("/workers", methods=['GET'])
+@app.route("/workers.json", methods=['GET'])
+def workers():
+    start = _parse_date_param(request.args.get("start"))
+    end = _parse_date_param(request.args.get("end"))
+    page = request.args.get("page", 0, type=int)
+    per_page = request.args.get("per_page", 100, type=int)
+
+    if start is not None:
+        try:
+            datetime.date.fromisoformat(start)
+        except:
+            return make_response('invalid parameter start, must be YYYY-MM-DD', 400)
+    if end is not None:
+        try:
+            datetime.date.fromisoformat(end)
+        except:
+            return make_response('invalid parameter end, must be YYYY-MM-DD', 400)
+    if page < 0:
+        return make_response('invalid parameter page, must be >= 0', 400)
+    if per_page <= 0:
+        return make_response('invalid parameter per_page, must be > 0', 400)
+
+    workers, total = db.get_all_workers(start=start, end=end, page=page, per_page=per_page)
+
+    if _wants_json():
+        resp = _json_response(jobs)
+        extra = {}
+        if start:
+            extra["start"] = start
+        if end:
+            extra["end"] = end
+        link = _build_link_header(request.base_url.split('?')[0], page, per_page, total, extra)
+        if link:
+            resp.headers["link"] = link
+        return resp
+
+    # HTML
+    lines = []
+    for worker in workers:
+        lines.extend(render_worker(worker))
+    if not lines:
+        lines = ["No workers found."]
+
+    return make_response(f"<title>{'Workers - Prod' if PROD else 'Workers - Staging'}</title><pre>{chr(10).join(lines)}</pre>", 200, {"Content-Type": "text/html"})
+
 
 def _scheduler_iteration():
     # Serialize demand matching across scheduler containers: hold one DB connection

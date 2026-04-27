@@ -424,7 +424,7 @@ def get_total_workers_for_entity(entity_id: int) -> int:
     return row[0]
 
 
-def get_pending_jobs() -> list[dict]:
+def get_pending_jobs() -> list[psycopg2.extras.RealDictRow]:
     """Return all pending jobs in FIFO order as full row dicts.
 
     Consumers (demand_match) read fields via `job["job_id"]`, `job["entity_id"]`,
@@ -532,7 +532,7 @@ def mark_worker_orphaned(pod_name: str):
     logger.debug("Marked worker %s orphaned", pod_name)
 
 
-def get_active_jobs_and_workers() -> tuple[list[dict], list[dict]]:
+def get_active_jobs_and_workers() -> tuple[list[psycopg2.extras.RealDictRow], list[psycopg2.extras.RealDictRow]]:
     """Return (active_jobs, active_workers) as raw rows from PostgreSQL."""
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -553,7 +553,7 @@ def get_active_jobs_and_workers() -> tuple[list[dict], list[dict]]:
     return jobs, workers
 
 
-def get_active_jobs() -> list[dict]:
+def get_active_jobs() -> list[psycopg2.extras.RealDictRow]:
     """Return active_jobs as raw rows from PostgreSQL."""
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -565,7 +565,7 @@ def get_active_jobs() -> list[dict]:
             return cur.fetchall()
 
 
-def get_active_workers() -> list[dict]:
+def get_active_workers() -> list[psycopg2.extras.RealDictRow]:
     """Return active_workers as raw rows from PostgreSQL."""
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -578,7 +578,7 @@ def get_active_workers() -> list[dict]:
 
 
 def get_all_jobs(start: str | None = None, end: str | None = None,
-                 page: int = 0, per_page: int = 100) -> tuple[list[dict[str, str]], int]:
+                 page: int = 0, per_page: int = 100) -> tuple[list[psycopg2.extras.RealDictRow], int]:
     """Return (jobs, total_count) with optional date filtering and paging.
 
     Args:
@@ -617,7 +617,47 @@ def get_all_jobs(start: str | None = None, end: str | None = None,
     return rows, total
 
 
-def get_workers_for_reconcile(terminal_lookback_seconds: int = 3600) -> list[dict]:
+def get_all_workers(start: str | None = None, end: str | None = None,
+                    page: int = 0, per_page: int = 100) -> tuple[list[psycopg2.extras.RealDictRow], int]:
+    """Return (workers, total_count) with optional date filtering and paging.
+
+    Args:
+        start: ISO date string (YYYY-MM-DD). Only workers created on or after this date.
+        end: ISO date string (YYYY-MM-DD). Only workers created before this date.
+        page: Page number (0-indexed).
+        per_page: Number of workers per page.
+
+    Returns:
+        Tuple of (list of worker dicts, total matching count for pagination).
+    """
+    with _get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            conditions = []
+            params: list = []
+            if start:
+                conditions.append("created_at >= %s::timestamptz")
+                params.append(start)
+            if end:
+                conditions.append("created_at < %s::timestamptz")
+                params.append(end)
+            where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+            cur.execute(f"SELECT COUNT(*) AS total FROM workers {where}", params)
+            total = cur.fetchone()["total"]
+
+            page_params = params + [per_page, page * per_page]
+            cur.execute(f"""
+                SELECT *
+                FROM workers
+                {where}
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, page_params)
+            rows = cur.fetchall()
+    return rows, total
+
+
+def get_workers_for_reconcile(terminal_lookback_seconds: int = 3600) -> list[psycopg2.extras.RealDictRow]:
     """Return all active workers plus recently-terminal workers for reconciliation.
 
     Active = pending/running. Terminal = completed/failed within the lookback window.

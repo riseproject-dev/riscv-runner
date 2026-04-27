@@ -1392,22 +1392,24 @@ def test_link_header_extra_params():
 def _make_active_job(job_id=111, entity_id=1000, entity_name="test-org",
                      job_labels=None, k8s_pool="scw-em-rv1", status="pending",
                      repo_full_name="test-org/repo", html_url="https://example.com",
-                     created_at="2026-04-01T00:00:00+00:00"):
+                     k8s_pod=None, created_at=None):
     return {
         "job_id": job_id, "entity_id": entity_id, "entity_name": entity_name,
         "job_labels": job_labels or ["ubuntu-24.04-riscv"], "k8s_pool": k8s_pool,
         "status": status, "repo_full_name": repo_full_name,
-        "html_url": html_url, "created_at": created_at,
+        "html_url": html_url, "k8s_pod": k8s_pod,
+        "created_at": created_at or datetime.datetime(2026, 4, 1, tzinfo=datetime.timezone.utc),
     }
 
 
 def _make_active_worker(pod_name="pod-1", entity_id=1000, entity_name="test-org",
                          job_labels=None, k8s_pool="scw-em-rv1", k8s_node=None,
-                         status="running", created_at="2026-04-01T00:00:00+00:00"):
+                         status="running", created_at=None):
     return {
         "pod_name": pod_name, "entity_id": entity_id, "entity_name": entity_name,
         "job_labels": job_labels or ["ubuntu-24.04-riscv"], "k8s_pool": k8s_pool,
-        "k8s_node": k8s_node, "status": status, "created_at": created_at,
+        "k8s_node": k8s_node, "status": status,
+        "created_at": created_at or datetime.datetime(2026, 4, 1, tzinfo=datetime.timezone.utc),
     }
 
 
@@ -1498,7 +1500,7 @@ def test_usage_json_preserves_all_fields(mock_db):
         assert out["status"] == "running"
         assert out["repo_full_name"] == "myorg/myrepo"
         assert out["html_url"] == "https://github.com/myorg/myrepo/actions/runs/1/job/999"
-        assert out["created_at"] == "2026-04-01T00:00:00+00:00"
+        assert out["created_at"] == "2026-04-01 00:00:00+00:00"
 
 
 @patch("scheduler.db")
@@ -1581,3 +1583,180 @@ def test_history_html_default(mock_db):
         resp = client.get("/history")
         assert resp.status_code == 200
         assert "text/html" in resp.content_type
+
+
+# --- /jobs alias tests (new route aliases for /history) ---
+
+@patch("scheduler.db")
+def test_jobs_json_alias(mock_db):
+    mock_db.get_all_jobs.return_value = ([{"job_id": "1", "status": "completed"}], 1)
+
+    with app.test_client() as client:
+        resp = client.get("/jobs.json")
+        assert resp.status_code == 200
+        assert resp.content_type == "application/json"
+        data = resp.get_json()
+        assert len(data) == 1
+
+
+@patch("scheduler.db")
+def test_jobs_html_alias(mock_db):
+    mock_db.get_all_jobs.return_value = ([], 0)
+
+    with app.test_client() as client:
+        resp = client.get("/jobs")
+        assert resp.status_code == 200
+        assert "text/html" in resp.content_type
+
+
+@patch("scheduler.db")
+def test_jobs_invalid_start_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/jobs?start=not-a-date")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+def test_jobs_invalid_end_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/jobs?end=not-a-date")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+def test_jobs_invalid_page_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/jobs?page=-1")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+def test_jobs_invalid_per_page_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/jobs?per_page=0")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+def test_jobs_html_with_jobs(mock_db):
+    mock_db.get_all_jobs.return_value = ([_make_active_job(status="completed", k8s_pod="pod-1")], 1)
+
+    with app.test_client() as client:
+        resp = client.get("/jobs")
+        assert resp.status_code == 200
+        assert "text/html" in resp.content_type
+        body = resp.get_data(as_text=True)
+        assert "test-org/repo" in body
+        assert "111" in body
+
+
+# --- /workers endpoint tests ---
+
+@patch("scheduler.db")
+def test_workers_html_empty(mock_db):
+    mock_db.get_all_workers.return_value = ([], 0)
+
+    with app.test_client() as client:
+        resp = client.get("/workers")
+        assert resp.status_code == 200
+        assert "text/html" in resp.content_type
+        assert "No workers found" in resp.get_data(as_text=True)
+
+
+@patch("scheduler.db")
+def test_workers_json(mock_db):
+    mock_db.get_all_workers.return_value = ([], 0)
+
+    with app.test_client() as client:
+        resp = client.get("/workers.json")
+        assert resp.status_code == 200
+        assert resp.content_type == "application/json"
+
+
+@patch("scheduler.db")
+def test_workers_json_with_paging(mock_db):
+    mock_db.get_all_workers.return_value = ([], 250)
+
+    with app.test_client() as client:
+        resp = client.get("/workers.json?page=1&per_page=100")
+        assert resp.status_code == 200
+        assert "link" in resp.headers
+        link = resp.headers["link"]
+        assert 'rel="first"' in link
+        assert 'rel="prev"' in link
+        assert 'rel="next"' in link
+        assert 'rel="last"' in link
+
+
+@patch("scheduler.db")
+def test_workers_passes_params_to_db(mock_db):
+    mock_db.get_all_workers.return_value = ([], 0)
+
+    with app.test_client() as client:
+        client.get("/workers.json?start=2026-01-01&end=2026-02-01&page=2&per_page=50")
+
+    mock_db.get_all_workers.assert_called_once_with(
+        start="2026-01-01", end="2026-02-01", page=2, per_page=50)
+
+
+@patch("scheduler.db")
+def test_workers_relative_dates(mock_db):
+    mock_db.get_all_workers.return_value = ([], 0)
+
+    with app.test_client() as client:
+        client.get("/workers.json?start=-7d")
+
+    call_args = mock_db.get_all_workers.call_args
+    expected_start = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+    assert call_args.kwargs["start"] == expected_start
+
+
+@patch("scheduler.db")
+def test_workers_no_link_header_single_page(mock_db):
+    mock_db.get_all_workers.return_value = ([{"pod_name": "pod-1"}], 1)
+
+    with app.test_client() as client:
+        resp = client.get("/workers.json")
+        assert "link" not in resp.headers
+
+
+@patch("scheduler.db")
+def test_workers_invalid_start_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/workers?start=not-a-date")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+def test_workers_invalid_end_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/workers?end=not-a-date")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+def test_workers_invalid_page_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/workers?page=-1")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+def test_workers_invalid_per_page_returns_400(mock_db):
+    with app.test_client() as client:
+        resp = client.get("/workers?per_page=0")
+        assert resp.status_code == 400
+
+
+@patch("scheduler.db")
+@patch("scheduler.k8s.get_pod_events", return_value=[])
+def test_workers_html_with_workers(mock_events, mock_db):
+    mock_db.get_all_workers.return_value = ([_make_active_worker(pod_name="pod-1", k8s_node="node-1")], 1)
+
+    with app.test_client() as client:
+        resp = client.get("/workers")
+        assert resp.status_code == 200
+        assert "text/html" in resp.content_type
+        body = resp.get_data(as_text=True)
+        assert "pod-1" in body
+        assert "node-1" in body
