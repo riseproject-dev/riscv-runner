@@ -25,7 +25,7 @@ custom:
     loglevel: "INFO"
   main:
     namespace: rise-riscv-runner-app
-    container-tag: "latest"
+    container-tag: "prod"
     prod: "true"
     loglevel: "INFO"
   # containers

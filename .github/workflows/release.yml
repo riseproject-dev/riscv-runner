@@ -3,7 +3,6 @@ name: Deploy
 on:
   push:
     branches:
-      - main
       - staging
   pull_request:
     branches:
@@ -17,22 +16,8 @@ env:
   STAGING_URL: https://riseriscvrunnerappst73ndwr0w-ghfe.functions.fnc.fr-par.scw.cloud
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.env.outputs.environment }}
-    steps:
-      - id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=main" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
-          fi
-
   test:
     runs-on: ubuntu-latest
-    needs: [setup]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -59,8 +44,8 @@ jobs:
             BASE_REF_NAME="refs/heads/${{ github.event.pull_request.base.ref }}"
             BASE_REF_URL="${{ github.event.pull_request.base.repo.html_url }}/tree/${BASE_SHA}"
           elif [[ "${{ github.event_name }}" = "push" ]]; then
-            if [[ -n "${{ needs.setup.outputs.environment }}" ]]; then
-              # If we are on main or staging
+            if [[ "${{ github.ref_name == github.event.repository.default_branch }}" = "true" ]]; then
+              # If we are on default branch
               if [[ "${{ github.event.forced }}" = "true" ]]; then
                 # If we are force-pushing, we don't know what's the previous commit to compare to
                 echo "::error::.github/workflows/release.yml Branch ${{ github.ref_name}} was just force-pushed, can't measure diff-coverage"
@@ -69,10 +54,10 @@ jobs:
               BASE_SHA="${{ github.event.before }}"
               BASE_REF_NAME="${{ github.ref }}"
             else
-              # If we are not on main or staging, compare to staging
-              git fetch origin staging # Make sure origin/staging is available
-              BASE_SHA="$(git rev-parse origin/staging)"
-              BASE_REF_NAME="ref/heads/staging"
+              # If we are not on default branch, compare to default branch
+              git fetch origin ${{ github.event.repository.default_branch }}
+              BASE_SHA="$(git rev-parse origin/${{ github.event.repository.default_branch }})"
+              BASE_REF_NAME="${{ github.event.repository.default_branch }}"
             fi
             BASE_REF_URL="${{ github.event.repository.html_url }}/tree/${BASE_SHA}"
           fi
@@ -90,22 +75,74 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  deploy:
-    if: github.repository_owner == 'riseproject-dev' && needs.setup.outputs.environment != ''
-    name: "deploy to ${{ needs.setup.outputs.environment }}"
-    needs: [test, setup]
+  build:
+    needs: [test]
     runs-on: ubuntu-latest
-    environment: ${{ needs.setup.outputs.environment }}
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: false
+    outputs:
+      ghfe-digest: ${{ steps.ghfe.outputs.digest }}
+      scheduler-digest: ${{ steps.scheduler.outputs.digest }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: rlespinasse/github-slug-action@9e7def61550737ba68c62d34a32dd31792e3f429 # v5.5.0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to Container Registry
+        if: github.repository_owner == 'riseproject-dev'
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
-          node-version: "20"
+          registry: ${{ env.REGISTRY }}
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+
+      - name: Build ghfe image
+        id: ghfe
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          platforms: linux/amd64
+          context: container
+          file: container/Dockerfile
+          target: ghfe
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-sha-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=type=gha,scope=docker' || '' }}
+          push: ${{ github.repository_owner == 'riseproject-dev' }}
+
+      - name: Build scheduler image
+        id: scheduler
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          platforms: linux/amd64
+          context: container
+          file: container/Dockerfile
+          target: scheduler
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-sha-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=type=gha,scope=docker' || '' }}
+          push: ${{ github.repository_owner == 'riseproject-dev' }}
+
+  deploy-staging:
+    if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
+    name: "deploy to staging"
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
@@ -117,42 +154,20 @@ jobs:
           username: nologin
           password: ${{ secrets.SCW_SECRET_KEY }}
 
-      - name: Build ghfe image
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-        with:
-          platforms: linux/amd64
-          context: container
-          file: container/Dockerfile
-          target: ghfe
-          tags: |
-            ${{ needs.setup.outputs.environment == 'main'    && format('{0}/{1}:ghfe-latest', env.REGISTRY, env.IMAGE) || '' }}
-            ${{ needs.setup.outputs.environment == 'staging' && format('{0}/{1}:ghfe-staging', env.REGISTRY, env.IMAGE) || '' }}
-          cache-from: |
-            type=gha,scope=ghfe-main
-            ${{ format('type=gha,scope=type=gha,scope=ghfe-{0}', env.GITHUB_REF_NAME_SLUG) }}
-          cache-to: |
-            ${{ format('type=gha,scope=type=gha,scope=ghfe-{0}', env.GITHUB_REF_NAME_SLUG) }}
-          push: true
+      - name: Tag ghfe image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-staging \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.ghfe-digest }}
 
-      - name: Build scheduler image
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-        with:
-          platforms: linux/amd64
-          context: container
-          file: container/Dockerfile
-          target: scheduler
-          tags: |
-            ${{ needs.setup.outputs.environment == 'main'    && format('{0}/{1}:scheduler-latest', env.REGISTRY, env.IMAGE) || '' }}
-            ${{ needs.setup.outputs.environment == 'staging' && format('{0}/{1}:scheduler-staging', env.REGISTRY, env.IMAGE) || '' }}
-          cache-from: |
-            type=gha,scope=scheduler-main
-            ${{ format('type=gha,scope=type=gha,scope=scheduler-{0}', env.GITHUB_REF_NAME_SLUG) }}
-          cache-to: |
-            ${{ format('type=gha,scope=type=gha,scope=scheduler-{0}', env.GITHUB_REF_NAME_SLUG) }}
-          push: true
+      - name: Tag scheduler image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-staging \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.scheduler-digest }}
 
       - name: Deploy to Scaleway
-        run: npm ci && npx serverless@3 deploy --stage=${{ needs.setup.outputs.environment }}
+        run: npm ci && npx serverless@3 deploy --stage=staging
         env:
           SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
           GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
@@ -162,10 +177,9 @@ jobs:
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
 
       - name: Health check
-        run: python3 ./bin/check-health.py ${{ needs.setup.outputs.environment == 'staging' && '--staging' || '' }}
+        run: python3 ./bin/check-health.py --staging
 
       - name: Trigger sample workflow
-        if: needs.setup.outputs.environment == 'staging'
         env:
           GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_ACCESS_TOKEN }}
           GH_REPO: riseproject-dev/riscv-runner-sample
@@ -174,3 +188,50 @@ jobs:
           gh workflow run ${GH_WORKFLOW} --repo ${GH_REPO}
           sleep 5
           gh run watch $(gh run list --repo ${GH_REPO} --workflow ${GH_WORKFLOW} --limit 1 --json databaseId --jq '.[0].databaseId') --repo ${GH_REPO} --interval 15 --exit-status
+
+  deploy-prod:
+    if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
+    name: "deploy to prod"
+    needs: [build, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Tag ghfe image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-prod \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.ghfe-digest }}
+
+      - name: Tag scheduler image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-prod \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.scheduler-digest }}
+
+      - name: Deploy to Scaleway
+        run: npm ci && npx serverless@3 deploy --stage=main
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
+          GHAPP_ORG_PRIVATE_KEY: ${{ secrets.GHAPP_ORG_PRIVATE_KEY }}
+          GHAPP_PERSONAL_PRIVATE_KEY: ${{ secrets.GHAPP_PERSONAL_PRIVATE_KEY }}
+          K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+
+      - name: Health check
+        run: python3 ./bin/check-health.py
