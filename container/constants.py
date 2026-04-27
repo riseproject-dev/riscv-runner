@@ -55,9 +55,6 @@ ENTITY_CONFIG = {
     LUHENRY_USER_ID: {
         "max_workers": None,
         "pre_allocated": 0,
-        "staging": [
-            "riscv-runner-sample",
-        ],
     },
 }
 
