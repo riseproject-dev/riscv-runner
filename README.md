@@ -24,16 +24,13 @@ jobs:
       - run: uname -m  # riscv64
 ```
 
+See [riseproject-dev/riscv-runner-sample](https://github.com/riseproject-dev/riscv-runner-sample) for more examples
+
 Available platform labels:
 
 | Labels | Board | Description |
 |--------|-------|-------------|
 | `ubuntu-24.04-riscv` | `scw-em-rv1` | Scaleway EM-RV1 RISC-V |
-| `ubuntu-24.04-riscv-2xlarge` | `cloudv10x-pioneer` | Cloud-V-provided hardware with larger number of cores (MILK-V Pioneer) |
-| `ubuntu-24.04-riscv-rvv` | `cloudv10x-rvv` | Cloud-V-provided hardware with RVV support |
-| `ubuntu-26.04-riscv` | `scw-em-rv1` | Scaleway EM-RV1 RISC-V (Ubuntu 26.04) |
-| `ubuntu-26.04-riscv-2xlarge` | `cloudv10x-pioneer` | Cloud-V-provided hardware with larger number of cores (MILK-V Pioneer) (Ubuntu 26.04) |
-| `ubuntu-26.04-riscv-rvv` | `cloudv10x-rvv` | Cloud-V-provided hardware with RVV support (Ubuntu 26.04) |
 
 ### Requirements
 
