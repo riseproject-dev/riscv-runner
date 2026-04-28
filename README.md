@@ -392,7 +392,7 @@ python scw-provision-runner.py --control-plane <control-plane-name> create 3
 # 3. Update Github Secrets:
 ## Note the `--env main` for the prod environment, use `--env staging` for staging environment
 ssh root@$(scw instance server list zone=fr-par-2 project-id=03a2e06e-e7c1-45a6-9f05-775d813c2e28 -o json | jq -r '.[] | select(.name == "<control-plane-name>") | .public_ip.address') cat /etc/kubernetes/kubeconfig-gh-app.conf | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner-app --env prod
-ssh root@$(scw instance server list zone=fr-par-2 project-id=03a2e06e-e7c1-45a6-9f05-775d813c2e28 -o json | jq -r '.[] | select(.name == "<control-plane-name>") | .public_ip.address') cat /etc/kubernetes/kubeconfig-gh-deploy.conf | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner-images --env main
+ssh root@$(scw instance server list zone=fr-par-2 project-id=03a2e06e-e7c1-45a6-9f05-775d813c2e28 -o json | jq -r '.[] | select(.name == "<control-plane-name>") | .public_ip.address') cat /etc/kubernetes/kubeconfig-gh-deploy.conf | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner-images --env prod
 ssh root@$(scw instance server list zone=fr-par-2 project-id=03a2e06e-e7c1-45a6-9f05-775d813c2e28 -o json | jq -r '.[] | select(.name == "<control-plane-name>") | .public_ip.address') cat /etc/kubernetes/kubeconfig-gh-deploy.conf | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner-device-plugin --env main
 ```
 
