@@ -420,7 +420,7 @@ def demand_match():
     for k8s_pool, jobs in jobs_by_pool:
         available_slots = k8s.get_available_slots(label_selector=f"riseproject.dev/board={k8s_pool}")
         logger.info("Capacity for k8s_pool=%s available_slots=%s", k8s_pool, available_slots)
-        if available_slots == 0:
+        if available_slots <= 0:
             continue
 
         for job in jobs:
