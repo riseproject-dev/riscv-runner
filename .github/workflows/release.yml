@@ -78,9 +78,6 @@ jobs:
   build:
     needs: [test]
     runs-on: ubuntu-latest
-    outputs:
-      ghfe-digest: ${{ steps.ghfe.outputs.digest }}
-      scheduler-digest: ${{ steps.scheduler.outputs.digest }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: rlespinasse/github-slug-action@9e7def61550737ba68c62d34a32dd31792e3f429 # v5.5.0
@@ -158,13 +155,13 @@ jobs:
         run: >-
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-staging \
-            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.ghfe-digest }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-sha-${{ github.sha }}
 
       - name: Tag scheduler image for staging
         run: >-
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-staging \
-            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.scheduler-digest }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-sha-${{ github.sha }}
 
       - name: Deploy to Scaleway
         run: npm ci && npx serverless@3 deploy --stage=staging
@@ -215,13 +212,13 @@ jobs:
         run: >-
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-prod \
-            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.ghfe-digest }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-sha-${{ github.sha }}
 
       - name: Tag scheduler image for prod
         run: >-
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-prod \
-            ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.scheduler-digest }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-sha-${{ github.sha }}
 
       - name: Deploy to Scaleway
         run: npm ci && npx serverless@3 deploy --stage=main
