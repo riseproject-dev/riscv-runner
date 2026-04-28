@@ -766,7 +766,7 @@ def workers():
     workers, total = db.get_all_workers(start=start, end=end, page=page, per_page=per_page)
 
     if _wants_json():
-        resp = _json_response(jobs)
+        resp = _json_response(workers)
         extra = {}
         if start:
             extra["start"] = start
