@@ -69,13 +69,9 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                             {"name": "RUNNER_JITCONFIG", "value": jit_config},
                         ],
                         "resources": {
-                            "requests": {
-                                "riseproject.com/runner": "1",
-                                "ephemeral-storage": "40Gi", # Request disk usage of at least 40GiB
-                            },
                             "limits": {
                                 "riseproject.com/runner": "1",
-                                "ephemeral-storage": "90Gi", # Limit disk usage to 90GiB
+                                "ephemeral-storage": "90Gi",
                             },
                         }
                     },
