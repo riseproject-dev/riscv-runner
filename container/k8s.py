@@ -37,6 +37,15 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
     with _init_client() as client:
         api = k8s.client.CoreV1Api(client)
 
+        resources = {
+            "limits": {
+                "riseproject.com/runner": "1",
+            }
+        }
+
+        if k8s_pool.startswith("scw-em-"):
+            resources["limits"]["ephemeral-storage"] = "90Gi"
+
         pod_manifest = {
             "apiVersion": "v1",
             "kind": "Pod",
@@ -68,12 +77,7 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                             {"name": "RUNNER_WAIT_FOR_DOCKER_IN_SECONDS", "value": "60"},
                             {"name": "RUNNER_JITCONFIG", "value": jit_config},
                         ],
-                        "resources": {
-                            "limits": {
-                                "riseproject.com/runner": "1",
-                                "ephemeral-storage": "90Gi",
-                            },
-                        }
+                        "resources": resources,
                     },
                 ],
             }
