@@ -369,10 +369,8 @@ Production and staging each have their own k8s cluster on Scaleway, managed via 
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/scw-provision-control-plane.py` | Create a k8s control plane instance (Scaleway POP2-2C-8G) with containerd, kubeadm, Flannel CNI, RBAC, and device plugins |
-| `scripts/scw-provision-runner.py` | Create, reinstall, list, or delete bare metal RISC-V runner nodes (Scaleway EM-RV1) |
-| `scripts/constants.py` | Scaleway project ID, zone, private network ID, SSH key IDs |
-| `scripts/utils.py` | Scaleway SDK clients, SSH helpers, BareMetal/Instance wrappers |
+| `scripts/scw.py control-plane create` | Create a k8s control plane instance (Scaleway POP2-2C-8G) with containerd, kubeadm, Flannel CNI, RBAC, and device plugins |
+| `scripts/scw.py runner {create,list,reinstall,setup,delete}` | Create, reinstall, list, or delete bare metal RISC-V runner nodes (Scaleway EM-RV1) |
 
 ### Creating a new cluster from scratch
 
@@ -384,10 +382,10 @@ pip3 install -r requirements.txt
 
 # 1. Create the control plane
 ## Pass --staging for a staging control-plane
-python scw-provision-control-plane.py create [--staging]
+python scw.py control-plane create [--staging]
 
 # 2. Add runner nodes (creates 3 bare metal RISC-V servers)
-python scw-provision-runner.py --control-plane <control-plane-name> create 3
+python scw.py runner create --control-plane <control-plane-name> 3
 
 # 3. Update Github Secrets:
 ## Note the `--env main` for the prod environment, use `--env staging` for staging environment
@@ -400,18 +398,18 @@ ssh root@$(scw instance server list zone=fr-par-2 project-id=03a2e06e-e7c1-45a6-
 
 ```bash
 # List runners tagged to a control plane
-python scw-provision-runner.py --control-plane <control-plane-name> list
+python scw.py runner list --control-plane <control-plane-name>
 
 # Reinstall OS on a runner (wipes and re-joins the cluster)
-python scw-provision-runner.py --control-plane <control-plane-name> reinstall <runner-name>
+python scw.py runner reinstall <runner-name>
 
 # Reinstall OS on many runners (4 in parallel)
 parallel --tag --line-buffer --halt never --delay 3 -j 4 --tagstring '[{}]' \
-  python3 -u scw-provision-runner.py reinstall {} \
+  python3 -u scw.py runner reinstall {} \
   ::: riscv-runner-{6,25,27,30,33,34}
 
 # Delete runners
-python scw-provision-runner.py --control-plane <control-plane-name> delete <runner-name>
+python scw.py runner delete <runner-name>
 ```
 
 ### Kubernetes RBAC
