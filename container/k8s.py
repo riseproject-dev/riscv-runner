@@ -78,6 +78,18 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                             {"name": "RUNNER_JITCONFIG", "value": jit_config},
                         ],
                         "resources": resources,
+                        "volumeMounts": [
+                            {
+                                "name": "docker-graph",
+                                "mountPath": "/var/lib/docker",
+                            },
+                        ],
+                    },
+                ],
+                "volumes": [
+                    {
+                        "name": "docker-graph",
+                        "emptyDir": {},
                     },
                 ],
             }
