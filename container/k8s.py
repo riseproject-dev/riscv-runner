@@ -83,12 +83,20 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                                 "name": "docker-graph",
                                 "mountPath": "/var/lib/docker",
                             },
+                            {
+                                "name": "k0s",
+                                "mountPath": "/var/lib/k0s",
+                            },
                         ],
                     },
                 ],
                 "volumes": [
                     {
                         "name": "docker-graph",
+                        "emptyDir": {},
+                    },
+                    {
+                        "name": "k0s",
                         "emptyDir": {},
                     },
                 ],
