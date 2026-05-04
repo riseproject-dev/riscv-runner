@@ -315,10 +315,24 @@ nf_conntrack
 tun
 EOF
 
+# Load some modules needed for customers' workloads
+cat <<EOF | sudo tee /etc/modules-load.d/users.conf
+# k0s
+ip_set
+ip_set_hash_ip
+ip_set_hash_net # it's not available in 5.10.113-scw1
+EOF
+
 sudo modprobe overlay
 sudo modprobe br_netfilter
 sudo modprobe nf_conntrack
 sudo modprobe tun
+
+# Blacklist some modules
+cat <<EOF | sudo tee /etc/modprobe.d/blacklist-copyfail.conf
+blacklist algif_aead
+install algif_aead /bin/true
+EOF
 
 # Configure sysctl params for Kubernetes networking
 cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
