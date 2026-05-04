@@ -63,9 +63,7 @@ def provision_runner(jit_config, runner_name, k8s_image, k8s_pool, entity_id, en
                 # 24h queue limit + 5d execution limit + 2h buffer = 525600s
                 "activeDeadlineSeconds": 525600,
                 "restartPolicy": "Never",
-                # Cloud-V hosted boards are on a private network behind a NAT, breaking DNS across pods. Use
-                # the host network which has access to the internet
-                "hostNetwork": k8s_pool.startswith("cloudv10x-"),
+                "hostNetwork": True,
                 "containers": [
                     {
                         "name": "runner",
