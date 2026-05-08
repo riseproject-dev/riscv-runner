@@ -198,6 +198,105 @@ Phase 4 of `sync_workers_state` cleans up GitHub-registered runners once per cyc
 - Runners registered in GitHub with no matching worker row (orphans from a previous scheduler, crashed provisioning, etc.) are deleted.
 - For org-scoped runners the listing is scoped to the `RISE RISC-V Runners` runner group; for repo-scoped (personal accounts) runners are filtered by the `rise-riscv-runner{-staging}-` name prefix.
 
+### Installation event log
+
+When `gh.authenticate_app()` returns 404 in the scheduler, the matching job
+is marked `failed` with `installation not found` — but the *cause* of the
+404 is invisible. The user may have uninstalled the app, suspended it,
+removed our access to a specific repo, renamed their org/user account, or
+installed the wrong app variant on the wrong account type. Without
+captured history, we can't tell users why their jobs stopped getting
+picked up.
+
+`installation_events` is an append-only table that records, in
+chronological order:
+
+- Every webhook delivery the app receives (`installation`,
+  `installation_repositories`, `installation_target`, `workflow_job`,
+  `ping`, plus a row for any unhandled `X-GitHub-Event` we don't model).
+- Every scheduler `gh.authenticate_app()` failure (`auth_attempt.404`,
+  `auth_attempt.other_error`).
+
+Each row carries the full payload as `JSONB`, plus filter/index keys
+(`installation_id`, `app_id`, `entity_type`, `entity_id`, `entity_name`)
+and a free-form `outcome` string. The `WebhookOutcome` enum in
+`constants.py` is the canonical list of outcome values; the column itself
+is `TEXT` so new outcomes don't require schema migrations. `entity_id`
+is the GitHub `account.id`, which is stable across renames and reinstalls
+— uninstalling and reinstalling the app produces a new `installation_id`
+but keeps the same `entity_id`.
+
+The webhook handler writes the `jobs` side-effect (`add_job`,
+`mark_job_running`, `mark_job_completed`) and the `installation_events`
+row in **separate transactions**. If the log write fails the side effect
+has already committed; the handler returns 500 and GitHub redelivers.
+Re-deliveries converge: `add_job` uses `ON CONFLICT (job_id) DO NOTHING`,
+the worker-status updates are no-ops on a second run, and the log table
+has no UNIQUE constraint on payload so a duplicate log row is acceptable
+(the trace endpoints can dedupe by `delivery_id` from the JSONB payload
+when needed).
+
+The scheduler's `_gh_authenticate_app` wrapper logs only failures
+(`gh.authenticate_app` is `@ttl_cache`-decorated, so success is the hot
+path). `cachetools.func.ttl_cache` does not cache exceptions, so transient
+errors don't poison subsequent calls.
+
+#### State reconstruction
+
+The log is the source of truth for an entity's installation history. To
+answer *"what did installation X look like at time T?"* the trace tool
+fetches every event for that entity and folds the payloads in
+`received_at` order:
+
+| Event | State change |
+|---|---|
+| `installation.created` | initial repo set, `app_id`, `repository_selection`, `suspended=false` |
+| `installation_repositories.added` | `repos := repos ∪ payload.repositories_added` |
+| `installation_repositories.removed` | `repos := repos \ payload.repositories_removed` |
+| `installation.suspend` / `installation.unsuspend` | flip `suspended` |
+| `installation.deleted` | terminal — `installed=false`, `repos=∅` |
+| `installation_target.renamed` | `entity_name := payload.account.login` (the new name) |
+| `auth_attempt.404` | the scheduler's most recent failure, with the `app_id` it tried |
+
+Common diagnoses fall straight out of that fold:
+
+| Cause | Signal |
+|---|---|
+| User uninstalled between job submission and reconcile | `installation.deleted` row preceding the `auth_attempt.404` |
+| Admin suspended the installation | `installation.suspend` with no later `unsuspend` |
+| Admin removed access to a specific repo | `installation_repositories.removed` mentioning the failing repo |
+| Account renamed; cached `entity_name` is stale | `installation_target.renamed` |
+| JWT signed by the wrong app for this installation | `auth_attempt.404` row's `app_id` differs from `installation.created.app_id` |
+| `repository_selection=selected` and the repo isn't selected | `installation.created` shows `selected` and `installation_repositories.added` never adds the repo |
+
+#### Querying
+
+The `/trace/*` endpoints on `ghfe` return events as JSON. Authentication is
+a simple `Authorization: Bearer $TRACE_API_SECRET` check (gates casual
+access only — not designed as a security boundary).
+
+```
+GET /trace/entity/<int:entity_id>             # all events for one entity
+GET /trace/installation/<int:installation_id> # resolves to entity_id, then same
+GET /trace/job/<int:job_id>                   # resolves job_id → entity_id via jobs.entity_id
+GET /trace/payload/<int:event_id>             # full JSONB payload for one row
+```
+
+The list endpoints intentionally **do not** return the `payload` field —
+payloads can be tens of KB each and most rows are reviewed at a glance.
+For `workflow_job.*` rows the response includes `job_id` and
+`repo_full_name` extracted in SQL so the timeline stays readable;
+`/trace/payload/<id>` is the way to get the full body for any individual
+row.
+
+`scripts/trace_installation.py` is a thin client over the trace endpoints
+with a chronological table renderer and rule-based diagnosis hints. It
+takes one of `--installation-id`, `--entity-id`, `--entity-name`, or
+`--job-id`. The `--entity-name` resolution shells out to `gh api
+/users/<login>` (falling back to `/orgs/<login>`) so it requires `gh auth
+login`. `PROD_URL` is hard-coded in the script; `TRACE_API_SECRET` comes
+from the environment.
+
 ### Database schema
 
 Tables live in a `prod` or `staging` schema (same database, isolated by `SET search_path`).
@@ -242,6 +341,22 @@ CREATE TABLE workers (
     completed_at    TIMESTAMPTZ,          -- set when status transitions to completed|failed
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TYPE entity_type_enum AS ENUM ('Organization', 'User');
+
+CREATE TABLE installation_events (
+    id                BIGSERIAL PRIMARY KEY,
+    source            TEXT NOT NULL,             -- 'webhook' or 'scheduler'
+    event             TEXT NOT NULL,             -- '{X-GitHub-Event}.{payload.action}' for webhooks, 'auth_attempt.{status}' for scheduler
+    outcome           TEXT NOT NULL,             -- WebhookOutcome enum value (open-set TEXT, no schema migration on add)
+    installation_id   BIGINT,
+    app_id            BIGINT,                    -- GHAPP_ORG_ID or GHAPP_PERSONAL_ID, populated from X-GitHub-Hook-Installation-Target-Id
+    entity_type       entity_type_enum,
+    entity_id         BIGINT,                    -- = installation.target_id = account.id (stable across renames)
+    entity_name       TEXT,                      -- account login (mirrors jobs.entity_name semantics)
+    payload           JSONB NOT NULL,            -- full webhook body, or synthesised dict for scheduler rows
+    received_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 Status transitions are forward-only: `pending -> running -> (completed | failed)`. All UPDATE queries enforce this with explicit WHERE clauses. A `failed` worker does not count toward supply in `get_pool_demand`, so `demand_match` automatically re-provisions a runner for the same pending job on the next loop iteration.
@@ -281,6 +396,10 @@ Per-entity configuration is defined in `ENTITY_CONFIG` in `constants.py`, keyed 
 | `/health` | GET | Health check (returns `ok`) |
 | `/usage` | GET | Human-readable view of per-pool jobs and workers |
 | `/history` | GET | Job history sorted by status (pending, running, completed) then creation time |
+| `/trace/entity/<entity_id>` | GET | Installation event log for an entity (requires bearer token) |
+| `/trace/installation/<installation_id>` | GET | Resolves to `entity_id` then returns its event log |
+| `/trace/job/<job_id>` | GET | Resolves to `entity_id` via `jobs.entity_id` then returns its event log |
+| `/trace/payload/<event_id>` | GET | Full JSONB payload for one log row |
 
 **scheduler:**
 
@@ -299,6 +418,7 @@ Per-entity configuration is defined in `ENTITY_CONFIG` in `constants.py`, keyed 
 | `container/db.py` | PostgreSQL database operations |
 | `container/github.py` | GitHub API functions (auth, runner groups, JIT config, job status) |
 | `container/Dockerfile` | Docker image for the ghfe and scheduler containers |
+| `scripts/trace_installation.py` | CLI client for the `/trace/*` endpoints — chronological table + diagnosis hints |
 
 ### Infrastructure
 
@@ -359,6 +479,7 @@ The following secrets must be configured in the repository settings (Settings > 
 | `GHAPP_PERSONAL_PRIVATE_KEY` | GitHub App RSA private key for personal accounts (PEM format) |
 | `K8S_KUBECONFIG` | Kubeconfig for the Kubernetes cluster |
 | `POSTGRES_URL` | PostgreSQL connection string (e.g. `postgresql://user:pass@<host>:5432/db?sslmode=require`) |
+| `TRACE_API_SECRET` | Bearer token gating `/trace/*` endpoints (and the `trace_installation.py` script) |
 | `RISCV_RUNNER_SAMPLE_ACCESS_TOKEN` | PAT for triggering sample workflow on staging deploy |
 
 ## Kubernetes cluster provisioning

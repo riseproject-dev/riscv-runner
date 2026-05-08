@@ -26,6 +26,55 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 15
 
+
+def _gh_authenticate_app(installation_id, entity_type, *, job_id=None,
+                         repo_full_name=None, repo_id=None,
+                         entity_id=None, entity_name=None):
+    """Wrap gh.authenticate_app and log every failure to installation_events.
+
+    Successful auths are not logged (gh.authenticate_app's @ttl_cache makes
+    success a hot path). Only GitHubAPIError failures are recorded — the
+    cache itself doesn't store exceptions, so transient errors won't poison
+    subsequent calls.
+    """
+    app_id = GHAPP_PERSONAL_ID if entity_type == EntityType.USER else GHAPP_ORG_ID
+    try:
+        return gh.authenticate_app(int(installation_id), app_id)
+    except gh.GitHubAPIError as e:
+        outcome = WebhookOutcome.AUTH_404 if e.status_code == 404 else WebhookOutcome.AUTH_OTHER_ERROR
+        event_str = (f"auth_attempt.{e.status_code}"
+                     if e.status_code == 404
+                     else "auth_attempt.other_error")
+        synthetic_payload = {
+            "installation_id": int(installation_id),
+            "app_id": app_id,
+            "entity_type": entity_type.value,
+            "entity_id": entity_id,
+            "entity_name": entity_name,
+            "repository": ({"id": repo_id, "full_name": repo_full_name}
+                           if repo_full_name else None),
+            "workflow_job": {"id": job_id} if job_id else None,
+            "http_status": e.status_code,
+            "error_message": str(e),
+        }
+        try:
+            db.add_installation_event(
+                source="scheduler",
+                event=event_str,
+                outcome=outcome,
+                installation_id=int(installation_id),
+                app_id=app_id,
+                entity_type=entity_type.value,
+                entity_id=entity_id,
+                entity_name=entity_name,
+                payload=synthetic_payload,
+            )
+        except Exception:
+            logger.exception("Failed to record auth_attempt event_str=%s installation_id=%s",
+                             event_str, installation_id)
+        raise
+
+
 def sync_jobs_state():
     """
     Sync job status between GitHub and the jobs table.
@@ -50,7 +99,13 @@ def sync_jobs_state():
             continue
 
         try:
-            token = gh.authenticate_app(int(installation_id), entity_type=entity_type)
+            token = _gh_authenticate_app(
+                int(installation_id), entity_type=entity_type,
+                job_id=job_id,
+                repo_full_name=repo,
+                entity_id=job["entity_id"],
+                entity_name=job["entity_name"],
+            )
         except gh.GitHubAPIError as e:
             if e.status_code == 404:
                 logger.warning("Installation not found installation_id=%s entity_type=%s, marking job %s failed",
@@ -225,7 +280,12 @@ def _sync_workers_state_phase_3_health_checks(pods_by_name, workers_by_name, gh_
     for gh_runner_key, workers in workers_by_gh_runner_key:
         installation_id, entity_type, entity_id, gh_runner_target = gh_runner_key
         try:
-            token = gh.authenticate_app(installation_id, entity_type=entity_type)
+            token = _gh_authenticate_app(
+                installation_id, entity_type=entity_type,
+                entity_id=entity_id,
+                entity_name=(gh_runner_target if entity_type == EntityType.ORGANIZATION else None),
+                repo_full_name=(gh_runner_target if entity_type == EntityType.USER else None),
+            )
         except gh.GitHubAPIError as e:
             logger.error("Failed to authenticate for installation_id=%s entity_type=%s gh_runner_target=%s: %s", installation_id, entity_type, gh_runner_target, e)
             continue
@@ -320,9 +380,14 @@ def _sync_workers_state_phase_4_gh_cleanup(workers_by_name, gh_runners_by_target
     gets deleted on GitHub. Reads the cache populated by Phase 3.
     """
     for gh_runner_key, gh_runners in gh_runners_by_target.items():
-        installation_id, entity_type, _, gh_runner_target = gh_runner_key
+        installation_id, entity_type, entity_id, gh_runner_target = gh_runner_key
         try:
-            token = gh.authenticate_app(installation_id, entity_type=entity_type)
+            token = _gh_authenticate_app(
+                installation_id, entity_type=entity_type,
+                entity_id=entity_id,
+                entity_name=(gh_runner_target if entity_type == EntityType.ORGANIZATION else None),
+                repo_full_name=(gh_runner_target if entity_type == EntityType.USER else None),
+            )
         except gh.GitHubAPIError as e:
             logger.error("Failed to authenticate for installation_id=%s entity_type=%s gh_runner_target=%s: %s", installation_id, entity_type, gh_runner_target, e)
             continue
@@ -481,7 +546,12 @@ def demand_match():
 
             # Name reserved in DB, now safe to provision
             try:
-                token = gh.authenticate_app(int(installation_id), entity_type=entity_type)
+                token = _gh_authenticate_app(
+                    int(installation_id), entity_type=entity_type,
+                    entity_id=entity_id,
+                    entity_name=entity_name,
+                    repo_full_name=repo_full_name,
+                )
 
                 if entity_type == EntityType.ORGANIZATION:
                     group_id = gh.ensure_runner_group(entity_name, token, RUNNER_GROUP_NAME)

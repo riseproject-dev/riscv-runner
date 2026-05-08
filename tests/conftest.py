@@ -6,10 +6,26 @@ class EntityType(str, Enum):
     ORGANIZATION = "Organization"
     USER = "User"
 
+
+class WebhookOutcome(str, Enum):
+    OK = "ok"
+    JOB_STORED = "job_stored"
+    JOB_ALREADY_EXISTS = "job_already_exists"
+    JOB_MARKED_RUNNING = "job_marked_running"
+    JOB_MARKED_COMPLETED = "job_marked_completed"
+    JOB_NOT_FOUND = "job_not_found"
+    IGNORED_ACTION = "ignored_action"
+    IGNORED_NO_LABEL = "ignored_no_label"
+    IGNORED_EVENT = "ignored_event"
+    AUTH_404 = "auth_404"
+    AUTH_OTHER_ERROR = "auth_other_error"
+
+
 # Mock the constants module before any container module is imported.
 # This avoids requiring real env vars (PROD, PROD_URL, etc.) during tests.
 mock_constants = types.ModuleType("constants")
 mock_constants.EntityType = EntityType
+mock_constants.WebhookOutcome = WebhookOutcome
 mock_constants.PROD = False
 mock_constants.PROD_URL = "https://prod.example.com"
 mock_constants.STAGING_URL = "https://staging.example.com"
@@ -19,6 +35,7 @@ mock_constants.GHAPP_ORG_PRIVATE_KEY = "test-key"
 mock_constants.GHAPP_PERSONAL_ID = 3131217
 mock_constants.GHAPP_PERSONAL_PRIVATE_KEY = "test-key-personal"
 mock_constants.GHAPP_WEBHOOK_SECRET = "test-webhook-secret"
+mock_constants.TRACE_API_SECRET = "test-trace-token"
 mock_constants.POSTGRES_URL = "postgresql://test:test@localhost:5432/testdb"
 mock_constants.POSTGRES_SCHEMA = "staging"
 mock_constants.POSTGRES_MAXCONN = 10

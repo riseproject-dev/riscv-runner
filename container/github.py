@@ -44,16 +44,19 @@ def generate_jwt(app_id, private_key):
 
 
 @ttl_cache(maxsize=1024, ttl=60*59) # Authentication Token lifetime is 1 hour
-def authenticate_app(installation_id, entity_type):
+def authenticate_app(installation_id, app_id):
     """Authenticate the app and get an installation token.
 
-    Uses the org GitHub App for organizations, personal GitHub App for users.
+    `app_id` selects which app's private key signs the JWT — pass
+    `GHAPP_PERSONAL_ID` for user installations, `GHAPP_ORG_ID` for org
+    installations.
     """
-    assert entity_type is not None
-    if entity_type == EntityType.USER:
+    if app_id == GHAPP_PERSONAL_ID:
         jwt_token = generate_jwt(GHAPP_PERSONAL_ID, init_ghapp_private_key_personal())
-    else:
+    elif app_id == GHAPP_ORG_ID:
         jwt_token = generate_jwt(GHAPP_ORG_ID, init_ghapp_private_key_org())
+    else:
+        raise ValueError(f"Unknown app_id: {app_id}")
 
     headers = {
         "Authorization": f"Bearer {jwt_token}",

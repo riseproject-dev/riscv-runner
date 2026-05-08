@@ -41,6 +41,7 @@ custom:
         GHAPP_PERSONAL_PRIVATE_KEY: ${env:GHAPP_PERSONAL_PRIVATE_KEY}
         K8S_KUBECONFIG: ${env:K8S_KUBECONFIG}
         POSTGRES_URL: ${env:POSTGRES_URL}
+        TRACE_API_SECRET: ${env:TRACE_API_SECRET}
       env:
         PROD: ${self:custom.${self:provider.stage}.prod}
         PROD_URL: ${env:PROD_URL}
@@ -67,6 +68,7 @@ custom:
         GHAPP_PERSONAL_PRIVATE_KEY: ${env:GHAPP_PERSONAL_PRIVATE_KEY}
         K8S_KUBECONFIG: ${env:K8S_KUBECONFIG}
         POSTGRES_URL: ${env:POSTGRES_URL}
+        TRACE_API_SECRET: ${env:TRACE_API_SECRET}
       env:
         PROD: ${self:custom.${self:provider.stage}.prod}
         PROD_URL: ${env:PROD_URL}

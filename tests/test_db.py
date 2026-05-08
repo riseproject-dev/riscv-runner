@@ -6,6 +6,11 @@ import pytest
 
 from db import (
     add_job,
+    add_installation_event,
+    get_events_by_entity_id,
+    get_payload_by_id,
+    get_entity_id_for_installation,
+    get_entity_id_for_job,
     mark_job_running,
     mark_job_completed,
     mark_job_failed,
@@ -460,3 +465,186 @@ def test_get_all_workers_with_paging(mock_pool_fn):
     params = select_call[0][1]
     assert params[-2] == 10  # per_page (LIMIT)
     assert params[-1] == 10  # page * per_page (OFFSET)
+
+
+# --- installation_events ---
+
+@patch("db._init_pool")
+def test_add_installation_event_inserts_row(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = (42,)
+
+    new_id = add_installation_event(
+        source="webhook",
+        event="installation.created",
+        outcome="ok",
+        installation_id=999,
+        app_id=2167633,
+        entity_type="Organization",
+        entity_id=152654596,
+        entity_name="riseproject-dev",
+        payload={"installation": {"id": 999}, "action": "created"},
+    )
+
+    assert new_id == 42
+    # SET search_path + INSERT … RETURNING id
+    insert_call = cur.execute.call_args_list[1]
+    sql, params = insert_call[0]
+    assert "INSERT INTO installation_events" in sql
+    assert "RETURNING id" in sql
+    # payload is the last positional placeholder, JSON-serialised
+    assert json.loads(params[-1]) == {"installation": {"id": 999}, "action": "created"}
+
+
+def test_add_installation_event_payload_required():
+    with pytest.raises(TypeError):
+        add_installation_event(
+            source="webhook",
+            event="ping",
+            outcome="ok",
+        )
+
+
+@patch("db._init_pool")
+def test_add_installation_event_minimal_payload(mock_pool_fn):
+    """payload={} must be accepted (the helper enforces non-None, not non-empty)."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = (7,)
+
+    new_id = add_installation_event(
+        source="scheduler",
+        event="auth_attempt.404",
+        outcome="auth_404",
+        installation_id=999,
+        payload={},
+    )
+    assert new_id == 7
+    insert_call = cur.execute.call_args_list[1]
+    params = insert_call[0][1]
+    assert params[-1] == "{}"
+
+
+def test_add_installation_event_rejects_none_payload():
+    with pytest.raises(AssertionError):
+        add_installation_event(
+            source="webhook",
+            event="ping",
+            outcome="ok",
+            payload=None,
+        )
+
+
+@patch("db._init_pool")
+def test_get_events_by_entity_id_strips_workflow_payload(mock_pool_fn):
+    """SQL must NOT project `payload`, must extract job_id/repo_full_name only for
+    workflow_job.* rows."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchall.return_value = [
+        {"id": 1, "event": "installation.created", "job_id": None, "repo_full_name": None},
+        {"id": 2, "event": "workflow_job.queued", "job_id": "12345",
+         "repo_full_name": "org/repo"},
+    ]
+
+    rows = get_events_by_entity_id(152654596)
+
+    assert len(rows) == 2
+    # SET search_path + SELECT
+    select_sql = cur.execute.call_args_list[1][0][0]
+    assert "FROM installation_events" in select_sql
+    assert "WHERE entity_id = %s" in select_sql
+    # Workflow_job extraction in SQL
+    assert "workflow_job" in select_sql
+    assert "repository" in select_sql
+    # `payload` itself is NOT in the SELECT list
+    select_list = select_sql.split("FROM")[0]
+    assert " payload " not in select_list and " payload\n" not in select_list
+
+
+@patch("db._init_pool")
+def test_get_payload_by_id_returns_only_payload(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = ({"action": "created"},)
+
+    p = get_payload_by_id(42)
+    assert p == {"action": "created"}
+    select_sql = cur.execute.call_args_list[1][0][0]
+    # Only `payload` is projected, no other columns
+    assert "SELECT payload FROM installation_events" in select_sql
+    assert "WHERE id = %s" in select_sql
+
+
+@patch("db._init_pool")
+def test_get_payload_by_id_not_found(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = None
+    assert get_payload_by_id(42) is None
+
+
+@patch("db._init_pool")
+def test_get_entity_id_for_job_uses_jobs_table(mock_pool_fn):
+    """Must hit jobs.entity_id directly — one query, not two."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = (152654596,)
+
+    eid = get_entity_id_for_job(12345)
+
+    assert eid == 152654596
+    # SET search_path + the lookup SELECT
+    assert cur.execute.call_count == 2
+    select_sql = cur.execute.call_args_list[1][0][0]
+    assert "SELECT entity_id FROM jobs" in select_sql
+
+
+@patch("db._init_pool")
+def test_get_entity_id_for_job_not_found(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = None
+    assert get_entity_id_for_job(999) is None
+
+
+@patch("db._init_pool")
+def test_get_entity_id_for_installation_from_events(mock_pool_fn):
+    """When installation_events has a matching row, use its entity_id (no fallback)."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.return_value = (152654596,)  # first SELECT hits installation_events
+
+    eid = get_entity_id_for_installation(999)
+
+    assert eid == 152654596
+    # SET search_path + one SELECT (no fallback needed)
+    assert cur.execute.call_count == 2
+    sql = cur.execute.call_args_list[1][0][0]
+    assert "FROM installation_events" in sql
+
+
+@patch("db._init_pool")
+def test_get_entity_id_for_installation_falls_back_to_jobs(mock_pool_fn):
+    """When installation_events has no matching row, fall back to jobs."""
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.side_effect = [None, (152654596,)]  # events miss, jobs hit
+
+    eid = get_entity_id_for_installation(999)
+
+    assert eid == 152654596
+    # SET search_path + events SELECT + jobs SELECT
+    assert cur.execute.call_count == 3
+    fallback_sql = cur.execute.call_args_list[2][0][0]
+    assert "FROM jobs" in fallback_sql
+
+
+@patch("db._init_pool")
+def test_get_entity_id_for_installation_not_found_anywhere(mock_pool_fn):
+    pool, conn, cur = make_mock_pool()
+    mock_pool_fn.return_value = pool
+    cur.fetchone.side_effect = [None, None]
+    assert get_entity_id_for_installation(999) is None
+

@@ -177,6 +177,13 @@ def ensure_schema() -> None:
                     WHEN duplicate_object THEN null;
                 END $$
             """)
+            cur.execute("""
+                DO $$ BEGIN
+                    CREATE TYPE entity_type_enum AS ENUM ('Organization', 'User');
+                EXCEPTION
+                    WHEN duplicate_object THEN null;
+                END $$
+            """)
 
             # Jobs table
             cur.execute("""
@@ -241,6 +248,35 @@ def ensure_schema() -> None:
                 CREATE INDEX IF NOT EXISTS idx_workers_active
                 ON workers (entity_id, job_labels, k8s_pool)
                 WHERE status != 'completed'
+            """)
+
+            # Append-only event log for GitHub App install/uninstall/auth lifecycle.
+            # See plan: explains why an installation_id can disappear before a job
+            # is picked up. One row per webhook delivery + one per scheduler auth
+            # failure. Most context lives in `payload`; only filter/index keys
+            # are dedicated columns.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS installation_events (
+                    id                BIGSERIAL PRIMARY KEY,
+                    source            TEXT NOT NULL,
+                    event             TEXT NOT NULL,
+                    outcome           TEXT NOT NULL,
+                    installation_id   BIGINT,
+                    app_id            BIGINT,
+                    entity_type       entity_type_enum,
+                    entity_id         BIGINT,
+                    entity_name       TEXT,
+                    payload           JSONB NOT NULL,
+                    received_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_install_events_installation
+                ON installation_events (installation_id, entity_id)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_install_events_entity
+                ON installation_events (entity_id, received_at DESC)
             """)
 
         conn.autocommit = False
@@ -674,6 +710,120 @@ def get_workers_for_reconcile(terminal_lookback_seconds: int = 3600) -> list[psy
                        AND completed_at > now() - (%s || ' seconds')::interval)
             """, (int(terminal_lookback_seconds),))
             return cur.fetchall()
+
+
+# --- Installation event log ---
+
+def add_installation_event(
+    *,
+    source: str,
+    event: str,
+    outcome: str,
+    payload: dict,
+    installation_id: int | None = None,
+    app_id: int | None = None,
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    entity_name: str | None = None,
+) -> int:
+    """Insert one installation_events row. Returns the new BIGSERIAL id.
+
+    `payload` is required (the column is JSONB NOT NULL); pass {} when there's
+    nothing to log. Caller is responsible for calling this in its own
+    transaction (separate from any side-effect writes); see the webhook handler.
+    """
+    assert payload is not None, "payload is required (pass {} for empty)"
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO installation_events
+                    (source, event, outcome,
+                     installation_id, app_id, entity_type, entity_id,
+                     entity_name, payload)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (source, event, outcome,
+                  installation_id, app_id, entity_type, entity_id,
+                  entity_name, json.dumps(payload)))
+            return cur.fetchone()[0]
+
+
+def get_events_by_entity_id(entity_id: int) -> list[psycopg2.extras.RealDictRow]:
+    """Return all events for an entity, ordered by received_at.
+
+    For workflow_job.* rows, projects payload->workflow_job.id and
+    payload->repository.full_name as `job_id` / `repo_full_name` so the
+    timeline stays readable without a payload fetch. The full payload is
+    NOT projected — clients fetch it via /trace/payload/<id> when needed.
+    """
+    with _get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, source, event, outcome,
+                       installation_id, app_id, entity_type, entity_id,
+                       entity_name, received_at,
+                       CASE WHEN event LIKE 'workflow_job.%%'
+                            THEN payload->'workflow_job'->>'id' END AS job_id,
+                       CASE WHEN event LIKE 'workflow_job.%%'
+                            THEN payload->'repository'->>'full_name' END AS repo_full_name
+                FROM installation_events
+                WHERE entity_id = %s
+                ORDER BY received_at
+            """, (int(entity_id),))
+            return cur.fetchall()
+
+
+def get_payload_by_id(event_id: int) -> dict | None:
+    """Return only the JSONB payload for one installation_events row, or None."""
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload FROM installation_events WHERE id = %s",
+                (int(event_id),),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
+def get_entity_id_for_installation(installation_id: int) -> int | None:
+    """Resolve installation_id -> entity_id.
+
+    Looks first in installation_events for the most recent row with a non-NULL
+    entity_id (logged installations carry it). Falls back to jobs.entity_id if
+    no events exist for that installation_id yet (e.g. install pre-dates the
+    logging change).
+    """
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT entity_id FROM installation_events
+                WHERE installation_id = %s AND entity_id IS NOT NULL
+                ORDER BY received_at DESC
+                LIMIT 1
+            """, (int(installation_id),))
+            row = cur.fetchone()
+            if row is not None:
+                return row[0]
+            cur.execute("""
+                SELECT entity_id FROM jobs
+                WHERE installation_id = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (int(installation_id),))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
+def get_entity_id_for_job(job_id: int) -> int | None:
+    """Resolve job_id -> entity_id via the jobs table (one query)."""
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT entity_id FROM jobs WHERE job_id = %s",
+                (int(job_id),),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
 
 
 # --- Pub/Sub ---

@@ -103,7 +103,8 @@ def test_demand_match_provisions_org_job(mock_jit, mock_group, mock_auth, mock_p
 
     demand_match()
 
-    mock_auth.assert_called_once_with(999, entity_type=EntityType.ORGANIZATION)
+    from constants import GHAPP_ORG_ID
+    mock_auth.assert_called_once_with(999, GHAPP_ORG_ID)
     mock_group.assert_called_once()
     mock_jit.assert_called_once()
     mock_provision.assert_called_once()
@@ -125,7 +126,8 @@ def test_demand_match_provisions_personal_job(mock_jit_repo, mock_auth, mock_pro
 
     demand_match()
 
-    mock_auth.assert_called_once_with(999, entity_type=EntityType.USER)
+    from constants import GHAPP_PERSONAL_ID
+    mock_auth.assert_called_once_with(999, GHAPP_PERSONAL_ID)
     mock_jit_repo.assert_called_once()
     # Verify repo_full_name is passed
     call_args = mock_jit_repo.call_args
@@ -2022,3 +2024,99 @@ def test_render_worker_failed_unversioned_treated_as_v1():
 
     assert not any(l.startswith("  Reason:") for l in lines)
     assert "  Container runner: exit=0  Completed" in lines
+
+
+# --- _gh_authenticate_app wrapper ---
+
+from scheduler import _gh_authenticate_app
+
+
+@patch("scheduler.db.add_installation_event")
+@patch("scheduler.gh.authenticate_app")
+def test_gh_authenticate_app_success_no_log(mock_auth, mock_log):
+    """Successful auth returns the token, never logs."""
+    mock_auth.return_value = "tok-abc"
+
+    token = _gh_authenticate_app(999, EntityType.ORGANIZATION,
+                                 entity_id=152654596, entity_name="riseproject-dev")
+
+    assert token == "tok-abc"
+    mock_log.assert_not_called()
+
+
+@patch("scheduler.db.add_installation_event")
+@patch("scheduler.gh.authenticate_app")
+def test_gh_authenticate_app_404_logs_and_reraises(mock_auth, mock_log):
+    from github import GitHubAPIError
+    mock_auth.side_effect = GitHubAPIError(404, "Not Found")
+
+    with pytest.raises(GitHubAPIError):
+        _gh_authenticate_app(999, EntityType.ORGANIZATION,
+                             job_id=12345, repo_full_name="o/r",
+                             entity_id=152654596, entity_name="o")
+
+    mock_log.assert_called_once()
+    kwargs = mock_log.call_args.kwargs
+    assert kwargs["source"] == "scheduler"
+    assert kwargs["event"] == "auth_attempt.404"
+    assert kwargs["outcome"] == "auth_404"
+    assert kwargs["installation_id"] == 999
+    assert kwargs["entity_id"] == 152654596
+    assert kwargs["entity_name"] == "o"
+    payload = kwargs["payload"]
+    assert payload["installation_id"] == 999
+    assert payload["http_status"] == 404
+    assert payload["repository"] == {"id": None, "full_name": "o/r"}
+    assert payload["workflow_job"] == {"id": 12345}
+
+
+@patch("scheduler.db.add_installation_event")
+@patch("scheduler.gh.authenticate_app")
+def test_gh_authenticate_app_other_error_logs_and_reraises(mock_auth, mock_log):
+    from github import GitHubAPIError
+    mock_auth.side_effect = GitHubAPIError(500, "boom")
+
+    with pytest.raises(GitHubAPIError):
+        _gh_authenticate_app(999, EntityType.USER,
+                             entity_id=660779, entity_name="luhenry")
+
+    mock_log.assert_called_once()
+    kwargs = mock_log.call_args.kwargs
+    assert kwargs["event"] == "auth_attempt.other_error"
+    assert kwargs["outcome"] == "auth_other_error"
+    payload = kwargs["payload"]
+    assert payload["http_status"] == 500
+    # entity_type=USER -> personal app id
+    from constants import GHAPP_PERSONAL_ID
+    assert payload["app_id"] == GHAPP_PERSONAL_ID
+
+
+@patch("scheduler.db.add_installation_event", side_effect=RuntimeError("DB hiccup"))
+@patch("scheduler.gh.authenticate_app")
+def test_gh_authenticate_app_swallows_log_failure(mock_auth, mock_log):
+    """If the log write fails, the original GitHubAPIError still propagates —
+    the auth failure is the higher-priority signal. The log failure is logged
+    but does not become a new exception type for callers to handle."""
+    from github import GitHubAPIError
+    mock_auth.side_effect = GitHubAPIError(404, "Not Found")
+
+    with pytest.raises(GitHubAPIError):
+        _gh_authenticate_app(999, EntityType.ORGANIZATION)
+
+
+# --- ttl_cache exception non-caching: documents library behaviour we rely on ---
+
+def test_ttl_cache_does_not_cache_exceptions():
+    from cachetools.func import ttl_cache
+    calls = {"n": 0}
+
+    @ttl_cache(maxsize=8, ttl=60)
+    def flaky(x):
+        calls["n"] += 1
+        raise RuntimeError("nope")
+
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            flaky(1)
+    # Each call invoked the underlying function — no cached exception.
+    assert calls["n"] == 3

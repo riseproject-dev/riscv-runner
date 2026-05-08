@@ -172,6 +172,7 @@ jobs:
           GHAPP_PERSONAL_PRIVATE_KEY: ${{ secrets.GHAPP_PERSONAL_PRIVATE_KEY }}
           K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG }}
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRACE_API_SECRET: ${{ secrets.TRACE_API_SECRET }}
 
       - name: Health check
         run: python3 ./bin/check-health.py --staging
@@ -229,6 +230,7 @@ jobs:
           GHAPP_PERSONAL_PRIVATE_KEY: ${{ secrets.GHAPP_PERSONAL_PRIVATE_KEY }}
           K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG }}
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRACE_API_SECRET: ${{ secrets.TRACE_API_SECRET }}
 
       - name: Health check
         run: python3 ./bin/check-health.py

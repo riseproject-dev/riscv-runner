@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from constants import EntityType
+from constants import EntityType, GHAPP_ORG_ID, GHAPP_PERSONAL_ID
 from github import (
     GitHubAPIError,
     authenticate_app,
@@ -25,7 +25,7 @@ def test_authenticate_app_org(mock_private_key, requests_mock):
     )
 
     with patch("github.generate_jwt", return_value="fake-jwt"):
-        token = authenticate_app(12345, entity_type=EntityType.ORGANIZATION)
+        token = authenticate_app(12345, GHAPP_ORG_ID)
     assert token == "v1.test-token"
 
 
@@ -40,7 +40,7 @@ def test_authenticate_app_personal(mock_private_key, requests_mock):
     )
 
     with patch("github.generate_jwt", return_value="fake-jwt"):
-        token = authenticate_app(67890, entity_type=EntityType.USER)
+        token = authenticate_app(67890, GHAPP_PERSONAL_ID)
     assert token == "v1.personal-token"
 
 
@@ -56,8 +56,13 @@ def test_authenticate_app_failure(mock_private_key, requests_mock):
 
     with patch("github.generate_jwt", return_value="fake-jwt"):
         with pytest.raises(GitHubAPIError) as exc:
-            authenticate_app(12345, entity_type=EntityType.ORGANIZATION)
+            authenticate_app(12345, GHAPP_ORG_ID)
     assert exc.value.status_code == 401
+
+
+def test_authenticate_app_unknown_app_id():
+    with pytest.raises(ValueError):
+        authenticate_app(12345, 99999)
 
 
 # --- Runner groups ---
