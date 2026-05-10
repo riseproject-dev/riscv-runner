@@ -3,10 +3,12 @@
 
 import argparse
 import itertools
+import kubernetes
 import os
 import re
 import sys
 import time
+import yaml
 
 import logging
 # logging.basicConfig(level=logging.INFO)
@@ -15,8 +17,6 @@ from enum import StrEnum
 
 from fabric import Connection
 from paramiko.ssh_exception import NoValidConnectionsError, SSHException
-
-from invoke.exceptions import UnexpectedExit
 
 from scaleway import Client
 from scaleway.instance.v1.custom_api import InstanceUtilsV1API
@@ -659,31 +659,70 @@ def find_server_by_name(hostname):
     raise ServerNotFoundException(f"Server '{hostname}' not found in project {PROJECT_ID}")
 
 
-def drain_and_delete_k8s_node(hostname, ssh_cp):
-    ssh_cp.run(
-        f"kubectl --kubeconfig=/etc/kubernetes/admin.conf drain {hostname} --ignore-daemonsets --delete-emptydir-data --force --timeout=0",
-        warn=True,
-    )
-    ssh_cp.run(
-        f"kubectl --kubeconfig=/etc/kubernetes/admin.conf delete node {hostname} --ignore-not-found",
-    )
+def setup_k8s_client(ssh_cp):
+    result = ssh_cp.run("cat /etc/kubernetes/admin.conf", hide=True)
+    return kubernetes.config.new_client_from_config_dict(yaml.safe_load(result.stdout))
 
 
-def wait_for_k8s_node(hostname, ssh_cp):
+def drain_and_delete_k8s_node(hostname, k8s):
+    core = kubernetes.client.CoreV1Api(api_client=k8s)
+
+    # Cordon the node so no new pods are scheduled on it
+    try:
+        core.patch_node(hostname, {"spec": {"unschedulable": True}})
+    except kubernetes.client.ApiException as e:
+        if e.status != 404:
+            raise
+
+    # Wait for all default-namespace pods on the node to reach a terminal state
     while True:
         try:
-            result = ssh_cp.run(f"kubectl --kubeconfig=/etc/kubernetes/admin.conf get node {hostname} --no-headers -o name", hide='both')
-            assert result.exited == 0
+            remaining = [
+                pod for pod in core.list_namespaced_pod(
+                    namespace="default",
+                    field_selector=f"spec.nodeName={hostname}",
+                ).items
+                if pod.status.phase not in ("Succeeded", "Failed")
+            ]
+        except kubernetes.client.ApiException as e:
+            if e.status != 404:
+                raise
+            remaining = []
+        if not remaining:
+            break
+        print(f"  waiting for {len(remaining)} pod(s) to finish on node {hostname}")
+        time.sleep(15)
+
+    try:
+        core.delete_node(hostname)
+    except kubernetes.client.ApiException as e:
+        if e.status != 404:
+            raise
+
+
+def wait_for_k8s_node(hostname, k8s):
+    core = kubernetes.client.CoreV1Api(api_client=k8s)
+
+    while True:
+        try:
+            core.read_node(hostname)
             print(f"  node {hostname} available but not ready yet!")
             break
-        except UnexpectedExit:
+        except kubernetes.client.ApiException as e:
+            if e.status != 404:
+                raise
             print(f"  node {hostname} not available yet!")
             time.sleep(15)
 
-    ssh_cp.run(
-        f"kubectl --kubeconfig=/etc/kubernetes/admin.conf wait --for=condition=Ready node/{hostname} --timeout=600s", hide='out'
-    )
-    print(f"  node {hostname} available and ready!")
+    deadline = time.time() + 600
+    while time.time() < deadline:
+        node = core.read_node(hostname)
+        for cond in (node.status.conditions or []):
+            if cond.type == "Ready" and cond.status == "True":
+                print(f"  node {hostname} available and ready!")
+                return
+        time.sleep(5)
+    raise RuntimeError(f"Timeout waiting for node {hostname} to be ready")
 
 
 def create_server(hostname, os_id, tags=None):
@@ -735,6 +774,7 @@ def cmd_runner_create(args):
             sys.exit(1)
 
         ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+        k8s = setup_k8s_client(ssh_cp)
 
         tags = [f"control-plane:{control_plane}"]
         print(f"Provisioning {runner}")
@@ -757,7 +797,7 @@ def cmd_runner_create(args):
         run_setup(ssh, pn, ssh_cp, cp_public_ip)
 
         print(f"Waiting for node {runner} to be ready in k8s")
-        wait_for_k8s_node(runner, ssh_cp)
+        wait_for_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
@@ -794,9 +834,10 @@ def cmd_runner_reinstall(args):
 
         if cp_public_ip:
             ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+            k8s = setup_k8s_client(ssh_cp)
 
             print(f"Draining and removing {runner} from k8s")
-            drain_and_delete_k8s_node(runner, ssh_cp)
+            drain_and_delete_k8s_node(runner, k8s)
             print(f"Drained and removed {runner} from k8s")
 
         server = BareMetal(server.id)
@@ -810,6 +851,7 @@ def cmd_runner_reinstall(args):
                 cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
                 print(f"Switching control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
                 ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+                k8s = setup_k8s_client(ssh_cp)
 
                 # Update the control-plane tag
                 server.update_tags([f"control-plane:{control_plane}"])
@@ -834,7 +876,7 @@ def cmd_runner_reinstall(args):
         run_setup(ssh, pn, ssh_cp, cp_public_ip)
 
         print(f"Waiting for node {runner} to be ready on k8s")
-        wait_for_k8s_node(runner, ssh_cp)
+        wait_for_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
@@ -866,11 +908,13 @@ def cmd_runner_setup(args):
                 print(f"Failed to find control plane {control_plane}")
                 sys.exit(1)
 
+        ssh_cp = None
         if cp_public_ip:
             ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+            k8s = setup_k8s_client(ssh_cp)
 
             print(f"Draining and removing {runner} from k8s")
-            drain_and_delete_k8s_node(runner, ssh_cp)
+            drain_and_delete_k8s_node(runner, k8s)
             print(f"Drained and removed {runner} from k8s")
 
         server = BareMetal(server.id)
@@ -884,6 +928,7 @@ def cmd_runner_setup(args):
                 cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
                 print(f"Switching control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
                 ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+                k8s = setup_k8s_client(ssh_cp)
 
                 # Update the control-plane tag
                 server.update_tags([f"control-plane:{control_plane}"])
@@ -903,7 +948,7 @@ def cmd_runner_setup(args):
         run_setup(ssh, pn, ssh_cp, cp_public_ip)
 
         print(f"Waiting for node {runner} to be ready on k8s")
-        wait_for_k8s_node(runner, ssh_cp)
+        wait_for_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
@@ -948,9 +993,10 @@ def cmd_runner_delete(args):
         cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
         print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
         ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+        k8s = setup_k8s_client(ssh_cp)
 
         print(f"Draining and removing {runner} from k8s")
-        drain_and_delete_k8s_node(runner, ssh_cp)
+        drain_and_delete_k8s_node(runner, k8s)
         print(f"Drained and removed {runner} from k8s")
 
         server = BareMetal(server.id)
