@@ -581,9 +581,9 @@ sudo apt-get upgrade -qq -y
 pushd /usr/lib/modules/$(uname -r)/source
 
 ## Install toolchains
-sudo apt-get install -y build-essential libelf-dev libssl-dev bc bison flex gcc-14
+sudo apt-get install -y --no-install-recommends \
+    build-essential libelf-dev libssl-dev bc bison flex gcc-14 ipset
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-sudo apt-get install -y --no-install-recommends ipset   # for testing
 
 ## Build
 
@@ -730,7 +730,7 @@ sudo sysctl --system
 # sudo networkctl reload
 
 # Check that it succeeded
-# sudo apt-get install -qq -y --no-install-recommends retry
+# sudo apt-get install -y --no-install-recommends retry
 # retry --delay=2 --times=5 -- ip addr show end0.@@PN_VLAN_ID@@
 
 # # Configure private network VLAN interface
@@ -775,6 +775,7 @@ ExecStart=/usr/local/bin/node_exporter \
   --collector.softirqs \
   --collector.interrupts \
   --collector.ethtool \
+  --collector.netstat.fields='^.*$' \
   --web.listen-address=127.0.0.1:9100
 Restart=on-failure
 RestartSec=5
@@ -866,7 +867,7 @@ sudo systemctl enable prometheus-agent
 ###############################################################################
 ## Install containerd
 
-sudo apt-get install -qq -y --no-install-recommends containerd
+sudo apt-get install -y --no-install-recommends containerd
 sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 
@@ -905,7 +906,7 @@ curl -fsSL \
 ###############################################################################
 ## Install kubernetes cli tools: kubeadm, kubelet, kubectl
 
-sudo apt-get install -qq -y --no-install-recommends curl unzip
+sudo apt-get install -y --no-install-recommends curl unzip
 curl -fsSL \
   --retry 5 \
   --retry-delay 5 \
@@ -951,17 +952,11 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now kubelet
+"""
 
-###############################################################################
-## Join the cluster
-
+KUBEADM_SCRIPT=r"""
 sudo kubeadm reset -f || true
 sudo @@KUBEADM_JOIN_CMD@@
-
-###############################################################################
-## Mandatory reboot for fresh nodes to finalize networking and cgroups
-
-sudo reboot
 """
 
 class ServerNotFoundException(Exception):
@@ -1017,7 +1012,7 @@ def get_os_id():
 
 def get_kubeadm_join_cmd(ssh_cp, cp_ip):
     # Create a short-lived token
-    result = ssh_cp.run("kubeadm token create --ttl 15m", hide=True)
+    result = ssh_cp.run("kubeadm token create --ttl 5m", hide=True)
     token = result.stdout.strip()
 
     # Get the CA cert hash
@@ -1055,18 +1050,25 @@ def create_cockpit_metrics_push_token(name: str) -> Token:
     )
 
 
-def run_setup(runner, ssh, pn, ssh_cp, cp_public_ip):
-    join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
+def setup_runner(ssh, runner, pn):
     cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
     cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner}-metrics-token")
-
-    script = SETUP_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd) \
-                         .replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
+    script = SETUP_SCRIPT.replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
                          .replace("@@COCKPIT_METRICS_TOKEN@@", cockpit_metrics_token.secret_key) \
                          #FIXME(pn): enable private address again
                          # .replace("@@PN_IP@@", pn.ip)
                          # .replace("@@PN_VLAN_ID@@", pn.vlan_id)
     ssh.run(script, **_tagged_streams())
+
+
+def setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip):
+    join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
+    script = KUBEADM_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd)
+    ssh.run(script, **_tagged_streams())
+
+
+def reboot_runner(ssh):
+    ssh.run("sudo reboot", **_tagged_streams())
 
 
 def find_server_by_name(hostname):
@@ -1216,7 +1218,9 @@ def cmd_runner_create(args):
         print(f"Server IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        run_setup(runner, ssh, pn, ssh_cp, cp_public_ip)
+        setup_runner(ssh, runner, pn)
+        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+        reboot_runner(ssh)
 
         print(f"Waiting for node {runner} to be ready in k8s")
         wait_for_k8s_node(runner, k8s)
@@ -1294,7 +1298,9 @@ def cmd_runner_reinstall(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        run_setup(runner, ssh, pn, ssh_cp, cp_public_ip)
+        setup_runner(ssh, runner, pn)
+        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+        reboot_runner(ssh)
 
         print(f"Waiting for node {runner} to be ready on k8s")
         wait_for_k8s_node(runner, k8s)
@@ -1365,7 +1371,9 @@ def cmd_runner_setup(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        run_setup(runner, ssh, pn, ssh_cp, cp_public_ip)
+        setup_runner(ssh, runner, pn)
+        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+        reboot_runner(ssh)
 
         print(f"Waiting for node {runner} to be ready on k8s")
         wait_for_k8s_node(runner, k8s)
