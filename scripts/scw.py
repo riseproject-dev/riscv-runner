@@ -2,11 +2,13 @@
 """Provision RISE RISC-V runner control planes and runners on Scaleway."""
 
 import argparse
+import concurrent.futures
 import itertools
 import kubernetes
 import os
 import re
 import sys
+import threading
 import time
 import yaml
 
@@ -62,6 +64,262 @@ class ProvisioningException(Exception):
     pass
 
 
+# --- Parallel execution helpers ---
+
+class TaggedStream:
+    """File-like wrapper that prefixes each line with a per-thread tag.
+
+    Replaces sys.stdout/sys.stderr so both Python `print` and fabric's
+    subprocess output (which writes to the global streams by default) get
+    consistent per-runner prefixes when running concurrently.
+    """
+
+    def __init__(self, target):
+        self._target = target
+        self._lock = threading.Lock()
+        self._buffers = {}  # thread_id -> partial line str
+        self._tag = threading.local()
+        self._tag_len = 0
+
+    def set_tag(self, tag):
+        self._tag.value = tag
+
+    def clear_tag(self):
+        self._tag.value = None
+
+    def set_tag_len(self, n):
+        self._tag_len = n
+
+    def _current_tag(self):
+        return getattr(self._tag, "value", None)
+
+    def _format_tag(self, tag):
+        return f"[{tag:<{self._tag_len}}]"
+
+    def write(self, s):
+        if not s:
+            return
+        tag = self._current_tag()
+        if not tag:
+            with self._lock:
+                self._target.write(s)
+            return
+        tid = threading.get_ident()
+        with self._lock:
+            buf = self._buffers.get(tid, "") + s
+            parts = buf.split("\n")
+            prefix = self._format_tag(tag)
+            for line in parts[:-1]:
+                self._target.write(f"{prefix} {line}\n")
+            self._buffers[tid] = parts[-1]
+
+    def flush(self):
+        with self._lock:
+            tid = threading.get_ident()
+            partial = self._buffers.get(tid, "")
+            if partial:
+                tag = self._current_tag()
+                if tag:
+                    self._target.write(f"{self._format_tag(tag)} {partial}\n")
+                else:
+                    self._target.write(partial)
+                self._buffers[tid] = ""
+            self._target.flush()
+
+    def isatty(self):
+        return getattr(self._target, "isatty", lambda: False)()
+
+    def bind(self, tag):
+        """Return a stream that always uses `tag`, regardless of the calling
+        thread. Hand to libraries (e.g. Invoke) that do their I/O on a helper
+        thread which won't have our threading.local context."""
+        return _BoundTaggedStream(self, tag)
+
+
+class _BoundTaggedStream:
+    def __init__(self, parent, tag):
+        self._parent = parent
+        self._tag = tag
+        self._buffer = ""
+
+    def write(self, s):
+        if not s:
+            return
+        with self._parent._lock:
+            buf = self._buffer + s
+            parts = buf.split("\n")
+            prefix = self._parent._format_tag(self._tag)
+            for line in parts[:-1]:
+                self._parent._target.write(f"{prefix} {line}\n")
+            self._buffer = parts[-1]
+
+    def flush(self):
+        with self._parent._lock:
+            if self._buffer:
+                prefix = self._parent._format_tag(self._tag)
+                self._parent._target.write(f"{prefix} {self._buffer}\n")
+                self._buffer = ""
+            self._parent._target.flush()
+
+    def isatty(self):
+        return False
+
+
+class Throttle:
+    """Ensure at least `delay` seconds elapse between successive starts."""
+
+    def __init__(self, delay):
+        self._delay = delay
+        self._lock = threading.Lock()
+        self._last = 0.0
+
+    def wait(self):
+        if self._delay <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            wait = max(0.0, self._last + self._delay - now)
+            self._last = max(self._last + self._delay, now)
+        if wait > 0:
+            time.sleep(wait)
+
+
+# Installed in main() so all output flows through it
+_tagged_stdout = None
+_tagged_stderr = None
+
+
+def _tagged_streams():
+    """Return out_stream/err_stream kwargs for fabric's Connection.run that
+    forward subprocess output through the calling thread's tag. Empty dict
+    when no tag is set so main-thread callers get the default streams.
+
+    Needed because Invoke reads remote stdout/stderr on a helper thread that
+    doesn't share our threading.local tag — passing a bound stream captures
+    the tag from the worker thread that actually called run().
+    """
+    assert not ((_tagged_stdout is not None) ^ (_tagged_stderr is not None)), \
+        "both _tagged_stdout and _tagged_stderr should be set or None at the same time"
+
+    if _tagged_stdout is None:
+        return {}
+    tag = _tagged_stdout._current_tag()
+    if not tag:
+        return {}
+    return {
+        "out_stream": _tagged_stdout.bind(tag),
+        "err_stream": _tagged_stderr.bind(tag),
+    }
+
+
+def _run_parallel(items, fn, jobs, delay):
+    """Run `fn(item)` for each item in `items` across a thread pool.
+
+    - tags each line of output with the item (via TaggedStream)
+    - staggers worker starts by at least `delay` seconds
+    - never halts on per-item failure; logs and continues
+    - 1st Ctrl-C: cancel queued (not-yet-started) futures; in-flight finish
+    - 2nd Ctrl-C: warn (1 more to abort)
+    - 3rd Ctrl-C: hard exit 130
+    """
+    if not items:
+        return 0
+
+    assert not ((_tagged_stdout is not None) ^ (_tagged_stderr is not None)), \
+        "both _tagged_stdout and _tagged_stderr should be set or None at the same time"
+
+    tag_len = max(len(str(item)) for item in items)
+    if _tagged_stdout is not None:
+        _tagged_stdout.set_tag_len(tag_len)
+    if _tagged_stderr is not None:
+        _tagged_stderr.set_tag_len(tag_len)
+
+    throttle = Throttle(delay)
+
+    def _worker(item):
+        if _tagged_stdout is not None:
+            _tagged_stdout.set_tag(str(item))
+        if _tagged_stderr is not None:
+            _tagged_stderr.set_tag(str(item))
+        try:
+            throttle.wait()
+            fn(item)
+            return None
+        except Exception as e:
+            print(f"FAILED: {e}")
+            return e
+        finally:
+            if _tagged_stdout is not None:
+                _tagged_stdout.flush()
+                _tagged_stdout.clear_tag()
+            if _tagged_stderr is not None:
+                _tagged_stderr.flush()
+                _tagged_stderr.clear_tag()
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs))
+    futures = {executor.submit(_worker, item): item for item in items}
+
+    sigint_count = 0
+    sigint_last_time = 0
+    pending = set(futures.keys())
+    while pending:
+        try:
+            done, pending = concurrent.futures.wait(
+                pending, return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+        except KeyboardInterrupt:
+            if time.time() > sigint_last_time + 10:
+                # reset sigint_count if it's been more than 10s
+                sigint_count = 0
+            sigint_count += 1
+            sigint_last_time = time.time()
+            if sigint_count >= 5:
+                print("\nCtrl-C received 5+ times: aborting now. In-flight work is abandoned. THIS IS UNSAFE!")
+                # os._exit bypasses normal interpreter shutdown so we don't
+                # wait on non-daemon worker threads doing SSH/HTTP I/O
+                os._exit(130)
+            elif sigint_count >= 2:
+                print("\nCtrl-C received again: press a few more times to abort.")
+            else:
+                # fut.cancel() returns True only for futures the executor
+                # hasn't started yet; running futures return False and are
+                # left to finish naturally
+                cancelled_now = sum(1 for fut in pending if fut.cancel())
+                in_flight = len(pending) - cancelled_now
+                print(f"\nCtrl-C received: cancelled {cancelled_now} queued task(s); {in_flight} in-flight will finish. Press Ctrl-C a few more times to abort (unsafe!).")
+            continue
+
+    executor.shutdown(wait=True)
+
+    succeeded = []
+    failed = []
+    cancelled = []
+    for fut, item in futures.items():
+        if fut.cancelled():
+            cancelled.append(item)
+            continue
+        err = fut.exception()
+        if err is None:
+            err = fut.result()  # _worker returns the exception or None
+        if err is None:
+            succeeded.append(item)
+        else:
+            failed.append((item, err))
+
+    print(f"\n{'='*60}")
+    parts = [f"{len(succeeded)} succeeded", f"{len(failed)} failed"]
+    if cancelled:
+        parts.append(f"{len(cancelled)} cancelled")
+    print(f"Summary: {', '.join(parts)}")
+    for item, err in failed:
+        print(f"  FAILED {item}: {err}")
+    for item in cancelled:
+        print(f"  CANCELLED {item}")
+    print(f"{'='*60}")
+
+    return 0 if not failed else 1
+
+
 # --- SSH helpers via fabric ---
 
 def ssh_connect(host, user, retries=30, delay=30):
@@ -77,7 +335,7 @@ def ssh_connect(host, user, retries=30, delay=30):
                     "key_filename": "/Users/luhenry/.ssh/id_rivos",
                 },
             )
-            conn.run("true")
+            conn.run("true", hide=True)
             return conn
         except (NoValidConnectionsError, SSHException, OSError, TimeoutError) as e:
             print(f"SSH not ready (attempt {attempt + 1}/{retries}), error: \"{e}\". Retrying in {delay}s...")
@@ -648,7 +906,7 @@ def run_setup(ssh, pn, ssh_cp, cp_public_ip):
                          #FIXME(pn): enable private address again
                          # .replace("@@PN_IP@@", pn.ip)
                          # .replace("@@PN_VLAN_ID@@", pn.vlan_id)
-    ssh.run(script)
+    ssh.run(script, **_tagged_streams())
 
 
 def find_server_by_name(hostname):
@@ -734,11 +992,11 @@ def create_server(hostname, os_id, tags=None):
             time.sleep(RETRY_DELAY)
 
 
-def get_next_runner_index():
+def _allocate_runner_names(count):
+    """Pre-allocate `count` distinct riscv-runner-N names from the unused index pool."""
     prefix = "riscv-runner-"
     pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
     used = set()
-    # baremetal_api.list_servers uses pagination
     for page in itertools.count(start=0):
         resp = baremetal_api.list_servers(page=page)
         if len(resp.servers) == 0:
@@ -747,31 +1005,35 @@ def get_next_runner_index():
             m = pattern.match(server.name or "")
             if m:
                 used.add(int(m.group(1)))
+    names = []
     i = 0
-    while i in used:
+    while len(names) < count:
+        if i not in used:
+            names.append(f"{prefix}{i}")
+            used.add(i)
         i += 1
-    return i
+    return names
 
 
 def cmd_runner_create(args):
     os_id = get_os_id()
     print(f"Using OS ID: {os_id}")
 
-    for _ in range(args.count):
-        index = get_next_runner_index()
-        runner = f"riscv-runner-{index}"
+    control_plane = args.control_plane
+    try:
+        cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
+        print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
+    except ServerNotFoundException:
+        print(f"Failed to find control plane {control_plane}")
+        return 1
+
+    runners = _allocate_runner_names(args.count)
+    print(f"Allocated runner names: {', '.join(runners)}")
+
+    def _do_runner_create(runner):
         print(f"\n{'='*60}")
         print(f"Creating runner {runner}")
         print(f"{'='*60}")
-
-        control_plane = args.control_plane
-
-        try:
-            cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
-            print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
-        except ServerNotFoundException:
-            print(f"Failed to find control plane {control_plane}")
-            sys.exit(1)
 
         ssh_cp = ssh_connect(host=cp_public_ip, user="root")
         k8s = setup_k8s_client(ssh_cp)
@@ -801,12 +1063,14 @@ def cmd_runner_create(args):
 
         print(f"Server {runner} provisioned")
 
+    return _run_parallel(runners, _do_runner_create, jobs=args.jobs, delay=args.delay)
+
 
 def cmd_runner_reinstall(args):
     os_id = get_os_id()
     print(f"Using OS ID: {os_id}")
 
-    for runner in args.runners:
+    def _do_runner_reinstall(runner):
         print(f"\n{'='*60}")
         print(f"Reinstalling runner {runner}")
         print(f"{'='*60}")
@@ -816,8 +1080,7 @@ def cmd_runner_reinstall(args):
 
         control_plane = next(tag[14:] for tag in server.tags if tag.startswith("control-plane:"))
         if not control_plane:
-            print(f"Failing to process {runner}: missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
-            sys.exit(1)
+            raise ProvisioningException(f"missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
 
         cp_public_ip = None
         cp_private_ip = None
@@ -829,8 +1092,7 @@ def cmd_runner_reinstall(args):
                 # Maybe the next TO control plane is working
                 pass
             else:
-                print(f"Failed to find control plane {control_plane}")
-                sys.exit(1)
+                raise ProvisioningException(f"Failed to find control plane {control_plane}")
 
         if cp_public_ip:
             ssh_cp = ssh_connect(host=cp_public_ip, user="root")
@@ -880,9 +1142,11 @@ def cmd_runner_reinstall(args):
 
         print(f"Server {runner} provisioned")
 
+    return _run_parallel(args.runners, _do_runner_reinstall, jobs=args.jobs, delay=args.delay)
+
 
 def cmd_runner_setup(args):
-    for runner in args.runners:
+    def _do_runner_setup(runner):
         print(f"\n{'='*60}")
         print(f"Setting up runner {runner}")
         print(f"{'='*60}")
@@ -892,8 +1156,7 @@ def cmd_runner_setup(args):
 
         control_plane = next(tag[14:] for tag in server.tags if tag.startswith("control-plane:"))
         if not control_plane:
-            print(f"Failing to process {runner}: missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
-            sys.exit(1)
+            raise ProvisioningException(f"missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
 
         cp_public_ip = None
         cp_private_ip = None
@@ -905,8 +1168,7 @@ def cmd_runner_setup(args):
                 # Maybe the next TO control plane is working
                 pass
             else:
-                print(f"Failed to find control plane {control_plane}")
-                sys.exit(1)
+                raise ProvisioningException(f"Failed to find control plane {control_plane}")
 
         ssh_cp = None
         if cp_public_ip:
@@ -952,6 +1214,8 @@ def cmd_runner_setup(args):
 
         print(f"Server {runner} provisioned")
 
+    return _run_parallel(args.runners, _do_runner_setup, jobs=args.jobs, delay=args.delay)
+
 
 def cmd_runner_list(args):
     tag = f"control-plane:{args.control_plane}"
@@ -977,7 +1241,7 @@ def cmd_runner_list(args):
 
 
 def cmd_runner_delete(args):
-    for runner in args.runners:
+    def _do_runner_delete(runner):
         print(f"\n{'='*60}")
         print(f"Deleting runner {runner}")
         print(f"{'='*60}")
@@ -987,8 +1251,7 @@ def cmd_runner_delete(args):
 
         control_plane = next(tag[14:] for tag in server.tags if tag.startswith("control-plane:"))
         if not control_plane:
-            print(f"Failing to process {runner}: missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
-            sys.exit(1)
+            raise ProvisioningException(f"missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
 
         cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
         print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
@@ -1002,6 +1265,8 @@ def cmd_runner_delete(args):
         server = BareMetal(server.id)
         server.delete()
         print(f"Server {runner} deleted")
+
+    return _run_parallel(args.runners, _do_runner_delete, jobs=args.jobs, delay=args.delay)
 
 
 # =============================================================================
@@ -1223,7 +1488,7 @@ def cmd_control_plane_create(args):
     ssh = ssh_connect(host=public_ip, user="root")
 
     print("Waiting for cloud-init to complete...")
-    ssh.run("cloud-init status --wait", hide=False)
+    ssh.run("cloud-init status --wait", hide=False, **_tagged_streams())
 
     # Get the private IP that cloud-init discovered
     result = ssh.run("ip -4 addr show scope global", hide=True)
@@ -1256,7 +1521,20 @@ def cmd_control_plane_create(args):
 # CLI
 # =============================================================================
 
+def _add_parallel_args(subparser):
+    subparser.add_argument("-j", "--jobs", type=int, default=4, help="Max concurrent runner operations (default: 4)")
+    subparser.add_argument("--delay", type=float, default=3.0, help="Min seconds between successive task starts (default: 3)")
+
+
 def main():
+    global _tagged_stdout, _tagged_stderr
+    _tagged_stdout = TaggedStream(sys.stdout)
+    _tagged_stderr = TaggedStream(sys.stderr)
+    assert not ((_tagged_stdout is not None) ^ (_tagged_stderr is not None)), \
+        "both _tagged_stdout and _tagged_stderr should be set or None at the same time"
+    sys.stdout = _tagged_stdout
+    sys.stderr = _tagged_stderr
+
     parser = argparse.ArgumentParser(description="Provision RISE RISC-V runner infrastructure on Scaleway")
     resource_subparsers = parser.add_subparsers(dest="resource", required=True)
 
@@ -1267,6 +1545,7 @@ def main():
     runner_create = runner_subparsers.add_parser("create", help="Create new runners")
     runner_create.add_argument("--control-plane", type=str, required=True, help="Name of the control plane instance")
     runner_create.add_argument("count", nargs="?", type=int, default=1, help="Number of new runners to create")
+    _add_parallel_args(runner_create)
     runner_create.set_defaults(func=cmd_runner_create)
 
     runner_list = runner_subparsers.add_parser("list", help="List runners")
@@ -1276,15 +1555,18 @@ def main():
     runner_reinstall = runner_subparsers.add_parser("reinstall", help="Reinstall OS on existing runners")
     runner_reinstall.add_argument("--to-control-plane", type=str, help="Name of the control plane instance to switch the runner to")
     runner_reinstall.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
+    _add_parallel_args(runner_reinstall)
     runner_reinstall.set_defaults(func=cmd_runner_reinstall)
 
     runner_setup = runner_subparsers.add_parser("setup", help="Setup existing runners")
     runner_setup.add_argument("--to-control-plane", type=str, help="Name of the control plane instance to switch the runner to")
     runner_setup.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
+    _add_parallel_args(runner_setup)
     runner_setup.set_defaults(func=cmd_runner_setup)
 
     runner_delete = runner_subparsers.add_parser("delete", help="Delete existing runners")
     runner_delete.add_argument("runners", nargs="+", type=str, help="Runners to delete")
+    _add_parallel_args(runner_delete)
     runner_delete.set_defaults(func=cmd_runner_delete)
 
     # control-plane ...
@@ -1296,7 +1578,8 @@ def main():
     cp_create.set_defaults(func=cmd_control_plane_create)
 
     args = parser.parse_args()
-    args.func(args)
+    rc = args.func(args)
+    sys.exit(rc or 0)
 
 
 if __name__ == "__main__":
