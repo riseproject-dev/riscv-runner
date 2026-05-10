@@ -31,6 +31,14 @@ from scaleway.ipam.v1 import IpamV1API
 from scaleway.ipam.v1.types import ResourceType
 from scaleway_core.utils import WaitForOptions
 from scaleway_core.api import ScalewayException
+from scaleway.cockpit.v1 import (
+    CockpitV1RegionalAPI,
+    DataSource,
+    DataSourceOrigin,
+    DataSourceType,
+    Token,
+    TokenScope,
+)
 
 
 # --- Constants ---
@@ -58,6 +66,7 @@ instance_api = InstanceUtilsV1API(scw_client)
 baremetal_api = BaremetalV1API(scw_client)
 baremetal_pn_api = BaremetalV3PrivateNetworkAPI(scw_client)
 ipam_api = IpamV1API(scw_client)
+cockpit_api = CockpitV1RegionalAPI(scw_client)
 
 
 class ProvisioningException(Exception):
@@ -237,6 +246,7 @@ def _run_parallel(items, fn, jobs, delay):
     throttle = Throttle(delay)
 
     def _worker(item):
+        import traceback
         if _tagged_stdout is not None:
             _tagged_stdout.set_tag(str(item))
         if _tagged_stderr is not None:
@@ -246,7 +256,7 @@ def _run_parallel(items, fn, jobs, delay):
             fn(item)
             return None
         except Exception as e:
-            print(f"FAILED: {e}")
+            print(f"FAILED: {e}\n{traceback.format_exc()}")
             return e
         finally:
             if _tagged_stdout is not None:
@@ -562,8 +572,8 @@ echo "Setup @ $(date)"
 set -eux -o pipefail
 
 # Fresh packages
-sudo apt update -qq
-sudo apt upgrade -qq -y
+sudo apt-get update -qq
+sudo apt-get upgrade -qq -y
 
 ###############################################################################
 ## Build necessary kernel modules
@@ -571,14 +581,14 @@ sudo apt upgrade -qq -y
 pushd /usr/lib/modules/$(uname -r)/source
 
 ## Install toolchains
-sudo apt install -y build-essential libelf-dev libssl-dev bc bison flex gcc-14
+sudo apt-get install -y build-essential libelf-dev libssl-dev bc bison flex gcc-14
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-sudo apt install -y --no-install-recommends ipset   # for testing
+sudo apt-get install -y --no-install-recommends ipset   # for testing
 
 ## Build
 
-# 1. Seed config from the running kernel's build tree
-sudo cp ../build/.config .
+# 1. Seed config from the running kernel's /proc
+zcat /proc/config.gz | sudo tee .config >/dev/null
 
 # 2. Enable the missing ipset module options
 sudo scripts/config -m IP_SET_HASH_NET
@@ -720,7 +730,7 @@ sudo sysctl --system
 # sudo networkctl reload
 
 # Check that it succeeded
-# sudo apt install -qq -y --no-install-recommends retry
+# sudo apt-get install -qq -y --no-install-recommends retry
 # retry --delay=2 --times=5 -- ip addr show end0.@@PN_VLAN_ID@@
 
 # # Configure private network VLAN interface
@@ -729,9 +739,134 @@ sudo sysctl --system
 # sudo ip addr add @@PN_IP@@ dev end0.@@PN_VLAN_ID@@
 
 ###############################################################################
+## Install node_exporter
+
+NODE_EXPORTER_VERSION=1.11.1
+curl  -fsSL \
+  --retry 5 \
+  --retry-delay 5 \
+  --retry-all-errors \
+  https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/node_exporter-${NODE_EXPORTER_VERSION}.linux-$(uname -m).tar.gz | \
+    sudo tar -xvzf - -C /usr/local/bin --strip-components 1 node_exporter-${NODE_EXPORTER_VERSION}.linux-$(uname -m)/node_exporter
+
+sudo chown root:root /usr/local/bin/node_exporter
+sudo chmod 0755 /usr/local/bin/node_exporter
+
+id -u node_exporter >/dev/null 2>&1 || \
+  sudo useradd --system --no-create-home --shell /usr/sbin/nologin node_exporter
+
+sudo install -d -o node_exporter -g node_exporter -m 0755 \
+  /var/lib/node_exporter \
+  /var/lib/node_exporter/textfile_collector
+
+# Setup node_exporter systemd service
+cat <<'EOF' | sudo tee /etc/systemd/system/node_exporter.service
+[Unit]
+Description=Prometheus node_exporter
+Documentation=https://github.com/prometheus/node_exporter
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/node_exporter \
+  --collector.textfile.directory=/var/lib/node_exporter/textfile_collector \
+  --collector.softirqs \
+  --collector.interrupts \
+  --collector.ethtool \
+  --web.listen-address=127.0.0.1:9100
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/node_exporter
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable node_exporter
+
+###############################################################################
+## Install prometheus
+
+# Install Prometheus in agent mode to ship node_exporter metrics to
+# Scaleway Cockpit. Agent mode keeps only a short WAL on disk and uses
+# remote_write — no local TSDB, no query API.
+PROMETHEUS_VERSION="3.11.3"
+curl -fsSL \
+  --retry 5 \
+  --retry-delay 5 \
+  --retry-all-errors \
+  https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-$(uname -m).tar.gz | \
+    sudo tar -C /usr/local/bin -xvzf - --strip-components=1 prometheus-${PROMETHEUS_VERSION}.linux-$(uname -m)/prometheus
+
+sudo chown root:root /usr/local/bin/prometheus
+sudo chmod 0755 /usr/local/bin/prometheus
+
+id -u prometheus >/dev/null 2>&1 || \
+  sudo useradd --system --no-create-home --shell /usr/sbin/nologin prometheus
+
+sudo install -d -o prometheus -g prometheus -m 0750 \
+  /etc/prometheus \
+  /var/lib/prometheus
+
+cat <<EOF | sudo tee /etc/prometheus/agent.yml >/dev/null
+global:
+  scrape_interval: 15s
+  external_labels:
+    node: $(hostname)
+scrape_configs:
+- job_name: node_exporter
+  static_configs:
+  - targets: ['127.0.0.1:9100']
+remote_write:
+- url: '@@COCKPIT_METRICS_PUSH_URL@@/api/v1/push'
+  headers:
+    X-TOKEN: '@@COCKPIT_METRICS_TOKEN@@'
+EOF
+
+sudo chown prometheus:prometheus /etc/prometheus/agent.yml
+sudo chmod 0640 /etc/prometheus/agent.yml
+
+cat <<'EOF' | sudo tee /etc/systemd/system/prometheus-agent.service
+[Unit]
+Description=Prometheus (agent mode) shipping to Scaleway Cockpit
+Documentation=https://prometheus.io/docs/prometheus/latest/feature_flags/#prometheus-agent
+After=network-online.target node_exporter.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=prometheus
+Group=prometheus
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/agent.yml \
+  --agent \
+  --storage.agent.path=/var/lib/prometheus \
+  --web.listen-address=127.0.0.1:9090
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/prometheus
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable prometheus-agent
+
+###############################################################################
 ## Install containerd
 
-sudo apt install -qq -y --no-install-recommends containerd
+sudo apt-get install -qq -y --no-install-recommends containerd
 sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 
@@ -770,7 +905,7 @@ curl -fsSL \
 ###############################################################################
 ## Install kubernetes cli tools: kubeadm, kubelet, kubectl
 
-sudo apt install -qq -y --no-install-recommends curl unzip
+sudo apt-get install -qq -y --no-install-recommends curl unzip
 curl -fsSL \
   --retry 5 \
   --retry-delay 5 \
@@ -793,13 +928,11 @@ Description=kubelet: The Kubernetes Node Agent
 Documentation=https://kubernetes.io/docs/
 Wants=network-online.target
 After=network-online.target
-
 [Service]
 ExecStart=/usr/local/bin/kubelet
 Restart=always
 StartLimitInterval=0
 RestartSec=10
-
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -900,9 +1033,36 @@ def get_kubeadm_join_cmd(ssh_cp, cp_ip):
     return f"kubeadm join {cp_ip}:6443 --token {token} --discovery-token-ca-cert-hash sha256:{ca_cert_hash}"
 
 
-def run_setup(ssh, pn, ssh_cp, cp_public_ip):
+def get_or_create_cockpit_metrics_data_source() -> DataSource:
+    """Return the external metrics data source, creating it if absent."""
+    METRICS_DATA_SOURCE_NAME = f"riscv-runner-metrics-datasource"
+    for ds in cockpit_api.list_data_sources_all(origin=DataSourceOrigin.EXTERNAL, types=[DataSourceType.METRICS]):
+        if ds.name == METRICS_DATA_SOURCE_NAME:
+            return ds
+
+    return cockpit_api.create_data_source(name=METRICS_DATA_SOURCE_NAME, type_=DataSourceType.METRICS)
+
+
+def create_cockpit_metrics_push_token(name: str) -> Token:
+    """Create a write-only metrics token. `secret_key` is populated only on the returned object."""
+    for token in cockpit_api.list_tokens_all():
+        if token.name == name:
+            cockpit_api.delete_token(token_id=token.id)
+
+    return cockpit_api.create_token(
+        name=name,
+        token_scopes=[TokenScope.WRITE_ONLY_METRICS],
+    )
+
+
+def run_setup(runner, ssh, pn, ssh_cp, cp_public_ip):
     join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
+    cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
+    cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner}-metrics-token")
+
     script = SETUP_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd) \
+                         .replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
+                         .replace("@@COCKPIT_METRICS_TOKEN@@", cockpit_metrics_token.secret_key) \
                          #FIXME(pn): enable private address again
                          # .replace("@@PN_IP@@", pn.ip)
                          # .replace("@@PN_VLAN_ID@@", pn.vlan_id)
@@ -1056,7 +1216,7 @@ def cmd_runner_create(args):
         print(f"Server IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        run_setup(ssh, pn, ssh_cp, cp_public_ip)
+        run_setup(runner, ssh, pn, ssh_cp, cp_public_ip)
 
         print(f"Waiting for node {runner} to be ready in k8s")
         wait_for_k8s_node(runner, k8s)
@@ -1100,7 +1260,6 @@ def cmd_runner_reinstall(args):
 
             print(f"Draining and removing {runner} from k8s")
             drain_and_delete_k8s_node(runner, k8s)
-            print(f"Drained and removed {runner} from k8s")
 
         server = BareMetal(server.id)
 
@@ -1135,7 +1294,7 @@ def cmd_runner_reinstall(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        run_setup(ssh, pn, ssh_cp, cp_public_ip)
+        run_setup(runner, ssh, pn, ssh_cp, cp_public_ip)
 
         print(f"Waiting for node {runner} to be ready on k8s")
         wait_for_k8s_node(runner, k8s)
@@ -1177,7 +1336,6 @@ def cmd_runner_setup(args):
 
             print(f"Draining and removing {runner} from k8s")
             drain_and_delete_k8s_node(runner, k8s)
-            print(f"Drained and removed {runner} from k8s")
 
         server = BareMetal(server.id)
 
@@ -1207,7 +1365,7 @@ def cmd_runner_setup(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        run_setup(ssh, pn, ssh_cp, cp_public_ip)
+        run_setup(runner, ssh, pn, ssh_cp, cp_public_ip)
 
         print(f"Waiting for node {runner} to be ready on k8s")
         wait_for_k8s_node(runner, k8s)
@@ -1260,7 +1418,6 @@ def cmd_runner_delete(args):
 
         print(f"Draining and removing {runner} from k8s")
         drain_and_delete_k8s_node(runner, k8s)
-        print(f"Drained and removed {runner} from k8s")
 
         server = BareMetal(server.id)
         server.delete()
@@ -1394,7 +1551,7 @@ runcmd:
     sed -i 's|sandbox_image = ".*"|sandbox_image = "cloudv10x/pause:3.10"|' /etc/containerd/config.toml
     systemctl restart containerd
 
-  # Install kubelet, kubeadm, kubectl from official apt repo
+  # Install kubelet, kubeadm, kubectl from official apt-get repo
   - |
     set -eux
     curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
