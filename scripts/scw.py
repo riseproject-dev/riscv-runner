@@ -587,10 +587,15 @@ sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
 
 ## Build
 
+MODULES=(
+    net/netfilter/ipset
+    fs/erofs
+)
+
 # 1. Seed config from the running kernel's /proc
 zcat /proc/config.gz | sudo tee .config >/dev/null
 
-# 2. Enable the missing ipset module options
+# 2.a Enable missing ipset module
 sudo scripts/config -m IP_SET_HASH_NET
 sudo scripts/config -m IP_SET_HASH_IPPORT
 sudo scripts/config -m IP_SET_HASH_IPPORTIP
@@ -606,6 +611,14 @@ sudo scripts/config -m IP_SET_BITMAP_IP
 sudo scripts/config -m IP_SET_BITMAP_IPMAC
 sudo scripts/config -m IP_SET_BITMAP_PORT
 sudo scripts/config -m IP_SET_LIST_SET
+
+# 2.b Enable missing erofs module
+sudo scripts/config -m EROFS_FS
+sudo scripts/config -e EROFS_FS_ZIP
+sudo scripts/config -e EROFS_FS_ZIP_LZMA
+sudo scripts/config -e EROFS_FS_ZIP_DEFLATE
+sudo scripts/config -e EROFS_FS_POSIX_ACL
+sudo scripts/config -e EROFS_FS_XATTR
 
 # 3. Pin the version suffix so vermagic matches the running kernel
 sudo scripts/config --set-str LOCALVERSION "-scw1"
@@ -623,17 +636,18 @@ sudo cp /lib/modules/$(uname -r)/build/Module.symvers .
 cat include/config/kernel.release | grep "5.10.113-scw1"   # must print: 5.10.113-scw1
 
 # 7. Build only the ipset modules
-sudo make ARCH=riscv \
-    KCFLAGS="-mno-relax -fno-asynchronous-unwind-tables -fno-unwind-tables -g0" \
-    KAFLAGS="-mno-relax" \
-    M=net/netfilter/ipset \
-    modules \
-    -j$(nproc)
+for m in ${MODULES[*]}; do
+    sudo make ARCH=riscv \
+         KCFLAGS="-mno-relax -fno-asynchronous-unwind-tables -fno-unwind-tables -g0" \
+         KAFLAGS="-mno-relax" \
+         M="${m}" modules -j$(nproc)
+done
 
 ## Verify before installing
 
 # must contain "5.10.113-scw1 SMP preempt mod_unload riscv"
 modinfo net/netfilter/ipset/ip_set.ko | grep vermagic | grep "5.10.113-scw1 SMP preempt mod_unload riscv"
+modinfo fs/erofs/erofs.ko             | grep vermagic | grep "5.10.113-scw1 SMP preempt mod_unload riscv"
 
 # must NOT contain "R_RISCV_ALIGN" or "R_RISCV_32_PCREL"
 ! riscv64-linux-gnu-readelf -r net/netfilter/ipset/ip_set_hash_net.ko \
@@ -641,7 +655,11 @@ modinfo net/netfilter/ipset/ip_set.ko | grep vermagic | grep "5.10.113-scw1 SMP 
 
 ## Install
 
-sudo cp net/netfilter/ipset/*.ko /lib/modules/$(uname -r)/kernel/net/netfilter/ipset/
+for m in ${MODULES[*]}; do
+    sudo mkdir -p /lib/modules/$(uname -r)/kernel/${m}
+    sudo cp ${m}/*.ko /lib/modules/$(uname -r)/kernel/${m}/
+done
+
 sudo depmod -a
 
 popd
@@ -676,6 +694,7 @@ ip_set_hash_netnet
 ip_set_hash_netport
 ip_set_hash_netportnet
 ip_set_list_set
+erofs
 EOF
 
 sudo modprobe overlay
@@ -863,6 +882,214 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable prometheus-agent
+
+###############################################################################
+## Install probe scripts (textfile collector)
+
+# Sources live in scripts/probes/; substituted in by run_setup().
+
+cat <<'EOF' | sudo tee /usr/local/bin/raw-github-probe.py >/dev/null
+#!/usr/bin/env python3
+
+# Probe raw.githubusercontent.com download speed for the node_exporter
+# textfile collector.
+#
+# Hits the Fastly target the customer's CI actually downloads from and a
+# non-Fastly comparison endpoint. When the Fastly target sags but the
+# control stays flat → H9 (Scaleway↔Fastly path). When both sag → H5
+# (Scaleway WAN egress).
+#
+# curl is shelled out so we get %{remote_ip} reflecting the IP libcurl
+# actually connected to — matches the customer's real traffic path more
+# faithfully than socket.gethostbyname would.
+
+
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+OUT = Path("/var/lib/node_exporter/textfile_collector/raw_github_probe.prom")
+
+TARGETS = [
+    ("raw.githubusercontent.com",
+     "https://raw.githubusercontent.com/usnistgov/ACVP-Server/master/README.md"),
+    ("cloudflare-control",
+     "https://speed.cloudflare.com/__down?bytes=1048576"),
+]
+
+CURL_FORMAT = "%{time_total} %{speed_download} %{remote_ip} %{exitcode}\n"
+
+HEADER  = "# HELP raw_github_probe_seconds Wallclock to download a fixed test artefact.\n"
+HEADER += "# TYPE raw_github_probe_seconds gauge\n"
+HEADER += "# HELP raw_github_probe_bytes_per_second Average download throughput in bytes/sec.\n"
+HEADER += "# TYPE raw_github_probe_bytes_per_second gauge\n"
+HEADER += "# HELP raw_github_probe_curl_exit_code Curl exit code; 0 on success.\n"
+HEADER += "# TYPE raw_github_probe_curl_exit_code gauge\n"
+
+def probe(target: str, url: str) -> str:
+    # Run one curl, return Prom-formatted lines for the result.
+    try:
+        result = subprocess.run(
+            ["curl", "-o", "/dev/null", "-s", "--max-time", "30", "-w", CURL_FORMAT, url],
+            capture_output=True, text=True, timeout=35,
+        )
+        fields = (result.stdout.strip() or "0 0 unknown 99").split()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        fields = ["0", "0", "unknown", "99"]
+    seconds, bps, ip, code = (fields + ["0", "0", "unknown", "99"])[:4]
+    return (
+        f'raw_github_probe_seconds{{target="{target}",remote_ip="{ip}"}} {seconds}\n'
+        f'raw_github_probe_bytes_per_second{{target="{target}"}} {bps}\n'
+        f'raw_github_probe_curl_exit_code{{target="{target}"}} {code}\n'
+    )
+
+
+def write_atomic(path: Path, content: str) -> None:
+    # Write content via tempfile + os.replace so node_exporter never sees a half-written file.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="." + path.name + ".")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def main() -> None:
+    write_atomic(OUT, HEADER + "".join(probe(name, url) for name, url in TARGETS))
+
+
+if __name__ == "__main__":
+    main()
+EOF
+
+sudo chmod 0755 /usr/local/bin/raw-github-probe.py
+sudo chown root:root /usr/local/bin/raw-github-probe.py
+
+cat <<'EOF' | sudo tee /usr/local/bin/dns-probe.py >/dev/null
+#!/usr/bin/env python3
+
+# Snapshot which IPs raw.githubusercontent.com currently resolves to, for
+# the node_exporter textfile collector.
+#
+# Resolves via socket.getaddrinfo (the libc resolver curl uses), so the IPs
+# we record match the customer's real traffic path. Used to correlate slow
+# windows with Fastly cache-region or POP flips (H1).
+
+import os
+import socket
+import tempfile
+from pathlib import Path
+
+OUT = Path("/var/lib/node_exporter/textfile_collector/dns_probe.prom")
+HOST = "raw.githubusercontent.com"
+
+HEADER  = "# HELP runner_dns_resolved_ip Info metric: 1 per IP currently resolved for HOST.\n"
+HEADER += "# TYPE runner_dns_resolved_ip gauge\n"
+HEADER += "# HELP runner_dns_resolved_ip_count Number of IPs returned for HOST.\n"
+HEADER += "# TYPE runner_dns_resolved_ip_count gauge\n"
+
+def resolve(host: str) -> list[str]:
+    ips: set[str] = set()
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            ips.update(info[4][0] for info in socket.getaddrinfo(host, None, family, socket.SOCK_STREAM))
+        except socket.gaierror:
+            pass
+    return sorted(ips)
+
+
+def write_atomic(path: Path, content: str) -> None:
+    # Write content via tempfile + os.replace so node_exporter never sees a half-written file.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="." + path.name + ".")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def main() -> None:
+    ips = resolve(HOST)
+    body = HEADER + "".join(
+        f'runner_dns_resolved_ip{{host="{HOST}",ip="{ip}"}} 1\n' for ip in ips
+    ) + f'runner_dns_resolved_ip_count{{host="{HOST}"}} {len(ips)}\n'
+    write_atomic(OUT, body)
+
+
+if __name__ == "__main__":
+    main()
+EOF
+sudo chmod 0755 /usr/local/bin/dns-probe.py
+sudo chown root:root /usr/local/bin/dns-probe.py
+
+# Systemd timers running each probe as the node_exporter user.
+cat <<'EOF' | sudo tee /etc/systemd/system/raw-github-probe.service
+[Unit]
+Description=Synthetic probe of raw.githubusercontent.com and a comparison target
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/raw-github-probe.py
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/node_exporter
+EOF
+
+cat <<'EOF' | sudo tee /etc/systemd/system/raw-github-probe.timer
+[Unit]
+Description=Run raw-github-probe every 5 minutes
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Unit=raw-github-probe.service
+[Install]
+WantedBy=timers.target
+EOF
+
+cat <<'EOF' | sudo tee /etc/systemd/system/dns-probe.service
+[Unit]
+Description=DNS resolution snapshot for raw.githubusercontent.com
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/dns-probe.py
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/node_exporter
+EOF
+
+cat <<'EOF' | sudo tee /etc/systemd/system/dns-probe.timer
+[Unit]
+Description=Run dns-probe every 60 seconds
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Unit=dns-probe.service
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable raw-github-probe.timer
+sudo systemctl enable dns-probe.timer
+
 
 ###############################################################################
 ## Install containerd
