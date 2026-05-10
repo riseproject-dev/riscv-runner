@@ -301,13 +301,87 @@ exec > >(sudo tee -a /var/log/riscv-runner-setup.log) 2>&1
 
 echo "Setup @ $(date)"
 
-set -euxo pipefail
+set -eux -o pipefail
 
 # Fresh packages
 sudo apt update -qq
 sudo apt upgrade -qq -y
 
-# Load required kernel modules
+###############################################################################
+## Build necessary kernel modules
+
+pushd /usr/lib/modules/$(uname -r)/source
+
+## Install toolchains
+sudo apt install -y build-essential libelf-dev libssl-dev bc bison flex gcc-14
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+sudo apt install -y --no-install-recommends ipset   # for testing
+
+## Build
+
+# 1. Seed config from the running kernel's build tree
+sudo cp ../build/.config .
+
+# 2. Enable the missing ipset module options
+sudo scripts/config -m IP_SET_HASH_NET
+sudo scripts/config -m IP_SET_HASH_IPPORT
+sudo scripts/config -m IP_SET_HASH_IPPORTIP
+sudo scripts/config -m IP_SET_HASH_IPPORTNET
+sudo scripts/config -m IP_SET_HASH_NETPORT
+sudo scripts/config -m IP_SET_HASH_NETIFACE
+sudo scripts/config -m IP_SET_HASH_NETNET
+sudo scripts/config -m IP_SET_HASH_NETPORTNET
+sudo scripts/config -m IP_SET_HASH_IPMARK
+sudo scripts/config -m IP_SET_HASH_IPMAC
+sudo scripts/config -m IP_SET_HASH_MAC
+sudo scripts/config -m IP_SET_BITMAP_IP
+sudo scripts/config -m IP_SET_BITMAP_IPMAC
+sudo scripts/config -m IP_SET_BITMAP_PORT
+sudo scripts/config -m IP_SET_LIST_SET
+
+# 3. Pin the version suffix so vermagic matches the running kernel
+sudo scripts/config --set-str LOCALVERSION "-scw1"
+sudo scripts/config -d LOCALVERSION_AUTO
+
+# 4. Resolve config and prepare the tree
+sudo make ARCH=riscv olddefconfig
+sudo make ARCH=riscv prepare
+sudo make ARCH=riscv modules_prepare
+
+# 5. Use the running kernel's symvers (must come AFTER modules_prepare)
+sudo cp /lib/modules/$(uname -r)/build/Module.symvers .
+
+# 6. Sanity-check the version string before building
+cat include/config/kernel.release | grep "5.10.113-scw1"   # must print: 5.10.113-scw1
+
+# 7. Build only the ipset modules
+sudo make ARCH=riscv \
+    KCFLAGS="-mno-relax -fno-asynchronous-unwind-tables -fno-unwind-tables -g0" \
+    KAFLAGS="-mno-relax" \
+    M=net/netfilter/ipset \
+    modules \
+    -j$(nproc)
+
+## Verify before installing
+
+# must contain "5.10.113-scw1 SMP preempt mod_unload riscv"
+modinfo net/netfilter/ipset/ip_set.ko | grep vermagic | grep "5.10.113-scw1 SMP preempt mod_unload riscv"
+
+# must NOT contain "R_RISCV_ALIGN" or "R_RISCV_32_PCREL"
+! riscv64-linux-gnu-readelf -r net/netfilter/ipset/ip_set_hash_net.ko \
+    | awk '{print $3}' | sort -u | grep -E '(R_RISCV_ALIGN|R_RISCV_32_PCREL)'
+
+## Install
+
+sudo cp net/netfilter/ipset/*.ko /lib/modules/$(uname -r)/kernel/net/netfilter/ipset/
+sudo depmod -a
+
+popd
+
+###############################################################################
+## Setup kernel modules
+
+# Load modules required for kubernetes
 cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
 overlay
 br_netfilter
@@ -315,12 +389,25 @@ nf_conntrack
 tun
 EOF
 
-# Load some modules needed for customers' workloads
+# Load modules needed for customers' workloads
 cat <<EOF | sudo tee /etc/modules-load.d/users.conf
-# k0s
 ip_set
+ip_set_bitmap_ip
+ip_set_bitmap_ipmac
+ip_set_bitmap_port
 ip_set_hash_ip
-ip_set_hash_net # it's not available in 5.10.113-scw1
+ip_set_hash_ipmac
+ip_set_hash_ipmark
+ip_set_hash_ipport
+ip_set_hash_ipportip
+ip_set_hash_ipportnet
+ip_set_hash_mac
+ip_set_hash_net
+ip_set_hash_netiface
+ip_set_hash_netnet
+ip_set_hash_netport
+ip_set_hash_netportnet
+ip_set_list_set
 EOF
 
 sudo modprobe overlay
@@ -334,7 +421,9 @@ blacklist algif_aead
 install algif_aead /bin/true
 EOF
 
-# Configure sysctl params for Kubernetes networking
+###############################################################################
+## Configure sysctl params for Kubernetes networking
+
 cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
@@ -344,7 +433,9 @@ EOF
 # Apply the changes
 sudo sysctl --system
 
-# # Configure private network VLAN interface
+###############################################################################
+## Configure private network VLAN interface
+
 # cat <<'EOF' | sudo tee -a /etc/systemd/network/05-end0.network
 # [Match]
 # Name=end0
@@ -379,7 +470,9 @@ sudo sysctl --system
 # sudo ip link set end0.@@PN_VLAN_ID@@ up
 # sudo ip addr add @@PN_IP@@ dev end0.@@PN_VLAN_ID@@
 
-# Install containerd
+###############################################################################
+## Install containerd
+
 sudo apt install -qq -y --no-install-recommends containerd
 sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
@@ -394,7 +487,9 @@ sudo sed -i 's|sandbox_image = ".*"|sandbox_image = "cloudv10x/pause:3.10"|' /et
 ## Restart the service
 sudo systemctl restart containerd
 
-# Install crictl
+###############################################################################
+## Install crictl
+
 CRICTL_VERSION="v1.35.0" # https://github.com/kubernetes-sigs/cri-tools/releases/tag/v1.35.0
 curl -fsSL \
   --retry 5 \
@@ -403,7 +498,20 @@ curl -fsSL \
   https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-$(uname -m).tar.gz | \
     sudo tar -C /usr/local/bin -xvzf -
 
-# Install kubernetes cli tools: kubeadm, kubelet, kubectl
+###############################################################################
+## Install CNI plugins
+
+sudo mkdir -p /opt/cni/bin
+curl -fsSL \
+  --retry 5 \
+  --retry-delay 5 \
+  --retry-all-errors \
+  https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-riscv64-v1.4.0.tgz | \
+    sudo tar -C /opt/cni/bin -xvzf -
+
+###############################################################################
+## Install kubernetes cli tools: kubeadm, kubelet, kubectl
+
 sudo apt install -qq -y --no-install-recommends curl unzip
 curl -fsSL \
   --retry 5 \
@@ -419,15 +527,6 @@ sudo mv artifacts/_output/local/go/bin/kube* /usr/local/bin/
 rm -rf artifacts artifacts.zip
 sudo chown root:root /usr/local/bin/kube*
 sudo chmod +x /usr/local/bin/kube*
-
-# Install CNI plugins
-sudo mkdir -p /opt/cni/bin
-curl -fsSL \
-  --retry 5 \
-  --retry-delay 5 \
-  --retry-all-errors \
-  https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-riscv64-v1.4.0.tgz | \
-    sudo tar -C /opt/cni/bin -xvzf -
 
 # Setup kubelet systemd service
 cat <<'EOF' | sudo tee /etc/systemd/system/kubelet.service
@@ -462,11 +561,15 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now kubelet
 
-# Join the cluster (uses the control plane's private network IP)
+###############################################################################
+## Join the cluster
+
 sudo kubeadm reset -f || true
 sudo @@KUBEADM_JOIN_CMD@@
 
-# Mandatory reboot for fresh nodes to finalize networking and cgroups
+###############################################################################
+## Mandatory reboot for fresh nodes to finalize networking and cgroups
+
 sudo reboot
 """
 
