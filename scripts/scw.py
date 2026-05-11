@@ -1311,7 +1311,7 @@ def setup_k8s_client(ssh_cp):
     return kubernetes.config.new_client_from_config_dict(yaml.safe_load(result.stdout))
 
 
-def drain_and_delete_k8s_node(hostname, k8s):
+def cordon_k8s_node(hostname, k8s):
     core = kubernetes.client.CoreV1Api(api_client=k8s)
 
     # Cordon the node so no new pods are scheduled on it
@@ -1340,6 +1340,10 @@ def drain_and_delete_k8s_node(hostname, k8s):
         print(f"  waiting for {len(remaining)} pod(s) to finish on node {hostname}")
         time.sleep(15)
 
+
+def delete_k8s_node(hostname, k8s):
+    core = kubernetes.client.CoreV1Api(api_client=k8s)
+
     try:
         core.delete_node(hostname)
     except kubernetes.client.ApiException as e:
@@ -1347,7 +1351,7 @@ def drain_and_delete_k8s_node(hostname, k8s):
             raise
 
 
-def wait_for_k8s_node(hostname, k8s):
+def wait_k8s_node(hostname, k8s):
     core = kubernetes.client.CoreV1Api(api_client=k8s)
 
     while True:
@@ -1450,7 +1454,7 @@ def cmd_runner_create(args):
         reboot_runner(ssh)
 
         print(f"Waiting for node {runner} to be ready in k8s")
-        wait_for_k8s_node(runner, k8s)
+        wait_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
@@ -1490,7 +1494,8 @@ def cmd_runner_reinstall(args):
             k8s = setup_k8s_client(ssh_cp)
 
             print(f"Draining and removing {runner} from k8s")
-            drain_and_delete_k8s_node(runner, k8s)
+            cordon_k8s_node(runner, k8s)
+            delete_k8s_node(runner, k8s)
 
         server = BareMetal(server.id)
 
@@ -1530,7 +1535,7 @@ def cmd_runner_reinstall(args):
         reboot_runner(ssh)
 
         print(f"Waiting for node {runner} to be ready on k8s")
-        wait_for_k8s_node(runner, k8s)
+        wait_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
@@ -1568,7 +1573,8 @@ def cmd_runner_setup(args):
             k8s = setup_k8s_client(ssh_cp)
 
             print(f"Draining and removing {runner} from k8s")
-            drain_and_delete_k8s_node(runner, k8s)
+            cordon_k8s_node(runner, k8s)
+            delete_k8s_node(runner, k8s)
 
         server = BareMetal(server.id)
 
@@ -1603,11 +1609,56 @@ def cmd_runner_setup(args):
         reboot_runner(ssh)
 
         print(f"Waiting for node {runner} to be ready on k8s")
-        wait_for_k8s_node(runner, k8s)
+        wait_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
     return _run_parallel(args.runners, _do_runner_setup, jobs=args.jobs, delay=args.delay)
+
+
+def cmd_runner_reboot(args):
+    def _do_runner_reboot(runner):
+        print(f"\n{'='*60}")
+        print(f"Setting up runner {runner}")
+        print(f"{'='*60}")
+
+        server = find_server_by_name(runner)
+        print(f"Found existing server: {server.id}")
+
+        control_plane = next(tag[14:] for tag in server.tags if tag.startswith("control-plane:"))
+        if not control_plane:
+            raise ProvisioningException(f"missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
+
+        cp_public_ip = None
+        cp_private_ip = None
+        try:
+            cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
+            print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
+        except ServerNotFoundException:
+            raise ProvisioningException(f"Failed to find control plane {control_plane}")
+
+        ssh_cp = None
+        ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+        k8s = setup_k8s_client(ssh_cp)
+
+        print(f"Draining and removing {runner} from k8s")
+        cordon_k8s_node(runner, k8s)
+        delete_k8s_node(runner, k8s)
+
+        server = BareMetal(server.id)
+
+        ip = server.get_public_ip()
+        print(f"Public IP: {ip}")
+
+        ssh = ssh_connect(host=ip, user="ubuntu")
+        reboot_runner(ssh)
+
+        print(f"Waiting for node {runner} to be ready on k8s")
+        wait_k8s_node(runner, k8s)
+
+        print(f"Server {runner} rebooted")
+
+    return _run_parallel(args.runners, _do_runner_reboot, jobs=args.jobs, delay=args.delay)
 
 
 def cmd_runner_list(args):
@@ -1652,7 +1703,8 @@ def cmd_runner_delete(args):
         k8s = setup_k8s_client(ssh_cp)
 
         print(f"Draining and removing {runner} from k8s")
-        drain_and_delete_k8s_node(runner, k8s)
+        cordon_k8s_node(runner, k8s)
+        delete_k8s_node(runner, k8s)
 
         server = BareMetal(server.id)
         server.delete()
@@ -1955,6 +2007,11 @@ def main():
     runner_setup.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
     _add_parallel_args(runner_setup)
     runner_setup.set_defaults(func=cmd_runner_setup)
+
+    runner_reboot = runner_subparsers.add_parser("reboot", help="Reboot existing runners")
+    runner_reboot.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
+    _add_parallel_args(runner_reboot)
+    runner_reboot.set_defaults(func=cmd_runner_reboot)
 
     runner_delete = runner_subparsers.add_parser("delete", help="Delete existing runners")
     runner_delete.add_argument("runners", nargs="+", type=str, help="Runners to delete")
