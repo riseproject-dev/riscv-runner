@@ -792,17 +792,18 @@ Group=node_exporter
 ExecStart=/usr/local/bin/node_exporter \
   --collector.disable-defaults \
   --collector.uname \
-  --collector.stat \
   --collector.cpu \
+  --collector.stat \
+  --collector.loadavg \
   --collector.meminfo \
   --collector.softirqs \
   --collector.softnet \
   --collector.netdev \
+  --collector.netdev.device-include=^end0$ \
   --collector.netstat \
-  --collector.netstat.fields='^.*$' \
+  --collector.netstat.fields='^(Tcp_(InSegs|OutSegs|RetransSegs)|TcpExt_(TCPTimeouts|TCPLostRetransmit|TCPSpuriousRTOs|TCPFastRetrans|TCPSlowStartRetrans|TCPSackRecovery|TCPSACKReorder|TCPRcvCollapsed|ListenOverflows))$' \
   --collector.sockstat \
   --collector.conntrack \
-  --collector.netdev.device-include=^end0$ \
   --collector.textfile \
   --collector.textfile.directory=/var/lib/node_exporter/textfile_collector \
   --web.listen-address=127.0.0.1:9100
@@ -857,31 +858,29 @@ scrape_configs:
   static_configs:
   - targets: ['127.0.0.1:9100']
   metric_relabel_configs:
+    # Keep only the network-side metrics we panel on
     - source_labels: [__name__]
-      regex: 'node_(netdev_(receive|transmit)_(bytes|packets|drop|errs)_total|netstat_Tcp_(InSegs|OutSegs|RetransSegs)|netstat_TcpExt_(TCPTimeouts|TCPLostRetransmit|TCPSpuriousRTOs|TCPFastRetrans|TCPSlowStartRetrans|TCPSackRecovery|TCPSACKReorder|TCPRcvCollapsed)|sockstat_TCP_(inuse|tw|alloc)|nf_conntrack_entries|softnet_(processed|dropped|times_squeezed)_total|softirqs_functions_total)'
+      regex: 'node_(netdev_(receive|transmit)_(bytes|packets|drop|errs)_total|netstat_.*|sockstat_TCP_.*|nf_conntrack_entries|softnet_(processed|dropped|times_squeezed)_total|softirqs_functions_total)'
       action: keep
+    # Among softirq functions, keep only NET_RX/NET_TX (the H10 disambiguator)
+    - source_labels: [__name__, type]
+      regex: 'node_softirqs_functions_total;(?!NET_RX|NET_TX).*'
+      action: drop
 - job_name: node_exporter_slow
   scrape_interval: 5m
   static_configs:
   - targets: ['127.0.0.1:9100']
   metric_relabel_configs:
-    # Drop fast-job families entirely (netdev/sockstat/conntrack/softirqs/softnet)
+    # Whitelist for the slow job: general host health + custom probe textfiles
     - source_labels: [__name__]
-      regex: 'node_(netdev|network|sockstat|arp|nf_conntrack|softirqs|softnet)_.*'
-      action: drop
-    # Drop only the netstat fields the fast job covers; keep the rest at 5m
-    - source_labels: [__name__]
-      regex: 'node_netstat_(Tcp_(InSegs|OutSegs|RetransSegs)|TcpExt_(TCPTimeouts|TCPLostRetransmit|TCPSpuriousRTOs|TCPFastRetrans|TCPSlowStartRetrans|TCPSackRecovery|TCPSACKReorder|TCPRcvCollapsed))'
-      action: drop
-    # Scrape metadata and exporter runtime noise
-    - source_labels: [__name__]
-      regex: '(go_|process_|promhttp_|node_scrape_collector_).*'
-      action: drop
+      regex: 'node_cpu_seconds_total|node_memory_(MemTotal_bytes|MemAvailable_bytes|MemFree_bytes|Cached_bytes|Buffers_bytes)|node_load(1|5|15)|node_uname_info|raw_github_probe_.*|runner_dns_.*'
+      action: keep
 remote_write:
 - url: '@@COCKPIT_METRICS_PUSH_URL@@/api/v1/push'
   headers:
     X-TOKEN: '@@COCKPIT_METRICS_TOKEN@@'
   write_relabel_configs:
+    # Belt-and-braces: drop SDK/runtime noise that's already filtered at scrape
     - source_labels: [__name__]
       regex: '(go_|process_|promhttp_).*'
       action: drop
