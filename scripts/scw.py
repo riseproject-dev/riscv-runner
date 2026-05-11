@@ -790,11 +790,21 @@ Type=simple
 User=node_exporter
 Group=node_exporter
 ExecStart=/usr/local/bin/node_exporter \
-  --collector.textfile.directory=/var/lib/node_exporter/textfile_collector \
+  --collector.disable-defaults \
+  --collector.uname \
+  --collector.stat \
+  --collector.cpu \
+  --collector.meminfo \
   --collector.softirqs \
-  --collector.interrupts \
-  --collector.ethtool \
+  --collector.softnet \
+  --collector.netdev \
+  --collector.netstat \
   --collector.netstat.fields='^.*$' \
+  --collector.sockstat \
+  --collector.conntrack \
+  --collector.netdev.device-include=^end0$ \
+  --collector.textfile \
+  --collector.textfile.directory=/var/lib/node_exporter/textfile_collector \
   --web.listen-address=127.0.0.1:9100
 Restart=on-failure
 RestartSec=5
@@ -838,17 +848,43 @@ sudo install -d -o prometheus -g prometheus -m 0750 \
 
 cat <<EOF | sudo tee /etc/prometheus/agent.yml >/dev/null
 global:
-  scrape_interval: 15s
+  scrape_interval: 5m
   external_labels:
     node: $(hostname)
 scrape_configs:
-- job_name: node_exporter
+- job_name: node_exporter_fast
+  scrape_interval: 30s
   static_configs:
   - targets: ['127.0.0.1:9100']
+  metric_relabel_configs:
+    - source_labels: [__name__]
+      regex: 'node_(netdev_(receive|transmit)_(bytes|packets|drop|errs)_total|netstat_Tcp_(InSegs|OutSegs|RetransSegs)|netstat_TcpExt_(TCPTimeouts|TCPLostRetransmit|TCPSpuriousRTOs|TCPFastRetrans|TCPSlowStartRetrans|TCPSackRecovery|TCPSACKReorder|TCPRcvCollapsed)|sockstat_TCP_(inuse|tw|alloc)|nf_conntrack_entries|softnet_(processed|dropped|times_squeezed)_total|softirqs_functions_total)'
+      action: keep
+- job_name: node_exporter_slow
+  scrape_interval: 5m
+  static_configs:
+  - targets: ['127.0.0.1:9100']
+  metric_relabel_configs:
+    # Drop fast-job families entirely (netdev/sockstat/conntrack/softirqs/softnet)
+    - source_labels: [__name__]
+      regex: 'node_(netdev|network|sockstat|arp|nf_conntrack|softirqs|softnet)_.*'
+      action: drop
+    # Drop only the netstat fields the fast job covers; keep the rest at 5m
+    - source_labels: [__name__]
+      regex: 'node_netstat_(Tcp_(InSegs|OutSegs|RetransSegs)|TcpExt_(TCPTimeouts|TCPLostRetransmit|TCPSpuriousRTOs|TCPFastRetrans|TCPSlowStartRetrans|TCPSackRecovery|TCPSACKReorder|TCPRcvCollapsed))'
+      action: drop
+    # Scrape metadata and exporter runtime noise
+    - source_labels: [__name__]
+      regex: '(go_|process_|promhttp_|node_scrape_collector_).*'
+      action: drop
 remote_write:
 - url: '@@COCKPIT_METRICS_PUSH_URL@@/api/v1/push'
   headers:
     X-TOKEN: '@@COCKPIT_METRICS_TOKEN@@'
+  write_relabel_configs:
+    - source_labels: [__name__]
+      regex: '(go_|process_|promhttp_).*'
+      action: drop
 EOF
 
 sudo chown prometheus:prometheus /etc/prometheus/agent.yml
