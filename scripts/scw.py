@@ -590,6 +590,7 @@ sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
 MODULES=(
     net/netfilter/ipset
     fs/erofs
+    drivers/md
 )
 
 # 1. Seed config from the running kernel's /proc
@@ -620,6 +621,14 @@ sudo scripts/config -e EROFS_FS_ZIP_DEFLATE
 sudo scripts/config -e EROFS_FS_POSIX_ACL
 sudo scripts/config -e EROFS_FS_XATTR
 
+# 2.c Enable missing dm_verity module
+sudo scripts/config -m DM_VERITY
+sudo scripts/config -e DM_VERITY_VERIFY_ROOTHASH_SIG
+# sudo scripts/config -e DM_VERITY_FEC # pulls in CONFIG_REED_SOLOMON which doesn't work
+sudo scripts/config -e BLK_DEV_DM
+sudo scripts/config -e MD
+sudo scripts/config -m CRYPTO_SHA256
+
 # 3. Pin the version suffix so vermagic matches the running kernel
 sudo scripts/config --set-str LOCALVERSION "-scw1"
 sudo scripts/config -d LOCALVERSION_AUTO
@@ -644,20 +653,26 @@ for m in ${MODULES[*]}; do
 done
 
 ## Verify before installing
-
-# must contain "5.10.113-scw1 SMP preempt mod_unload riscv"
-modinfo net/netfilter/ipset/ip_set.ko | grep vermagic | grep "5.10.113-scw1 SMP preempt mod_unload riscv"
-modinfo fs/erofs/erofs.ko             | grep vermagic | grep "5.10.113-scw1 SMP preempt mod_unload riscv"
-
-# must NOT contain "R_RISCV_ALIGN" or "R_RISCV_32_PCREL"
-! riscv64-linux-gnu-readelf -r net/netfilter/ipset/ip_set_hash_net.ko \
-    | awk '{print $3}' | sort -u | grep -E '(R_RISCV_ALIGN|R_RISCV_32_PCREL)'
-
-## Install
-
 for m in ${MODULES[*]}; do
     sudo mkdir -p /lib/modules/$(uname -r)/kernel/${m}
-    sudo cp ${m}/*.ko /lib/modules/$(uname -r)/kernel/${m}/
+    for ko in ${m}/*.ko; do
+        # vermagic must match the running kernel
+        modinfo "$ko" | grep '^vermagic:' | grep -q "5.10.113-scw1 SMP preempt mod_unload riscv" || {
+            echo "FAIL vermagic mismatch: $ko" >&2
+            modinfo "$ko" | grep '^vermagic:' >&2
+            exit 1
+        }
+
+        # must NOT contain relocations the 5.10 RISC-V module loader can't handle
+        if riscv64-linux-gnu-readelf -r "$ko" \
+             | awk '{print $3}' | sort -u \
+             | grep -qE '(R_RISCV_ALIGN|R_RISCV_32_PCREL)'; then
+            echo "FAIL forbidden relocations: $ko" >&2
+            exit 1
+        fi
+
+        sudo cp -v "$ko" /lib/modules/$(uname -r)/kernel/${m}/
+    done
 done
 
 sudo depmod -a
@@ -695,6 +710,7 @@ ip_set_hash_netport
 ip_set_hash_netportnet
 ip_set_list_set
 erofs
+dm_verity
 EOF
 
 sudo modprobe overlay
