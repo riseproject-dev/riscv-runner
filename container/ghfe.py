@@ -103,6 +103,80 @@ def check_webhook_signature(headers, body):
     return event, body
 
 
+# Per-section keys to drop from a workflow_job webhook payload before logging
+# it. The `sender`, `repository`, `organization`, and `workflow_job` objects
+# carry dozens of redundant URL fields (`*_url`) plus a few large secondary
+# fields (`license`, `steps[]`) that we never use for diagnostics. The only
+# URL we keep is `workflow_job.html_url` — the clickable link to the run on
+# GitHub.com that operators use during investigations.
+_WORKFLOW_JOB_DROP_KEYS = {
+    "sender": frozenset({
+        "url", "html_url",
+        "gists_url", "repos_url", "avatar_url", "events_url", "starred_url",
+        "followers_url", "following_url", "organizations_url",
+        "subscriptions_url", "received_events_url",
+    }),
+    "repository": frozenset({
+        "url", "license",
+        "git_url", "ssh_url", "svn_url", "html_url",
+        "keys_url", "tags_url", "blobs_url", "clone_url", "forks_url",
+        "hooks_url", "pulls_url", "teams_url", "trees_url", "events_url",
+        "issues_url", "labels_url", "merges_url", "mirror_url", "archive_url",
+        "commits_url", "compare_url", "branches_url", "comments_url",
+        "contents_url", "git_refs_url", "git_tags_url", "releases_url",
+        "statuses_url", "assignees_url", "downloads_url", "languages_url",
+        "milestones_url", "stargazers_url", "deployments_url",
+        "git_commits_url", "subscribers_url", "contributors_url",
+        "issue_events_url", "subscription_url", "collaborators_url",
+        "issue_comment_url", "notifications_url",
+    }),
+    "repository.owner": frozenset({
+        "url", "html_url",
+        "gists_url", "repos_url", "avatar_url", "events_url", "starred_url",
+        "followers_url", "following_url", "organizations_url",
+        "subscriptions_url", "received_events_url",
+    }),
+    "organization": frozenset({
+        "url",
+        "hooks_url", "repos_url", "avatar_url", "events_url", "issues_url",
+        "members_url", "public_members_url",
+    }),
+    "workflow_job": frozenset({
+        "url", "run_url", "check_run_url",
+        "steps",
+    }),
+}
+
+
+def _drop_keys(d, keys):
+    """Return a shallow copy of d with `keys` removed (no-op if d isn't a dict)."""
+    if not isinstance(d, dict):
+        return d
+    return {k: v for k, v in d.items() if k not in keys}
+
+
+def _trim_workflow_job_payload(payload):
+    """Drop the noisy fields listed in _WORKFLOW_JOB_DROP_KEYS from a
+    workflow_job payload before persisting it.
+
+    Cuts ~70 redundant URL fields and the `steps[]` array. The only URL we
+    keep is workflow_job.html_url (used as the operational link to the run).
+    """
+    trimmed = dict(payload)
+    if isinstance(trimmed.get("sender"), dict):
+        trimmed["sender"] = _drop_keys(trimmed["sender"], _WORKFLOW_JOB_DROP_KEYS["sender"])
+    if isinstance(trimmed.get("repository"), dict):
+        repo = dict(trimmed["repository"])
+        if isinstance(repo.get("owner"), dict):
+            repo["owner"] = _drop_keys(repo["owner"], _WORKFLOW_JOB_DROP_KEYS["repository.owner"])
+        trimmed["repository"] = _drop_keys(repo, _WORKFLOW_JOB_DROP_KEYS["repository"])
+    if isinstance(trimmed.get("organization"), dict):
+        trimmed["organization"] = _drop_keys(trimmed["organization"], _WORKFLOW_JOB_DROP_KEYS["organization"])
+    if isinstance(trimmed.get("workflow_job"), dict):
+        trimmed["workflow_job"] = _drop_keys(trimmed["workflow_job"], _WORKFLOW_JOB_DROP_KEYS["workflow_job"])
+    return trimmed
+
+
 def _log_webhook_event(
     *,
     event: str,
@@ -411,8 +485,12 @@ def webhook():
         # the entity from `repository.owner` instead.
         install = payload["installation"]
         owner = payload["repository"]["owner"]
+        # Drop the noisy URL/license/steps fields before logging. The
+        # ignored_no_label branch overrides `payload` below with an even
+        # tighter dict, so this only affects the processed-job outcomes
+        # (job_stored, job_marked_running, etc.).
         log_fields = dict(
-            payload=payload,
+            payload=_trim_workflow_job_payload(payload),
             app_id=app_id,
             installation_id=install["id"],
             entity_type=owner["type"],

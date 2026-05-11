@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from constants import EntityType
 from ghfe import (
     WebhookError,
+    _trim_workflow_job_payload,
     check_webhook_signature,
     authorize_entity,
     compute_signature,
@@ -103,6 +104,115 @@ def test_match_labels_pytorch_org_no_match():
     no-match branch separately from the general-case fall-through)."""
     from constants import PYTORCH_ORG_ID
     assert match_labels_to_k8s(PYTORCH_ORG_ID, "", ["ubuntu-latest"]) is None
+
+
+# --- _trim_workflow_job_payload ---
+
+def test_trim_drops_sender_url_fields():
+    payload = {"sender": {
+        "id": 1, "login": "ggerganov", "type": "User", "node_id": "MDQ6...",
+        "url": "drop", "html_url": "drop",
+        "gists_url": "drop", "repos_url": "drop", "avatar_url": "drop",
+        "events_url": "drop", "starred_url": "drop", "followers_url": "drop",
+        "following_url": "drop", "organizations_url": "drop",
+        "subscriptions_url": "drop", "received_events_url": "drop",
+        "site_admin": False, "gravatar_id": "", "user_view_type": "public",
+    }}
+    assert _trim_workflow_job_payload(payload) == {"sender": {
+        "id": 1, "login": "ggerganov", "type": "User", "node_id": "MDQ6...",
+        "site_admin": False, "gravatar_id": "", "user_view_type": "public",
+    }}
+
+
+def test_trim_drops_repository_url_fields_and_license():
+    payload = {"repository": {
+        "id": 100, "full_name": "o/r", "name": "r", "private": False,
+        "default_branch": "main", "language": "C++",
+        # all dropped:
+        "url": "drop", "html_url": "drop", "license": {"key": "mit"},
+        "git_url": "drop", "ssh_url": "drop", "svn_url": "drop",
+        "keys_url": "drop", "tags_url": "drop", "blobs_url": "drop",
+        "clone_url": "drop", "forks_url": "drop", "hooks_url": "drop",
+        "pulls_url": "drop", "teams_url": "drop", "trees_url": "drop",
+        "events_url": "drop", "issues_url": "drop", "labels_url": "drop",
+        "merges_url": "drop", "mirror_url": None, "archive_url": "drop",
+        "commits_url": "drop", "compare_url": "drop", "branches_url": "drop",
+        "comments_url": "drop", "contents_url": "drop", "git_refs_url": "drop",
+        "git_tags_url": "drop", "releases_url": "drop", "statuses_url": "drop",
+        "assignees_url": "drop", "downloads_url": "drop", "languages_url": "drop",
+        "milestones_url": "drop", "stargazers_url": "drop", "deployments_url": "drop",
+        "git_commits_url": "drop", "subscribers_url": "drop",
+        "contributors_url": "drop", "issue_events_url": "drop",
+        "subscription_url": "drop", "collaborators_url": "drop",
+        "issue_comment_url": "drop", "notifications_url": "drop",
+    }}
+    assert _trim_workflow_job_payload(payload) == {"repository": {
+        "id": 100, "full_name": "o/r", "name": "r", "private": False,
+        "default_branch": "main", "language": "C++",
+    }}
+
+
+def test_trim_drops_repository_owner_url_fields():
+    payload = {"repository": {"full_name": "o/r", "owner": {
+        "id": 1, "login": "ggml-org", "type": "Organization", "node_id": "X",
+        # dropped:
+        "url": "drop", "html_url": "drop",
+        "gists_url": "drop", "repos_url": "drop", "avatar_url": "drop",
+        "events_url": "drop", "starred_url": "drop", "followers_url": "drop",
+        "following_url": "drop", "organizations_url": "drop",
+        "subscriptions_url": "drop", "received_events_url": "drop",
+    }}}
+    assert _trim_workflow_job_payload(payload) == {"repository": {
+        "full_name": "o/r",
+        "owner": {"id": 1, "login": "ggml-org", "type": "Organization", "node_id": "X"},
+    }}
+
+
+def test_trim_drops_organization_url_fields():
+    payload = {"organization": {
+        "id": 134263123, "login": "ggml-org", "description": "AI at the edge",
+        "node_id": "X",
+        # dropped:
+        "url": "drop", "hooks_url": "drop", "repos_url": "drop",
+        "avatar_url": "drop", "events_url": "drop", "issues_url": "drop",
+        "members_url": "drop", "public_members_url": "drop",
+    }}
+    assert _trim_workflow_job_payload(payload) == {"organization": {
+        "id": 134263123, "login": "ggml-org", "description": "AI at the edge",
+        "node_id": "X",
+    }}
+
+
+def test_trim_drops_workflow_job_url_fields_and_steps():
+    """workflow_job: only html_url survives. url/run_url/check_run_url and the
+    steps[] array are dropped."""
+    payload = {"workflow_job": {
+        "id": 1, "name": "test", "labels": ["ubuntu-24.04-riscv"],
+        "html_url": "https://github.com/o/r/actions/runs/1/job/1",
+        "head_sha": "abc", "conclusion": "success", "status": "completed",
+        "runner_name": "rn", "run_id": 99, "runner_id": 42,
+        # dropped:
+        "url": "drop", "run_url": "drop", "check_run_url": "drop",
+        "steps": [{"name": "Set up job", "number": 1, "status": "completed"}],
+    }}
+    assert _trim_workflow_job_payload(payload) == {"workflow_job": {
+        "id": 1, "name": "test", "labels": ["ubuntu-24.04-riscv"],
+        "html_url": "https://github.com/o/r/actions/runs/1/job/1",
+        "head_sha": "abc", "conclusion": "success", "status": "completed",
+        "runner_name": "rn", "run_id": 99, "runner_id": 42,
+    }}
+
+
+def test_trim_does_not_introduce_missing_sections():
+    """A payload with only top-level fields is returned essentially unchanged."""
+    payload = {"action": "queued", "installation": {"id": 999}}
+    assert _trim_workflow_job_payload(payload) == payload
+
+
+def test_trim_handles_missing_owner_in_repository():
+    """If `repository` has no `owner`, the trimmer doesn't crash on it."""
+    payload = {"repository": {"full_name": "o/r", "url": "drop"}}
+    assert _trim_workflow_job_payload(payload) == {"repository": {"full_name": "o/r"}}
 
 
 def test_match_labels_ggml_org_no_match():
@@ -456,15 +566,28 @@ def test_webhook_unhandled_event_logs_ignored_event(_mock_add_installation_event
 
 @patch("db.add_job", return_value=True)
 def test_webhook_workflow_job_queued_logs_job_stored(mock_add_job, _mock_add_installation_event):
+    """The logged payload for a processed workflow_job has the URL/license/steps
+    noise dropped per _WORKFLOW_JOB_DROP_KEYS. Only workflow_job.html_url
+    survives — the operational link to the run on GitHub.com."""
     from ghfe import app
     payload = {
         "action": "queued",
-        "workflow_job": {"id": 12345, "name": "test", "labels": ["ubuntu-24.04-riscv"],
-                         "html_url": "https://github.com/o/r/actions/runs/1/job/12345"},
-        "repository": {"id": 100, "full_name": "riseproject-dev/sample",
-                       "owner": {"id": 152654596, "login": "riseproject-dev",
-                                 "type": "Organization"}},
+        "workflow_job": {
+            "id": 12345, "name": "test", "labels": ["ubuntu-24.04-riscv"],
+            "html_url": "https://github.com/o/r/actions/runs/1/job/12345",
+            "url": "drop", "run_url": "drop", "check_run_url": "drop",
+            "steps": [{"name": "Set up job"}],
+        },
+        "repository": {
+            "id": 100, "full_name": "riseproject-dev/sample",
+            "url": "drop", "html_url": "drop", "events_url": "drop",
+            "owner": {"id": 152654596, "login": "riseproject-dev", "type": "Organization",
+                      "url": "drop", "html_url": "drop",
+                      "avatar_url": "drop", "repos_url": "drop"},
+        },
         "installation": {"id": 999},
+        "sender": {"id": 7, "login": "noisy", "type": "User",
+                   "url": "drop", "html_url": "drop", "avatar_url": "drop"},
     }
     body = json.dumps(payload)
     with app.test_client() as client:
@@ -473,6 +596,26 @@ def test_webhook_workflow_job_queued_logs_job_stored(mock_add_job, _mock_add_ins
     kwargs = _last_log_call(_mock_add_installation_event)
     assert kwargs["event"] == "workflow_job.queued"
     assert kwargs["outcome"] == "job_stored"
+
+    logged = kwargs["payload"]
+    # workflow_job.html_url survives — it's our operational link.
+    assert logged["workflow_job"]["html_url"] == "https://github.com/o/r/actions/runs/1/job/12345"
+    assert "url" not in logged["workflow_job"]
+    assert "run_url" not in logged["workflow_job"]
+    assert "check_run_url" not in logged["workflow_job"]
+    assert "steps" not in logged["workflow_job"]
+    # No URLs survive on repository / owner / sender.
+    assert "url" not in logged["repository"] and "html_url" not in logged["repository"]
+    assert "events_url" not in logged["repository"]
+    assert "url" not in logged["repository"]["owner"] and "html_url" not in logged["repository"]["owner"]
+    assert "avatar_url" not in logged["repository"]["owner"]
+    assert "url" not in logged["sender"] and "html_url" not in logged["sender"]
+    assert "avatar_url" not in logged["sender"]
+    # Non-noise fields stay.
+    assert logged["workflow_job"]["labels"] == ["ubuntu-24.04-riscv"]
+    assert logged["repository"]["full_name"] == "riseproject-dev/sample"
+    assert logged["repository"]["owner"]["login"] == "riseproject-dev"
+    assert logged["sender"]["login"] == "noisy"
 
 
 @patch("db.add_job", return_value=False)
@@ -573,12 +716,10 @@ def test_webhook_workflow_job_unknown_action_logs_ignored_action(_mock_add_insta
 
 
 def test_webhook_workflow_job_no_label_logs_ignored_no_label(_mock_add_installation_event):
-    """
-    ignored_no_label is the highest-volume event; we store a tiny payload
+    """ignored_no_label is the highest-volume event; we store a tiny payload
     with only labels, repo full_name, and the workflow_job html_url. Every
     other field that GitHub sends (steps, sender, organization, etc.) is
-    dropped.
-    """
+    dropped."""
     from ghfe import app
     payload = {
         "action": "queued",
