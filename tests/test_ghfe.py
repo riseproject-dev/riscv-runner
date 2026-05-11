@@ -573,6 +573,48 @@ def test_webhook_workflow_job_unknown_action_logs_ignored_action(_mock_add_insta
 
 
 def test_webhook_workflow_job_no_label_logs_ignored_no_label(_mock_add_installation_event):
+    """
+    ignored_no_label is the highest-volume event; we store a tiny payload
+    with only labels, repo full_name, and the workflow_job html_url. Every
+    other field that GitHub sends (steps, sender, organization, etc.) is
+    dropped.
+    """
+    from ghfe import app
+    payload = {
+        "action": "queued",
+        "workflow_job": {
+            "id": 12345, "name": "test",
+            "labels": ["unsupported-label"],
+            "html_url": "https://github.com/o/r/actions/runs/1/job/12345",
+            "steps": [{"name": "Set up job"}],     # large field, must be dropped
+            "head_sha": "deadbeef",                # dropped
+        },
+        "repository": {"id": 100, "full_name": "o/r",
+                       "owner": {"id": 152654596, "login": "o", "type": "Organization"},
+                       "description": "noisy field"},  # dropped
+        "installation": {"id": 999},
+        "sender": {"login": "noisy"},              # dropped
+        "organization": {"login": "noisy"},        # dropped
+    }
+    body = json.dumps(payload)
+    with app.test_client() as client:
+        resp = _post_webhook(client, body, "workflow_job")
+        assert resp.status_code == 200
+        assert b"missing required platform label" in resp.data
+    kwargs = _last_log_call(_mock_add_installation_event)
+    assert kwargs["event"] == "workflow_job.queued"
+    assert kwargs["outcome"] == "ignored_no_label"
+    assert kwargs["payload"] == {
+        "workflow_job": {
+            "labels": ["unsupported-label"],
+            "html_url": "https://github.com/o/r/actions/runs/1/job/12345",
+        },
+        "repository": {"full_name": "o/r"},
+    }
+
+
+def test_webhook_workflow_job_no_label_payload_handles_missing_html_url(_mock_add_installation_event):
+    """workflow_job payloads may omit html_url; the trimmer must not crash."""
     from ghfe import app
     payload = {
         "action": "queued",
@@ -585,10 +627,8 @@ def test_webhook_workflow_job_no_label_logs_ignored_no_label(_mock_add_installat
     with app.test_client() as client:
         resp = _post_webhook(client, body, "workflow_job")
         assert resp.status_code == 200
-        assert b"missing required platform label" in resp.data
     kwargs = _last_log_call(_mock_add_installation_event)
-    assert kwargs["event"] == "workflow_job.queued"
-    assert kwargs["outcome"] == "ignored_no_label"
+    assert kwargs["payload"]["workflow_job"]["html_url"] is None
 
 
 @patch("db.add_job", return_value=True)

@@ -466,6 +466,16 @@ def webhook():
         # Filter out unsupported jobs early.
         match = match_labels_to_k8s(owner_id, repo_full_name, job_labels)
         if match is None:
+            # ignored_no_label is by far the highest-volume row; keep only the
+            # fields a human needs to diagnose "user used an unsupported label"
+            # (which labels they tried, which repo, link to the run on GitHub).
+            log_fields["payload"] = {
+                "workflow_job": {
+                    "labels": job_labels,
+                    "html_url": payload["workflow_job"].get("html_url"),
+                },
+                "repository": {"full_name": repo_full_name},
+            }
             _log_webhook_event(event=f"{event}.{action}", outcome=WebhookOutcome.IGNORED_NO_LABEL, **log_fields)
             raise WebhookError(200, f"Ignoring job: missing required platform label (got {job_labels})")
         k8s_pool, k8s_image = match
