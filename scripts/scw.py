@@ -3,6 +3,7 @@
 
 import argparse
 import concurrent.futures
+import contextlib
 import itertools
 import kubernetes
 import os
@@ -193,6 +194,63 @@ class Throttle:
             time.sleep(wait)
 
 
+_concurrency_local = threading.local()
+
+
+class _Concurrency:
+    """Active-slot semaphore paired with a dynamically-grown ThreadPoolExecutor.
+
+    A worker acquires a slot at task start and releases it at task end. While
+    blocked on slow external waits (e.g. cordon_k8s_node polling pods), the
+    worker yields its slot so another queued item can start; the executor's
+    _max_workers is bumped so a new worker thread is actually spawned to host
+    that item.
+    """
+
+    def __init__(self, jobs):
+        self._sem = threading.Semaphore(jobs)
+        self._lock = threading.Lock()
+        self._executor = None
+
+    def bind(self, executor):
+        self._executor = executor
+
+    def acquire(self):
+        self._sem.acquire()
+
+    def release(self):
+        self._sem.release()
+
+    def yield_slot(self):
+        with self._lock:
+            self._executor._max_workers += 1
+            self._executor._adjust_thread_count()
+        self._sem.release()
+
+    def resume_slot(self):
+        self._sem.acquire()
+        with self._lock:
+            self._executor._max_workers = max(1, self._executor._max_workers - 1)
+
+
+@contextlib.contextmanager
+def yield_concurrency_slot():
+    """Loan the current worker's active slot while parked on a long wait.
+
+    No-op when called outside a _run_parallel worker so the wrapped function
+    remains callable from any context.
+    """
+    ctx = getattr(_concurrency_local, "ctx", None)
+    if ctx is None:
+        yield
+        return
+    ctx.yield_slot()
+    try:
+        yield
+    finally:
+        ctx.resume_slot()
+
+
 # Installed in main() so all output flows through it
 _tagged_stdout = None
 _tagged_stderr = None
@@ -244,6 +302,7 @@ def _run_parallel(items, fn, jobs, delay):
         _tagged_stderr.set_tag_len(tag_len)
 
     throttle = Throttle(delay)
+    concurrency = _Concurrency(max(1, jobs))
 
     def _worker(item):
         import traceback
@@ -253,7 +312,13 @@ def _run_parallel(items, fn, jobs, delay):
             _tagged_stderr.set_tag(str(item))
         try:
             throttle.wait()
-            fn(item)
+            _concurrency_local.ctx = concurrency
+            concurrency.acquire()
+            try:
+                fn(item)
+            finally:
+                concurrency.release()
+                _concurrency_local.ctx = None
             return None
         except Exception as e:
             print(f"FAILED: {e}\n{traceback.format_exc()}")
@@ -267,6 +332,7 @@ def _run_parallel(items, fn, jobs, delay):
                 _tagged_stderr.clear_tag()
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs))
+    concurrency.bind(executor)
     futures = {executor.submit(_worker, item): item for item in items}
 
     sigint_count = 0
@@ -1378,10 +1444,9 @@ def cordon_k8s_node(hostname, k8s):
         if e.status != 404:
             raise
 
-    # Wait for all default-namespace pods on the node to reach a terminal state
-    while True:
+    def _remaining():
         try:
-            remaining = [
+            return [
                 pod for pod in core.list_namespaced_pod(
                     namespace="default",
                     field_selector=f"spec.nodeName={hostname}",
@@ -1391,11 +1456,19 @@ def cordon_k8s_node(hostname, k8s):
         except kubernetes.client.ApiException as e:
             if e.status != 404:
                 raise
-            remaining = []
-        if not remaining:
-            break
-        print(f"  waiting for {len(remaining)} pod(s) to finish on node {hostname}")
-        time.sleep(15)
+            return []
+
+    remaining = _remaining()
+    if not remaining:
+        return
+
+    # The node is already cordoned, so no new pods will land here. Yield our
+    # active-parallelism slot while we wait so another runner can make progress.
+    with yield_concurrency_slot():
+        while remaining:
+            print(f"  waiting for {len(remaining)} pod(s) to finish on node {hostname}")
+            time.sleep(15)
+            remaining = _remaining()
 
 
 def delete_k8s_node(hostname, k8s):
