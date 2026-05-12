@@ -954,7 +954,7 @@ scrape_configs:
       regex: 'node_(netdev_(receive|transmit)_(bytes|packets|drop|errs)_total|netstat_.*|sockstat_TCP_.*|nf_conntrack_entries|softnet_(processed|dropped|times_squeezed)_total|softirqs_functions_total)'
       action: keep
     - source_labels: [__name__, type]
-      regex: 'node_softirqs_functions_total;(?!NET_RX|NET_TX).*'
+      regex: 'node_softirqs_functions_total;(HI|TIMER|BLOCK|IRQ_POLL|TASKLET|SCHED|HRTIMER|RCU)'
       action: drop
 - job_name: node_exporter_base
   scrape_interval: 5m
