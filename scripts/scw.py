@@ -951,7 +951,7 @@ scrape_configs:
   - targets: ['127.0.0.1:9100']
   metric_relabel_configs:
     - source_labels: [__name__]
-      regex: 'node_(netdev_(receive|transmit)_(bytes|packets|drop|errs)_total|netstat_.*|sockstat_TCP_.*|nf_conntrack_entries|softnet_(processed|dropped|times_squeezed)_total|softirqs_functions_total)'
+      regex: 'node_(network_(receive|transmit)_(bytes|packets|drop|errs)_total|netstat_.*|sockstat_TCP_.*|nf_conntrack_entries|softnet_(processed|dropped|times_squeezed)_total|softirqs_functions_total)'
       action: keep
     - source_labels: [__name__, type]
       regex: 'node_softirqs_functions_total;(HI|TIMER|BLOCK|IRQ_POLL|TASKLET|SCHED|HRTIMER|RCU)'
