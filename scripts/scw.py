@@ -1011,21 +1011,34 @@ sudo systemctl enable prometheus-agent
 
 # Sources live in scripts/probes/; substituted in by run_setup().
 
+# GitHub PAT used by the authenticated raw.githubusercontent.com probe variant.
+# Empty when unset → probe falls back to running only the unauthenticated variants.
+sudo install -d -m 0755 -o root -g root /etc/raw-github-probe
+cat <<'EOF' | sudo tee /etc/raw-github-probe/token >/dev/null
+@@GITHUB_PROBE_TOKEN@@
+EOF
+sudo chown root:node_exporter /etc/raw-github-probe/token
+sudo chmod 0440 /etc/raw-github-probe/token
+
 cat <<'EOF' | sudo tee /usr/local/bin/raw-github-probe.py >/dev/null
 #!/usr/bin/env python3
 
 # Probe raw.githubusercontent.com download speed for the node_exporter
 # textfile collector.
 #
-# Hits the Fastly target the customer's CI actually downloads from and a
-# non-Fastly comparison endpoint. When the Fastly target sags but the
-# control stays flat → H9 (Scaleway↔Fastly path). When both sag → H5
-# (Scaleway WAN egress).
+# Three variants:
+#   target=raw.githubusercontent.com, auth=none   — current behaviour
+#   target=raw.githubusercontent.com, auth=token  — same URL with PAT in
+#     Authorization header. Disambiguates whether the steady ~131 kB/s
+#     ceiling is a per-IP rate limit (auth lifts it) or a per-request
+#     bandwidth throttle (auth doesn't).
+#   target=cloudflare-control, auth=none          — non-Fastly comparison.
 #
 # curl is shelled out so we get %{remote_ip} reflecting the IP libcurl
-# actually connected to — matches the customer's real traffic path more
-# faithfully than socket.gethostbyname would.
-
+# actually connected to.
+#
+# Token is loaded from /etc/raw-github-probe/token (root:node_exporter, 0440).
+# Empty or missing → authed variant is skipped silently.
 
 import os
 import subprocess
@@ -1033,13 +1046,11 @@ import tempfile
 from pathlib import Path
 
 OUT = Path("/var/lib/node_exporter/textfile_collector/raw_github_probe.prom")
+TOKEN_FILE = Path("/etc/raw-github-probe/token")
 
-TARGETS = [
-    ("raw.githubusercontent.com",
-     "https://raw.githubusercontent.com/usnistgov/ACVP-Server/master/README.md"),
-    ("cloudflare-control",
-     "https://speed.cloudflare.com/__down?bytes=1048576"),
-]
+# Both are ~5MB
+URL_RAW_GITHUB = "https://raw.githubusercontent.com/usnistgov/ACVP-Server/15c0f3deeefbfa8cb6cd32a99e1ca3b738c66bf0/gen-val/json-files/ML-DSA-sigGen-FIPS204/prompt.json"
+URL_CLOUDFLARE = "https://speed.cloudflare.com/__down?bytes=5242880"
 
 CURL_FORMAT = "%{time_total} %{speed_download} %{remote_ip} %{exitcode}\n"
 
@@ -1050,21 +1061,51 @@ HEADER += "# TYPE raw_github_probe_bytes_per_second gauge\n"
 HEADER += "# HELP raw_github_probe_curl_exit_code Curl exit code; 0 on success.\n"
 HEADER += "# TYPE raw_github_probe_curl_exit_code gauge\n"
 
-def probe(target: str, url: str) -> str:
-    # Run one curl, return Prom-formatted lines for the result.
+
+def load_token() -> str:
+    try:
+        return TOKEN_FILE.read_text().strip()
+    except (FileNotFoundError, PermissionError, OSError):
+        return ""
+
+
+def targets(token):
+    out = [
+        ({"target": "raw.githubusercontent.com", "auth": "none"}, URL_RAW_GITHUB, None),
+        ({"target": "cloudflare-control",        "auth": "none"}, URL_CLOUDFLARE, None),
+    ]
+    if token:
+        out.append(
+            ({"target": "raw.githubusercontent.com", "auth": "token"},
+             URL_RAW_GITHUB, f"Authorization: Bearer {token}")
+        )
+    return out
+
+
+def fmt_labels(labels):
+    return ",".join(f'{k}="{v}"' for k, v in labels.items())
+
+
+def probe(labels, url, auth_header):
+    # Headers piped via `curl -K -` so the token never lands in argv / ps.
+    config = f'header = "{auth_header}"\n' if auth_header else None
+    args = ["curl", "-o", "/dev/null", "-s", "--max-time", "30", "-w", CURL_FORMAT]
+    if config:
+        args += ["-K", "-"]
+    args.append(url)
     try:
         result = subprocess.run(
-            ["curl", "-o", "/dev/null", "-s", "--max-time", "30", "-w", CURL_FORMAT, url],
-            capture_output=True, text=True, timeout=35,
+            args, input=config, capture_output=True, text=True, timeout=35,
         )
         fields = (result.stdout.strip() or "0 0 unknown 99").split()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         fields = ["0", "0", "unknown", "99"]
     seconds, bps, ip, code = (fields + ["0", "0", "unknown", "99"])[:4]
+    base = fmt_labels(labels)
     return (
-        f'raw_github_probe_seconds{{target="{target}",remote_ip="{ip}"}} {seconds}\n'
-        f'raw_github_probe_bytes_per_second{{target="{target}"}} {bps}\n'
-        f'raw_github_probe_curl_exit_code{{target="{target}"}} {code}\n'
+        f'raw_github_probe_seconds{{{base},remote_ip="{ip}"}} {seconds}\n'
+        f'raw_github_probe_bytes_per_second{{{base}}} {bps}\n'
+        f'raw_github_probe_curl_exit_code{{{base}}} {code}\n'
     )
 
 
@@ -1082,7 +1123,7 @@ def write_atomic(path: Path, content: str) -> None:
 
 
 def main() -> None:
-    write_atomic(OUT, HEADER + "".join(probe(name, url) for name, url in TARGETS))
+    write_atomic(OUT, HEADER + "".join(probe(labels, url, auth) for labels, url, auth in targets(load_token())))
 
 
 if __name__ == "__main__":
@@ -1168,6 +1209,7 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/node_exporter
+ReadOnlyPaths=/etc/raw-github-probe
 EOF
 
 cat <<'EOF' | sudo tee /etc/systemd/system/raw-github-probe.timer
@@ -1400,11 +1442,19 @@ def create_cockpit_metrics_push_token(name: str) -> Token:
     )
 
 
+def get_github_probe_token() -> str:
+    if not "GITHUB_PROBE_TOKEN" in os.environ:
+        print(f"WARNING! The environment variable GITHUB_PROBE_TOKEN is not defined, the host will be setup without")
+    return os.environ.get("GITHUB_PROBE_TOKEN", "")
+
+
 def setup_runner(ssh, runner, pn):
     cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
     cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner}-metrics-token")
+    github_probe_token = get_github_probe_token()
     script = SETUP_SCRIPT.replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
                          .replace("@@COCKPIT_METRICS_TOKEN@@", cockpit_metrics_token.secret_key) \
+                         .replace("@@GITHUB_PROBE_TOKEN@@", github_probe_token) \
                          #FIXME(pn): enable private address again
                          # .replace("@@PN_IP@@", pn.ip)
                          # .replace("@@PN_VLAN_ID@@", pn.vlan_id)
