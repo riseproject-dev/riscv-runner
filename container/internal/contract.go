@@ -143,15 +143,65 @@ type InstallationEvent struct {
 	Payload        json.RawMessage `db:"payload" json:"-"`
 }
 
-// FailureInfo is the v2 shape written into workers.failure_info / jobs.failure_info.
-type FailureInfo struct {
-	Version      int                      `json:"version"`
-	Reason       FailureReason            `json:"reason"`
-	PodReason    string                   `json:"pod_reason,omitempty"`
-	PodMessage   string                   `json:"pod_message,omitempty"`
-	Containers   map[string]ContainerInfo `json:"containers,omitempty"`
-	Events       []EventInfo              `json:"events,omitempty"`
-	CollectError string                   `json:"collect_error,omitempty"`
+// FailureInfo is the sealed interface implemented by FailureInfoV1 and
+// FailureInfoV2. Two on-disk schemas coexist for workers.failure_info /
+// jobs.failure_info, and which one is correct depends on the failure
+// mode:
+//
+//   - FailureInfoV1 (non-pod failures): {"version":1,"message":"..."} --
+//     a free-form human message with no structured fields. Used by the
+//     scheduler when the failure isn't a k8s pod outcome (installation
+//     404, job missing on GitHub, run completed with a queued job, ...).
+//   - FailureInfoV2 (pod failures): {"version":2, "reason":<enum>,
+//     "pod_reason":..., "pod_message":..., "containers":..., "events":...}
+//     populated from CollectPodFailureInfo. Reason is a typed enum value
+//     (ReasonPodFailed, ReasonPodStuckPending, ...).
+//
+// DB.Mark{Job,Worker}Failed accept the interface so a caller can pass
+// either variant; the on-disk shape is determined by the concrete type.
+// Renderers must look at "version" in the parsed JSON first and pick
+// the right branch.
+type FailureInfo interface {
+	isFailureInfo()
+}
+
+// FailureInfoV1 is the non-pod failure shape: a free-form message and
+// nothing else. Marshals as {"version":1, "message":"..."}.
+type FailureInfoV1 struct {
+	Message string
+}
+
+// FailureInfoV2 is the structured pod-failure shape produced by
+// CollectPodFailureInfo. Marshals as {"version":2, "reason":..., ...}.
+type FailureInfoV2 struct {
+	Reason       FailureReason
+	PodReason    string
+	PodMessage   string
+	Containers   map[string]ContainerInfo
+	Events       []EventInfo
+	CollectError string
+}
+
+func (FailureInfoV1) isFailureInfo() {}
+func (FailureInfoV2) isFailureInfo() {}
+
+func (f FailureInfoV1) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Version int    `json:"version"`
+		Message string `json:"message,omitempty"`
+	}{1, f.Message})
+}
+
+func (f FailureInfoV2) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Version      int                      `json:"version"`
+		Reason       FailureReason            `json:"reason"`
+		PodReason    string                   `json:"pod_reason,omitempty"`
+		PodMessage   string                   `json:"pod_message,omitempty"`
+		Containers   map[string]ContainerInfo `json:"containers,omitempty"`
+		Events       []EventInfo              `json:"events,omitempty"`
+		CollectError string                   `json:"collect_error,omitempty"`
+	}{2, f.Reason, f.PodReason, f.PodMessage, f.Containers, f.Events, f.CollectError})
 }
 
 // ContainerInfo holds termination details + optional logs for one container.
@@ -255,6 +305,16 @@ type GHJob struct {
 	Status     string  `json:"status"`     // queued, in_progress, completed
 	Conclusion *string `json:"conclusion"` // null, success, failure, cancelled, ...
 	RunnerName string  `json:"runner_name"`
+	RunID      int64   `json:"run_id"`
+}
+
+// GHRun is the subset of the GitHub workflow-run response we use.
+// A run can finish (status=completed, conclusion!=null) while one of
+// its jobs stays stuck in status=queued forever — that's the case the
+// scheduler reconciles against.
+type GHRun struct {
+	Status     string  `json:"status"`
+	Conclusion *string `json:"conclusion"`
 }
 
 // Installation is the parsed shape of GET /app/installations/{id}.
@@ -337,6 +397,7 @@ type GitHubClient interface {
 	DeleteRunnerRepo(ctx context.Context, token, repoFullName string, runnerID int64) error
 
 	GetJobInfo(ctx context.Context, token, repoFullName string, jobID int64) (GHJob, error)
+	GetRunInfo(ctx context.Context, token, repoFullName string, runID int64) (GHRun, error)
 }
 
 // GitHubAPIError carries the HTTP status code so callers can distinguish 404.
@@ -364,7 +425,7 @@ type KubeClient interface {
 	DeletePod(ctx context.Context, podName string) error
 	KillPod(ctx context.Context, podName string) error
 	AvailableSlots(ctx context.Context, pool string) (Capacity, error)
-	CollectPodFailureInfo(ctx context.Context, pod Pod, reason FailureReason) FailureInfo
+	CollectPodFailureInfo(ctx context.Context, pod Pod, reason FailureReason) FailureInfoV2
 }
 
 // --- helpers shared between cmd/* ---

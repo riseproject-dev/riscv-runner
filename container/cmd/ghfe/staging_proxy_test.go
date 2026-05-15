@@ -52,7 +52,7 @@ func stagingPayload() []byte {
 		"installation": map[string]any{"id": float64(1)},
 		"repository": map[string]any{
 			"id":        float64(2),
-			"full_name": "riseproject-dev/riscv-runner-sample",
+			"full_name": "riseproject-dev/riscv-runner-sample-staging",
 			"owner":     map[string]any{"id": float64(internal.RiseprojectDevOrgID), "type": "Organization", "login": "riseproject-dev"},
 		},
 		"workflow_job": map[string]any{
@@ -172,9 +172,9 @@ func TestShouldProxyToStaging_Negatives(t *testing.T) {
 		ent  internal.Entity
 		repo string
 	}{
-		{"staging instance", internal.Config{Prod: false, StagingURL: "https://s"}, riseEntity, "riseproject-dev/riscv-runner-sample"},
-		{"no staging url", internal.Config{Prod: true}, riseEntity, "riseproject-dev/riscv-runner-sample"},
-		{"entity not in config", prod, unknownEntity, "riseproject-dev/riscv-runner-sample"},
+		{"staging instance", internal.Config{Prod: false, StagingURL: "https://s"}, riseEntity, "riseproject-dev/riscv-runner-sample-staging"},
+		{"no staging url", internal.Config{Prod: true}, riseEntity, "riseproject-dev/riscv-runner-sample-staging"},
+		{"entity not in config", prod, unknownEntity, "riseproject-dev/riscv-runner-sample-staging"},
 		{"repo not in entity staging list", prod, riseEntity, "riseproject-dev/something-else"},
 	}
 	for _, tc := range cases {
@@ -183,7 +183,7 @@ func TestShouldProxyToStaging_Negatives(t *testing.T) {
 		}
 	}
 
-	if !shouldProxyToStaging(prod, riseEntity, "riseproject-dev/riscv-runner-sample") {
+	if !shouldProxyToStaging(prod, riseEntity, "riseproject-dev/riscv-runner-sample-staging") {
 		t.Error("positive case: prod + sample repo should proxy")
 	}
 }

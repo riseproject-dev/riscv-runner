@@ -308,6 +308,7 @@ type FakeGH struct {
 	OnDeleteRunnerOrg     func(string, string, int64) error
 	OnDeleteRunnerRepo    func(string, string, int64) error
 	OnGetJobInfo          func(string, string, int64) (internal.GHJob, error)
+	OnGetRunInfo          func(string, string, int64) (internal.GHRun, error)
 }
 
 func (g *FakeGH) AuthenticateApp(ctx context.Context, instID, appID int64) (string, error) {
@@ -378,6 +379,13 @@ func (g *FakeGH) GetJobInfo(ctx context.Context, token, repo string, jobID int64
 		return g.OnGetJobInfo(token, repo, jobID)
 	}
 	return internal.GHJob{}, nil
+}
+
+func (g *FakeGH) GetRunInfo(ctx context.Context, token, repo string, runID int64) (internal.GHRun, error) {
+	if g.OnGetRunInfo != nil {
+		return g.OnGetRunInfo(token, repo, runID)
+	}
+	return internal.GHRun{}, nil
 }
 
 // --- FakeKube ---
@@ -465,6 +473,6 @@ func (f *FakeKube) AvailableSlots(ctx context.Context, pool string) (internal.Ca
 	return internal.Capacity{Available: f.SlotsByPool[pool]}, nil
 }
 
-func (f *FakeKube) CollectPodFailureInfo(ctx context.Context, p internal.Pod, reason internal.FailureReason) internal.FailureInfo {
-	return internal.FailureInfo{Version: 2, Reason: reason}
+func (f *FakeKube) CollectPodFailureInfo(ctx context.Context, p internal.Pod, reason internal.FailureReason) internal.FailureInfoV2 {
+	return internal.FailureInfoV2{Reason: reason}
 }

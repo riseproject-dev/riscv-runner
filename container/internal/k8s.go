@@ -280,11 +280,10 @@ func (k *K8sClient) AvailableSlots(ctx context.Context, pool string) (Capacity, 
 	return Capacity{Total: total, Active: active, Available: total - active}, nil
 }
 
-// CollectPodFailureInfo builds the v2 failure_info shape: container exit
+// CollectPodFailureInfo builds the FailureInfoV2 shape: container exit
 // codes/messages/logs plus pod events. Best-effort — never returns an error.
-func (k *K8sClient) CollectPodFailureInfo(ctx context.Context, p Pod, reason FailureReason) FailureInfo {
-	info := FailureInfo{
-		Version:    2, // bump when the structure changes — older rows render via the v1 fallback
+func (k *K8sClient) CollectPodFailureInfo(ctx context.Context, p Pod, reason FailureReason) FailureInfoV2 {
+	info := FailureInfoV2{
 		Reason:     reason,
 		Containers: map[string]ContainerInfo{},
 		Events:     nil,

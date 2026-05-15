@@ -113,7 +113,7 @@ func (a *App) tryProvision(ctx context.Context, j internal.Job) bool {
 	if err := a.provisionRunner(ctx, j, runnerName, labels); err != nil {
 		slog.Error("Failed to provision runner",
 			"entity", e, "runner_name", runnerName, "k8s_pool", j.K8sPool, "err", err)
-		info := internal.FailureInfo{Version: 2, Reason: internal.ReasonPodAllocationFailure}
+		info := internal.FailureInfoV2{Reason: internal.ReasonPodAllocationFailure}
 		_ = a.DB.MarkWorkerFailed(ctx, runnerName, "", info, nil)
 		// Row was created, slot is consumed.
 		return true

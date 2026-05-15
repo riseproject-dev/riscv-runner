@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/riseproject-dev/riscv-runner-app/container/internal"
 )
@@ -161,6 +163,101 @@ func TestSyncOneJob_InProgressFromPendingPromotesToRunning(t *testing.T) {
 	}
 	if !called {
 		t.Errorf("expected MarkJobRunning")
+	}
+}
+
+// TestSyncOneJob_StuckQueuedMarksFailedWhenRunCompleted covers the case
+// where GitHub reports a job still queued even though the parent workflow
+// run has terminated. The scheduler should detect this and mark the job
+// failed so the slot frees up.
+func TestSyncOneJob_StuckQueuedMarksFailedWhenRunCompleted(t *testing.T) {
+	app, db, gh, _ := schedTestApp()
+	gh.OnAuthenticateApp = func(int64, int64) (string, error) { return "tok", nil }
+	gh.OnGetJobInfo = func(string, string, int64) (internal.GHJob, error) {
+		return internal.GHJob{Status: "queued", RunID: 4242}, nil
+	}
+	conc := "failure"
+	gh.OnGetRunInfo = func(_, _ string, runID int64) (internal.GHRun, error) {
+		if runID != 4242 {
+			t.Errorf("GetRunInfo called with runID=%d, want 4242", runID)
+		}
+		return internal.GHRun{Status: "completed", Conclusion: &conc}, nil
+	}
+	var markedMessage string
+	db.OnMarkJobFailed = func(_ int64, info internal.FailureInfo) (string, error) {
+		v1, ok := info.(internal.FailureInfoV1)
+		if !ok {
+			t.Fatalf("expected FailureInfoV1, got %T", info)
+		}
+		markedMessage = v1.Message
+		return "pending", nil
+	}
+	db.Jobs = []internal.Job{{
+		JobID: 7, Status: "pending", RepoFullName: "a/r", EntityName: "a",
+		EntityType: "Organization", InstallationID: 9,
+		CreatedAt: time.Now().Add(-2 * internal.JobStuckQueuedMinAge),
+	}}
+	if err := app.syncJobsState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if markedMessage == "" {
+		t.Fatal("expected MarkJobFailed to be called")
+	}
+	if !strings.Contains(markedMessage, "stayed queued") || !strings.Contains(markedMessage, "failure") {
+		t.Errorf("message missing expected fragments: %q", markedMessage)
+	}
+}
+
+// TestSyncOneJob_StuckQueuedSkippedWhenJobYoung verifies we do not burn
+// GitHub API quota probing the run on freshly-queued jobs.
+func TestSyncOneJob_StuckQueuedSkippedWhenJobYoung(t *testing.T) {
+	app, db, gh, _ := schedTestApp()
+	gh.OnAuthenticateApp = func(int64, int64) (string, error) { return "tok", nil }
+	gh.OnGetJobInfo = func(string, string, int64) (internal.GHJob, error) {
+		return internal.GHJob{Status: "queued", RunID: 1}, nil
+	}
+	runProbed := false
+	gh.OnGetRunInfo = func(string, string, int64) (internal.GHRun, error) {
+		runProbed = true
+		return internal.GHRun{}, nil
+	}
+	db.Jobs = []internal.Job{{
+		JobID: 1, Status: "pending", RepoFullName: "a/r", EntityName: "a",
+		EntityType: "Organization", InstallationID: 9,
+		CreatedAt: time.Now(), // brand new
+	}}
+	if err := app.syncJobsState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if runProbed {
+		t.Errorf("GetRunInfo should not be called for jobs younger than JobStuckQueuedMinAge")
+	}
+	if len(db.MarkFailed) != 0 {
+		t.Errorf("young queued job must not be marked failed")
+	}
+}
+
+// TestSyncOneJob_StuckQueuedRunStillRunningIsNoop covers the case where
+// the run is still in flight — we probe but leave the job alone.
+func TestSyncOneJob_StuckQueuedRunStillRunningIsNoop(t *testing.T) {
+	app, db, gh, _ := schedTestApp()
+	gh.OnAuthenticateApp = func(int64, int64) (string, error) { return "tok", nil }
+	gh.OnGetJobInfo = func(string, string, int64) (internal.GHJob, error) {
+		return internal.GHJob{Status: "queued", RunID: 1}, nil
+	}
+	gh.OnGetRunInfo = func(string, string, int64) (internal.GHRun, error) {
+		return internal.GHRun{Status: "in_progress"}, nil
+	}
+	db.Jobs = []internal.Job{{
+		JobID: 1, Status: "pending", RepoFullName: "a/r", EntityName: "a",
+		EntityType: "Organization", InstallationID: 9,
+		CreatedAt: time.Now().Add(-2 * internal.JobStuckQueuedMinAge),
+	}}
+	if err := app.syncJobsState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(db.MarkFailed) != 0 {
+		t.Errorf("queued job with still-running parent run must not be marked failed")
 	}
 }
 

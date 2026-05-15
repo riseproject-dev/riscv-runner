@@ -502,8 +502,8 @@ func TestCollectPodFailureInfo_BuildsV2Shape(t *testing.T) {
 	)
 	k := NewK8sClientFromInterface(cs)
 	info := k.CollectPodFailureInfo(context.Background(), pod, ReasonPodFailed)
-	if info.Version != 2 || info.Reason != ReasonPodFailed {
-		t.Errorf("header fields wrong: %+v", info)
+	if info.Reason != ReasonPodFailed {
+		t.Errorf("reason wrong: %+v", info)
 	}
 	if info.PodMessage != "msg" || info.PodReason != "BadStuff" {
 		t.Errorf("pod fields lost: %+v", info)

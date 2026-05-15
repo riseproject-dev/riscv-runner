@@ -31,6 +31,7 @@ const (
 	RunnerPendingTimeout      = 600 * time.Second // runner registered with GH but never picks up a job
 	PodPendingTimeout         = 600 * time.Second // pod stuck Pending (no capacity, image pull, etc.)
 	PodDeleteGrace            = 6 * time.Hour     // keep terminal pods around so operators can still kubectl logs them
+	JobStuckQueuedMinAge      = 10 * time.Minute  // minimum job age before sync_jobs probes the parent run for a stuck-queued condition
 
 	PollInterval = 15 * time.Second
 

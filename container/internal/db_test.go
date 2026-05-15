@@ -156,11 +156,11 @@ func TestMarkJobCompleted_AcceptsRunningOrPending(t *testing.T) {
 	}
 }
 
-func TestMarkJobFailed_RequiresVersion(t *testing.T) {
+func TestMarkJobFailed_RequiresNonNil(t *testing.T) {
 	db, _ := newMockDB(t)
-	_, err := db.MarkJobFailed(context.Background(), 1, FailureInfo{})
+	_, err := db.MarkJobFailed(context.Background(), 1, nil)
 	if err == nil {
-		t.Fatal("expected error on zero version")
+		t.Fatal("expected error on nil FailureInfo")
 	}
 }
 
@@ -170,7 +170,7 @@ func TestMarkJobFailed_Success(t *testing.T) {
 	mock.ExpectQuery(`UPDATE jobs SET status = 'failed'`).
 		WithArgs(int64(1), pgxmock.AnyArg()).
 		WillReturnRows(pgxmock.NewRows([]string{"prev_status"}).AddRow(&prev))
-	prev, err := db.MarkJobFailed(context.Background(), 1, FailureInfo{Version: 2, Reason: ReasonPodFailed})
+	prev, err := db.MarkJobFailed(context.Background(), 1, FailureInfoV2{Reason: ReasonPodFailed})
 	if err != nil || prev != "running" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
@@ -186,7 +186,7 @@ func TestMarkJobFailed_NoMatchFallbackReadsCurrent(t *testing.T) {
 	mock.ExpectQuery(`SELECT status::text FROM jobs WHERE job_id`).
 		WithArgs(int64(1)).
 		WillReturnRows(pgxmock.NewRows([]string{"status"}).AddRow(&cur))
-	prev, err := db.MarkJobFailed(context.Background(), 1, FailureInfo{Version: 2, Reason: ReasonPodFailed})
+	prev, err := db.MarkJobFailed(context.Background(), 1, FailureInfoV2{Reason: ReasonPodFailed})
 	if err != nil || prev != "completed" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
@@ -200,7 +200,7 @@ func TestMarkJobFailed_NotFoundReturnsEmpty(t *testing.T) {
 	mock.ExpectQuery(`SELECT status::text FROM jobs WHERE job_id`).
 		WithArgs(int64(99)).
 		WillReturnError(pgx.ErrNoRows)
-	prev, err := db.MarkJobFailed(context.Background(), 99, FailureInfo{Version: 2, Reason: ReasonPodFailed})
+	prev, err := db.MarkJobFailed(context.Background(), 99, FailureInfoV2{Reason: ReasonPodFailed})
 	if err != nil || prev != "" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
@@ -211,7 +211,7 @@ func TestMarkJobFailed_UpdateErrorPropagates(t *testing.T) {
 	mock.ExpectQuery(`UPDATE jobs SET status = 'failed'`).
 		WithArgs(int64(1), pgxmock.AnyArg()).
 		WillReturnError(errors.New("boom"))
-	_, err := db.MarkJobFailed(context.Background(), 1, FailureInfo{Version: 2, Reason: ReasonPodFailed})
+	_, err := db.MarkJobFailed(context.Background(), 1, FailureInfoV2{Reason: ReasonPodFailed})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -344,10 +344,10 @@ func TestMarkWorkerCompleted(t *testing.T) {
 	}
 }
 
-func TestMarkWorkerFailed_RequiresVersion(t *testing.T) {
+func TestMarkWorkerFailed_RequiresNonNil(t *testing.T) {
 	db, _ := newMockDB(t)
-	if err := db.MarkWorkerFailed(context.Background(), "p", "n", FailureInfo{}, nil); err == nil {
-		t.Fatal("expected error on zero version")
+	if err := db.MarkWorkerFailed(context.Background(), "p", "n", nil, nil); err == nil {
+		t.Fatal("expected error on nil FailureInfo")
 	}
 }
 
@@ -356,7 +356,7 @@ func TestMarkWorkerFailed_Success(t *testing.T) {
 	mock.ExpectExec(`UPDATE workers.*status = 'failed'`).WithArgs(anyN(4)...).
 		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
 	if err := db.MarkWorkerFailed(context.Background(), "p", "n",
-		FailureInfo{Version: 2, Reason: ReasonPodFailed}, nil); err != nil {
+		FailureInfoV2{Reason: ReasonPodFailed}, nil); err != nil {
 		t.Fatalf("MarkWorkerFailed: %v", err)
 	}
 }

@@ -94,8 +94,8 @@ func TestProvisionRunner_FailureMarksWorker(t *testing.T) {
 	if len(db.MarkFailed) != 1 {
 		t.Fatalf("expected 1 mark_worker_failed call, got %v", db.MarkFailed)
 	}
-	if db.MarkFailed[0].Info.Reason != internal.ReasonPodAllocationFailure {
-		t.Errorf("failure_info.reason=%q want pod_allocation_failure", db.MarkFailed[0].Info.Reason)
+	if db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason != internal.ReasonPodAllocationFailure {
+		t.Errorf("failure_info.reason=%q want pod_allocation_failure", db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason)
 	}
 }
 

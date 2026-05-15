@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/riseproject-dev/riscv-runner-app/container/internal"
 )
@@ -42,10 +43,9 @@ func (a *App) syncOneJob(ctx context.Context, j internal.Job) error {
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 			slog.Warn("Installation not found, marking job failed",
 				"entity", e, "installation_id", j.InstallationID, "job_id", j.JobID)
-			_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfo{
-				Version: 1,
-				Reason: internal.FailureReason(fmt.Sprintf("installation not found for installation_id=%d entity_type=%s",
-					j.InstallationID, e.Type)),
+			_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfoV1{
+				Message: fmt.Sprintf("installation not found for installation_id=%d entity_type=%s",
+					j.InstallationID, e.Type),
 			})
 			return nil
 		}
@@ -59,10 +59,9 @@ func (a *App) syncOneJob(ctx context.Context, j internal.Job) error {
 		var apiErr *internal.GitHubAPIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 			slog.Warn("Job not found, marking as failed", "entity", e, "job_id", j.JobID)
-			_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfo{
-				Version: 1,
-				Reason: internal.FailureReason(fmt.Sprintf("job not found for job_id=%d entity=%s entity_id=%d entity_type=%s",
-					j.JobID, e.Name, e.ID, e.Type)),
+			_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfoV1{
+				Message: fmt.Sprintf("job not found for job_id=%d entity=%s entity_id=%d entity_type=%s",
+					j.JobID, e.Name, e.ID, e.Type),
 			})
 			return nil
 		}
@@ -86,6 +85,39 @@ func (a *App) syncOneJob(ctx context.Context, j internal.Job) error {
 				"entity", e, "job_id", j.JobID)
 			_, _ = a.DB.MarkJobRunning(ctx, j.JobID, ghJob.RunnerName)
 		}
+	case "queued":
+		a.reconcileStuckQueued(ctx, j, ghJob, token)
 	}
 	return nil
+}
+
+// reconcileStuckQueued detects jobs that GitHub still reports as queued
+// even though their parent workflow run has already terminated. This
+// happens when a run is cancelled (or a sibling fails fast-fail-style)
+// before scheduling reaches the job; the job then sits queued forever
+// and the scheduler would otherwise keep trying to provision a runner
+// for a job that will never start. We mark the row failed with the
+// run's conclusion so the worker slot frees up.
+func (a *App) reconcileStuckQueued(ctx context.Context, j internal.Job, ghJob internal.GHJob, token string) {
+	if ghJob.RunID == 0 || time.Since(j.CreatedAt) < internal.JobStuckQueuedMinAge {
+		return
+	}
+	run, err := a.GH.GetRunInfo(ctx, token, j.RepoFullName, ghJob.RunID)
+	if err != nil {
+		slog.Debug("GetRunInfo failed", "entity", j.Entity(), "job_id", j.JobID, "run_id", ghJob.RunID, "err", err)
+		return
+	}
+	if run.Status != "completed" {
+		return
+	}
+	conclusion := "unknown"
+	if run.Conclusion != nil && *run.Conclusion != "" {
+		conclusion = *run.Conclusion
+	}
+	slog.Warn("GH reconcile: job stuck queued while run is completed; marking failed",
+		"entity", j.Entity(), "job_id", j.JobID, "run_id", ghJob.RunID, "run_conclusion", conclusion)
+	_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfoV1{
+		Message: fmt.Sprintf("workflow run %d completed (conclusion=%s) while job %d stayed queued",
+			ghJob.RunID, conclusion, j.JobID),
+	})
 }

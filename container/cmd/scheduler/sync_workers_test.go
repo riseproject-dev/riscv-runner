@@ -48,8 +48,8 @@ func TestPhase3_OfflineRunnerPastTimeoutFails(t *testing.T) {
 	if len(db.MarkFailed) != 1 {
 		t.Fatalf("expected MarkWorkerFailed, got %v", db.MarkFailed)
 	}
-	if db.MarkFailed[0].Info.Reason != internal.ReasonRunnerNeverRegistered {
-		t.Errorf("reason=%q want runner_never_registered", db.MarkFailed[0].Info.Reason)
+	if db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason != internal.ReasonRunnerNeverRegistered {
+		t.Errorf("reason=%q want runner_never_registered", db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason)
 	}
 	if len(kube.KillCalls) != 1 || kube.KillCalls[0] != w.PodName {
 		t.Errorf("expected KillPod for %s, got %v", w.PodName, kube.KillCalls)
@@ -75,7 +75,7 @@ func TestPhase3_OnlineIdleRunnerPastTimeoutFails(t *testing.T) {
 	if err := app.syncWorkersState(context.Background()); err != nil {
 		t.Fatalf("syncWorkersState: %v", err)
 	}
-	if len(db.MarkFailed) != 1 || db.MarkFailed[0].Info.Reason != internal.ReasonRunnerIdle {
+	if len(db.MarkFailed) != 1 || db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason != internal.ReasonRunnerIdle {
 		t.Fatalf("expected RunnerIdle failure, got %v", db.MarkFailed)
 	}
 }
@@ -132,7 +132,7 @@ func TestPhase2_FailedPodMarksWorkerFailed(t *testing.T) {
 	if err := app.syncWorkersState(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(db.MarkFailed) != 1 || db.MarkFailed[0].Info.Reason != internal.ReasonPodFailed {
+	if len(db.MarkFailed) != 1 || db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason != internal.ReasonPodFailed {
 		t.Errorf("expected MarkWorkerFailed(pod_failed), got %v", db.MarkFailed)
 	}
 }
@@ -152,7 +152,7 @@ func TestPhase3_PendingPastTimeoutFailsWithStuckPending(t *testing.T) {
 	if err := app.syncWorkersState(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(db.MarkFailed) != 1 || db.MarkFailed[0].Info.Reason != internal.ReasonPodStuckPending {
+	if len(db.MarkFailed) != 1 || db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason != internal.ReasonPodStuckPending {
 		t.Errorf("got %v", db.MarkFailed)
 	}
 }

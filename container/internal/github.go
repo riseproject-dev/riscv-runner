@@ -335,6 +335,21 @@ func (c *GHClient) GetJobInfo(ctx context.Context, token, repoFullName string, j
 	return j, nil
 }
 
+func (c *GHClient) GetRunInfo(ctx context.Context, token, repoFullName string, runID int64) (GHRun, error) {
+	body, status, err := c.doJSON(ctx, "GET", "/repos/"+repoFullName+"/actions/runs/"+i64(runID), nil, token)
+	if err != nil {
+		return GHRun{}, err
+	}
+	if status != 200 {
+		return GHRun{}, &GitHubAPIError{StatusCode: status, Message: fmt.Sprintf("get run %d: %s", runID, body)}
+	}
+	var r GHRun
+	if err := json.Unmarshal(body, &r); err != nil {
+		return GHRun{}, err
+	}
+	return r, nil
+}
+
 // doJSON sends a JSON-encoded request and returns body, status, err.
 // `auth` is the value put after "Bearer " in the Authorization header.
 func (c *GHClient) doJSON(ctx context.Context, method, path string, body any, auth string) ([]byte, int, error) {

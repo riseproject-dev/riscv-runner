@@ -218,8 +218,8 @@ func (d *pgDB) MarkJobCompleted(ctx context.Context, jobID int64, runnerName str
 }
 
 func (d *pgDB) MarkJobFailed(ctx context.Context, jobID int64, info FailureInfo) (string, error) {
-	if info.Version == 0 {
-		return "", errors.New("failure_info.version must be set")
+	if info == nil {
+		return "", errors.New("failure_info must not be nil")
 	}
 	infoJSON, err := json.Marshal(info)
 	if err != nil {
@@ -408,8 +408,8 @@ func (d *pgDB) MarkWorkerCompleted(ctx context.Context, podName, node string, co
 }
 
 func (d *pgDB) MarkWorkerFailed(ctx context.Context, podName, node string, info FailureInfo, completedAt *time.Time) error {
-	if info.Version == 0 {
-		return errors.New("failure_info.version must be set")
+	if info == nil {
+		return errors.New("failure_info must not be nil")
 	}
 	infoJSON, err := json.Marshal(info)
 	if err != nil {
