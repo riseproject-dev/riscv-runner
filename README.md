@@ -52,13 +52,12 @@ The system is split into two containers:
 GitHub (workflow_job webhook)
   |
   v
-ghfe (ghfe.py)
-  |  - Proxies webhooks to staging for staging entities (prod only)
+ghfe (container/cmd/ghfe)
   |  - Verifies webhook signature
   |  - Validates labels, determines entity type (org or personal)
   |  - Resolves (entity_id, job_labels) -> (k8s_pool, k8s_image)
   |  - Writes job to PostgreSQL
-  |  - Serves /usage, /history
+  |  - Serves /setup/{org,personal}, /trace/*
   |  - NO GitHub API calls, NO k8s calls
   |
   v
@@ -69,7 +68,7 @@ PostgreSQL (state store)
   |  - LISTEN/NOTIFY: wakes scheduler on new jobs
   |
   v
-Scheduler (scheduler.py)
+Scheduler (container/cmd/scheduler)
   |  - sync_jobs_state:    sync job status with GitHub
   |  - sync_workers_state: runs under a per-scheduler LOCK TABLE workers advisory,
   |                        5 phases (atomic, single transaction):
@@ -219,9 +218,10 @@ chronological order:
 
 Each row carries the full payload as `JSONB`, plus filter/index keys
 (`installation_id`, `app_id`, `entity_type`, `entity_id`, `entity_name`)
-and a free-form `outcome` string. The `WebhookOutcome` enum in
-`constants.py` is the canonical list of outcome values; the column itself
-is `TEXT` so new outcomes don't require schema migrations. `entity_id`
+and a free-form `outcome` string. The `WebhookOutcome` type in
+`container/internal/contract.go` is the canonical list of outcome values;
+the column itself is `TEXT` so new outcomes don't require schema
+migrations. `entity_id`
 is the GitHub `account.id`, which is stable across renames and reinstalls
 — uninstalling and reinstalling the app produces a new `installation_id`
 but keeps the same `entity_id`.
@@ -236,10 +236,11 @@ has no UNIQUE constraint on payload so a duplicate log row is acceptable
 (the trace endpoints can dedupe by `delivery_id` from the JSONB payload
 when needed).
 
-The scheduler's `_gh_authenticate_app` wrapper logs only failures
-(`gh.authenticate_app` is `@ttl_cache`-decorated, so success is the hot
-path). `cachetools.func.ttl_cache` does not cache exceptions, so transient
-errors don't poison subsequent calls.
+The scheduler's `ghAuthenticate` wrapper
+(`container/cmd/scheduler/gh_auth.go`) only records failures: the
+underlying `AuthenticateApp` is TTL-cached, so success is the hot path
+and would drown the log. Failures are not cached, so transient errors
+don't poison subsequent calls.
 
 #### State reconstruction
 
@@ -391,12 +392,13 @@ The scheduler iterates pending jobs in FIFO order. For each job:
 
 ### Configuration
 
-Per-entity configuration is defined in `ENTITY_CONFIG` in `constants.py`, keyed by entity ID (org ID or user ID):
+Per-entity configuration is defined in `EntityConfigs` in
+`container/internal/constants.go`, keyed by entity ID (org ID or user ID):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `max_workers` | int or None | Maximum concurrent workers across all pools. None = unlimited |
-| `staging` | bool | If true, webhooks are proxied from prod to staging |
+| `MaxWorkers` | `*int` | Maximum concurrent workers across all pools. `nil` = unlimited |
+| `Staging`    | `[]string` | Repository names whose webhooks should be proxied from prod to staging |
 
 ### HTTP routes
 
@@ -406,8 +408,8 @@ Per-entity configuration is defined in `ENTITY_CONFIG` in `constants.py`, keyed 
 |-------|--------|-------------|
 | `/` | POST | Webhook endpoint for `workflow_job` events |
 | `/health` | GET | Health check (returns `ok`) |
-| `/usage` | GET | Human-readable view of per-pool jobs and workers |
-| `/history` | GET | Job history sorted by status (pending, running, completed) then creation time |
+| `/setup/org` | GET | GitHub App post-install landing page for organization installations |
+| `/setup/personal` | GET | GitHub App post-install landing page for personal-account installations |
 | `/trace/entity/<entity_id>` | GET | Installation event log for an entity (requires bearer token) |
 | `/trace/installation/<installation_id>` | GET | Resolves to `entity_id` then returns its event log |
 | `/trace/job/<job_id>` | GET | Resolves to `entity_id` via `jobs.entity_id` then returns its event log |
@@ -418,37 +420,25 @@ Per-entity configuration is defined in `ENTITY_CONFIG` in `constants.py`, keyed 
 | Route | Method | Description |
 |-------|--------|-------------|
 | `/health` | GET | Health check (returns `ok`) |
+| `/usage` | GET | Human-readable view of per-pool jobs and workers (`/usage.json` for JSON) |
+| `/history`, `/jobs` | GET | Job history sorted by status then creation time (`.json` variants for JSON) |
+| `/workers` | GET | Worker history with `failure_info` for failed workers (`.json` variant for JSON) |
 
 ### Key files
 
 | File | Purpose |
 |------|---------|
-| `container/constants.py` | Environment configuration, entity config, image tags |
-| `container/ghfe.py` | Flask webhook handler -- validates requests, writes to PostgreSQL |
-| `container/scheduler.py` | Scheduler -- GH reconciliation, demand matching, cleanup, worker status sync |
-| `container/k8s.py` | Kubernetes pod provisioning, deletion, capacity checks, failure info collection |
-| `container/db.py` | PostgreSQL database operations |
-| `container/github.py` | GitHub API functions (auth, runner groups, JIT config, job status) |
-| `container/Dockerfile` | Docker image for the ghfe and scheduler containers |
-| `container-go/` | Go reimplementation of ghfe and scheduler (see `container-go/CONTRACT.md`) |
+| `container/cmd/ghfe/` | Webhook handler — validates requests, writes to PostgreSQL, serves `/setup/*` and `/trace/*` |
+| `container/cmd/scheduler/` | Scheduler — GH reconciliation, demand matching, cleanup, worker status sync; serves `/usage`, `/history`, `/jobs`, `/workers` |
+| `container/internal/constants.go` | Environment configuration, `EntityConfigs`, timeouts, image tags |
+| `container/internal/contract.go` | Shared types, `WebhookOutcome` enum, DB/GitHub/Kube interfaces |
+| `container/internal/db.go` | PostgreSQL operations (pgx) |
+| `container/internal/github.go` | GitHub App auth + REST client |
+| `container/internal/k8s.go` | Kubernetes pod provisioning, deletion, capacity checks, failure-info collection |
+| `container/internal/testutil/` | In-memory fakes shared by `cmd/` tests |
+| `container/Dockerfile` | Multi-stage build producing the `ghfe` and `scheduler` images |
+| `container/serverless.yml` | Scaleway Serverless deployment manifest |
 | `scripts/trace_installation.py` | CLI client for the `/trace/*` endpoints — chronological table + diagnosis hints |
-
-### Go cutover
-
-`container-go/` ships a Go reimplementation deployed alongside the Python tree
-as the `ghfe-go` and `scheduler-go` Scaleway functions. Cutover is gradual:
-
-- **ghfe**: set `GO_GHFE_URL` on the Python ghfe function to the Go ghfe URL,
-  then populate `GO_GHFE_ROUTING={"entities":[<entity_id>, ...]}` with the
-  GitHub owner ids to forward. Only `workflow_job` webhooks are routed; the
-  staging proxy at `container/ghfe.py:509` still runs first. Rollback is
-  removing entries from `GO_GHFE_ROUTING`.
-- **scheduler**: single deployment. Once staging has soaked on the Go
-  scheduler, swap the prod `scheduler` function's image to
-  `scheduler-prod-go`. Rollback is the inverse image swap.
-
-See `container-go/CONTRACT.md` for the frozen behavioral surface the Go port
-must preserve.
 
 ### Infrastructure
 
@@ -465,20 +455,16 @@ Production and staging each have their own k8s cluster, provisioned via the `scr
 
 ## Development
 
-Create a python venv and install dev dependencies:
+The containers are pure Go. From `container/`:
+
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements-dev.txt
+go vet ./...
+gofmt -l .             # exits 0 with no output if everything is formatted
+go test -race ./...
 ```
 
-Run tests:
-```bash
-source .venv/bin/activate && PYTHONPATH=container python3 -m pytest
-```
-
-Tests mock PostgreSQL and Kubernetes -- no live services are required.
+Tests run against in-memory fakes for PostgreSQL, the GitHub API, and the
+Kubernetes API — no live services are required.
 
 ## Deployment
 

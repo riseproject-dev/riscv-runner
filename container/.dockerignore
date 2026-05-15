@@ -1,0 +1,9 @@
+*_test.go
+.dockerignore
+Dockerfile
+README.md
+node_modules/
+.serverless/
+serverless.yml
+package.json
+package-lock.json

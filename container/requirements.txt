@@ -1,7 +1,0 @@
-cachetools
-Flask==3.1.2
-jwt
-kubernetes
-psycopg2-binary
-requests
-waitress

@@ -1,18 +1,18 @@
-FROM python:3.12-slim-trixie AS base
+FROM golang:1.26-trixie AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ghfe ./cmd/ghfe \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/scheduler ./cmd/scheduler
+
+FROM gcr.io/distroless/base-debian13 AS base
 WORKDIR /app
 
-RUN pip3 install --no-cache --upgrade pip
-
-COPY requirements.txt .
-RUN pip3 install --no-cache -r requirements.txt --target .
-
-ENV PATH="/app/bin:${PATH}"
-ENV PYTHONPATH="/app"
-
-COPY *.py ./
+FROM base AS ghfe
+COPY --from=build /out/ghfe /app/ghfe
+ENTRYPOINT ["/app/ghfe"]
 
 FROM base AS scheduler
-CMD [ "python3", "scheduler.py" ]
-
-FROM base AS ghfe
-CMD [ "python3", "ghfe.py" ]
+COPY --from=build /out/scheduler /app/scheduler
+ENTRYPOINT ["/app/scheduler"]
