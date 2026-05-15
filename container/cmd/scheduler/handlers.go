@@ -94,7 +94,8 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	for _, k := range keys {
 		g := groups[k]
 		labelsDisplay := formatLabelsRaw(k.Labels)
-		lines = append(lines, fmt.Sprintf("=== %s / %s (%s) ===", g.EntityName, labelsDisplay, g.K8sPool))
+		lines = append(lines, fmt.Sprintf("=== %s / %s (%s) ===",
+			html.EscapeString(g.EntityName), labelsDisplay, html.EscapeString(g.K8sPool)))
 		if len(g.Jobs) > 0 {
 			lines = append(lines, fmt.Sprintf("  Jobs (%d):", len(g.Jobs)))
 			sort.Slice(g.Jobs, func(i, j int) bool { return g.Jobs[i].CreatedAt.Before(g.Jobs[j].CreatedAt) })
@@ -267,6 +268,9 @@ func writeJSON(w http.ResponseWriter, body any) {
 	_, _ = w.Write(b)
 }
 
+// writePre wraps the rendered lines in <pre>. Lines are emitted verbatim,
+// so each template MUST html.EscapeString any field that can carry
+// untrusted content (webhook labels, k8s event/container messages, etc.).
 func (a *App) writePre(w http.ResponseWriter, base string, lines []string) {
 	suffix := "Prod"
 	if !a.Config.Prod {
@@ -274,5 +278,5 @@ func (a *App) writePre(w http.ResponseWriter, base string, lines []string) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, "<title>%s - %s</title><pre>%s</pre>",
-		html.EscapeString(base), suffix, html.EscapeString(strings.Join(lines, "\n")))
+		html.EscapeString(base), suffix, strings.Join(lines, "\n"))
 }

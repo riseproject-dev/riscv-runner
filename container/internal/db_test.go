@@ -407,7 +407,7 @@ func TestGetAllWorkers_Paginated(t *testing.T) {
 func TestGetWorkersForReconcile(t *testing.T) {
 	db, mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .* FROM workers\s+WHERE status IN`).
-		WithArgs(3600).
+		WithArgs(3600.0).
 		WillReturnRows(pgxmock.NewRows(workerColumns()).AddRow(workerScanRow("p", "running")...))
 	out, err := db.GetWorkersForReconcile(context.Background(), time.Hour)
 	if err != nil || len(out) != 1 {

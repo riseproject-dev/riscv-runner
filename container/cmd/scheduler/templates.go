@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -34,13 +35,19 @@ func formatTimestamp(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:05 UTC")
 }
 
-// formatLabelsRaw renders a JSONB-encoded labels array as "[a, b]" or "<none>".
+// formatLabelsRaw renders a JSONB-encoded labels array as "[a, b]" or
+// "(none)". Each label is HTML-escaped because labels originate from
+// untrusted workflow_job payloads.
 func formatLabelsRaw(raw string) string {
 	var labels []string
 	if err := json.Unmarshal([]byte(raw), &labels); err != nil || len(labels) == 0 {
-		return "<none>"
+		return "(none)"
 	}
-	return "[" + strings.Join(labels, ", ") + "]"
+	escaped := make([]string, len(labels))
+	for i, l := range labels {
+		escaped[i] = html.EscapeString(l)
+	}
+	return "[" + strings.Join(escaped, ", ") + "]"
 }
 
 func formatLabels(raw json.RawMessage) string {
@@ -49,19 +56,19 @@ func formatLabels(raw json.RawMessage) string {
 
 func renderJob(j internal.Job) string {
 	status := formatStatus(j.Status)
-	repo := j.RepoFullName
+	repo := html.EscapeString(j.RepoFullName)
 	htmlURL := ""
 	if j.HTMLURL != nil {
 		htmlURL = *j.HTMLURL
 	}
 	labels := formatLabels(j.JobLabels)
-	pod := "<unknown pod>"
+	pod := "(unknown pod)"
 	if j.K8sPod != nil && *j.K8sPod != "" {
-		pod = *j.K8sPod
+		pod = html.EscapeString(*j.K8sPod)
 	}
 	link := fmt.Sprintf("%s#%d", repo, j.JobID)
 	if htmlURL != "" {
-		link = fmt.Sprintf(`<a href="%s">%s#%d</a>`, htmlURL, repo, j.JobID)
+		link = fmt.Sprintf(`<a href="%s">%s#%d</a>`, html.EscapeString(htmlURL), repo, j.JobID)
 	}
 	return fmt.Sprintf("%s  %s  %s  %s  %s", status, formatTimestamp(j.CreatedAt), labels, pod, link)
 }
@@ -72,12 +79,12 @@ func renderJob(j internal.Job) string {
 func (a *App) renderWorker(r *http.Request, w internal.Worker) []string {
 	status := formatStatus(w.Status)
 	labels := formatLabels(w.JobLabels)
-	node := "<unknown node>"
+	node := "(unknown node)"
 	if w.K8sNode != nil && *w.K8sNode != "" {
-		node = *w.K8sNode
+		node = html.EscapeString(*w.K8sNode)
 	}
 	lines := []string{fmt.Sprintf("%s  %s  %s  %s  (node: %s)",
-		status, formatTimestamp(w.CreatedAt), labels, w.PodName, node)}
+		status, formatTimestamp(w.CreatedAt), labels, html.EscapeString(w.PodName), node)}
 
 	if w.Status == "failed" && len(w.FailureInfo) > 0 {
 		lines = append(lines, renderFailureInfo(w.FailureInfo)...)
@@ -99,14 +106,14 @@ func renderFailureInfo(raw json.RawMessage) []string {
 	if version == 1 {
 		// v1 had no structured rendering.
 	} else if reason, ok := generic["reason"].(string); ok && reason != "" {
-		lines = append(lines, "  Reason: "+reason)
+		lines = append(lines, "  Reason: "+html.EscapeString(reason))
 	}
 	podReason, _ := generic["pod_reason"].(string)
 	podMessage, _ := generic["pod_message"].(string)
 	if podReason != "" || podMessage != "" {
-		s := "  Pod: " + valueOr(podReason, "?")
+		s := "  Pod: " + html.EscapeString(valueOr(podReason, "?"))
 		if podMessage != "" {
-			s += "  " + podMessage
+			s += "  " + html.EscapeString(podMessage)
 		}
 		lines = append(lines, strings.TrimRight(s, " "))
 	}
@@ -119,12 +126,13 @@ func renderFailureInfo(raw json.RawMessage) []string {
 			exit := fmt.Sprintf("%v", c["exit_code"])
 			cReason := valueOr(stringOr(c["reason"], ""), "?")
 			cMessage := stringOr(c["message"], "")
-			head := fmt.Sprintf("  Container %s: exit=%s  %s  %s", name, exit, cReason, cMessage)
+			head := fmt.Sprintf("  Container %s: exit=%s  %s  %s",
+				html.EscapeString(name), exit, html.EscapeString(cReason), html.EscapeString(cMessage))
 			lines = append(lines, strings.TrimRight(head, " "))
 			logs := stringOr(c["logs"], "")
 			if logs != "" {
 				for _, l := range strings.Split(logs, "\n") {
-					lines = append(lines, "    | "+l)
+					lines = append(lines, "    | "+html.EscapeString(l))
 				}
 			}
 		}
@@ -137,7 +145,10 @@ func renderFailureInfo(raw json.RawMessage) []string {
 			}
 			ts := stringOr(ev["last_seen"], stringOr(ev["first_seen"], "unknown"))
 			lines = append(lines, fmt.Sprintf("  %s  [%s]  %s: %s",
-				ts, stringOr(ev["type"], ""), stringOr(ev["reason"], ""), stringOr(ev["message"], "")))
+				html.EscapeString(ts),
+				html.EscapeString(stringOr(ev["type"], "")),
+				html.EscapeString(stringOr(ev["reason"], "")),
+				html.EscapeString(stringOr(ev["message"], ""))))
 		}
 	}
 	return lines
@@ -160,7 +171,8 @@ func (a *App) renderLiveEvents(ctx context.Context, podName string) []string {
 		} else if ev.FirstSeen != nil {
 			ts = ev.FirstSeen.Format("2006-01-02 15:04:05")
 		}
-		out = append(out, fmt.Sprintf("  %s  [%s]  %s: %s", ts, ev.Type, ev.Reason, ev.Message))
+		out = append(out, fmt.Sprintf("  %s  [%s]  %s: %s",
+			ts, html.EscapeString(ev.Type), html.EscapeString(ev.Reason), html.EscapeString(ev.Message)))
 	}
 	return out
 }

@@ -77,7 +77,7 @@ func TestRenderJob_AllShapes(t *testing.T) {
 	if strings.Contains(s2, "<a") {
 		t.Errorf("should not render link when html_url is nil: %q", s2)
 	}
-	if !strings.Contains(s2, "<unknown pod>") {
+	if !strings.Contains(s2, "(unknown pod)") {
 		t.Errorf("should mark missing pod: %q", s2)
 	}
 }
@@ -144,7 +144,7 @@ func TestFormatHelpers(t *testing.T) {
 	if formatTimestamp(time.Time{}) != "?" {
 		t.Errorf("zero timestamp wrong")
 	}
-	if formatLabels(json.RawMessage(`null`)) != "<none>" {
+	if formatLabels(json.RawMessage(`null`)) != "(none)" {
 		t.Errorf("null labels wrong")
 	}
 	if got := formatLabels(json.RawMessage(`["a","b"]`)); got != "[a, b]" {

@@ -500,8 +500,8 @@ func (d *pgDB) GetWorkersForReconcile(ctx context.Context, terminalLookback time
 		WHERE status IN ('pending', 'running')
 		   OR (status IN ('completed', 'failed')
 		       AND completed_at IS NOT NULL
-		       AND completed_at > now() - ($1 || ' seconds')::interval)
-	`, int(terminalLookback.Seconds()))
+		       AND completed_at > now() - make_interval(secs => $1))
+	`, terminalLookback.Seconds())
 	if err != nil {
 		return nil, err
 	}
