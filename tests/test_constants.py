@@ -47,25 +47,3 @@ def _load_real_constants(extra_env):
                 os.environ[k] = v
         if saved is not None:
             sys.modules["constants"] = saved
-
-
-def test_go_ghfe_routing_unset_is_empty(monkeypatch):
-    monkeypatch.delenv("GO_GHFE_ROUTING", raising=False)
-    monkeypatch.delenv("GO_GHFE_URL", raising=False)
-    m = _load_real_constants({"GO_GHFE_ROUTING": None, "GO_GHFE_URL": None})
-    assert m.GO_GHFE_URL == ""
-    assert m.GO_GHFE_ROUTING == frozenset()
-
-
-def test_go_ghfe_routing_parses_entity_ids():
-    m = _load_real_constants({
-        "GO_GHFE_URL": "http://go-ghfe.local",
-        "GO_GHFE_ROUTING": '{"entities":[152654596, 21003710]}',
-    })
-    assert m.GO_GHFE_URL == "http://go-ghfe.local"
-    assert m.GO_GHFE_ROUTING == frozenset({152654596, 21003710})
-
-
-def test_go_ghfe_routing_empty_entities_list():
-    m = _load_real_constants({"GO_GHFE_ROUTING": '{"entities":[]}'})
-    assert m.GO_GHFE_ROUTING == frozenset()

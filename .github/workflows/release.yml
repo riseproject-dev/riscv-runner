@@ -14,6 +14,7 @@ env:
   IMAGE: riscv-runner
   PROD_URL: https://riseriscvrunnerappqdvknz9s-ghfe.functions.fnc.fr-par.scw.cloud
   STAGING_URL: https://riseriscvrunnerappst73ndwr0w-ghfe.functions.fnc.fr-par.scw.cloud
+  GO_GHFE_URL: https://riseriscvrunnerappst73ndwr0w-ghfe-go.functions.fnc.fr-par.scw.cloud
 
 jobs:
   test:

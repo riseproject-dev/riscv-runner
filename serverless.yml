@@ -49,8 +49,7 @@ custom:
         LOGLEVEL: ${self:custom.${self:provider.stage}.loglevel}
         # Cutover knobs: populate once the ghfe-go function URL is known and
         # you're ready to forward an entity's workflow_job webhooks to Go.
-        GO_GHFE_URL: ${env:GO_GHFE_URL, ""}
-        GO_GHFE_ROUTING: ${env:GO_GHFE_ROUTING, ""}
+        GO_GHFE_URL: ${env:GO_GHFE_URL}
       # Health check configuration
       healthCheck:
         type: http
