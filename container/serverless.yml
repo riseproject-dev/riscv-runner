@@ -33,8 +33,11 @@ custom:
     ghfe:
       registryImage: ${env:REGISTRY}/${env:IMAGE}:ghfe-${self:custom.${self:provider.stage}.container-tag}
       port: 8080
-      cpuLimit: 500
-      memoryLimit: 512
+      cpuLimit: 250
+      memoryLimit: 256
+      scalingOption:
+        type: concurrentRequests
+        threshold: 80
       secret:
         GHAPP_WEBHOOK_SECRET: ${env:GHAPP_WEBHOOK_SECRET}
         GHAPP_ORG_PRIVATE_KEY: ${env:GHAPP_ORG_PRIVATE_KEY}
@@ -58,8 +61,8 @@ custom:
     scheduler:
       registryImage: ${env:REGISTRY}/${env:IMAGE}:scheduler-${self:custom.${self:provider.stage}.container-tag}
       port: 8080
-      cpuLimit: 500
-      memoryLimit: 512
+      cpuLimit: 250
+      memoryLimit: 256
       minScale: 1
       maxScale: 1
       secret:

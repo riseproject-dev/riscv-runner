@@ -39,7 +39,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	app := &App{Config: cfg, DB: db, GH: gh}
+	app := &App{Config: cfg, DB: db, GH: gh, StagingProxy: &http.Client{Timeout: 10 * time.Second}}
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("0.0.0.0:%d", internal.HTTPPort),
 		Handler:           app.Routes(),
@@ -64,9 +64,10 @@ func main() {
 
 // App holds the ghfe runtime dependencies handed to each request handler.
 type App struct {
-	Config internal.Config
-	DB     internal.DB
-	GH     internal.GitHubClient
+	Config       internal.Config
+	DB           internal.DB
+	GH           internal.GitHubClient
+	StagingProxy *http.Client // used by proxyToStaging; tests inject a stub
 }
 
 func (a *App) Routes() *http.ServeMux {

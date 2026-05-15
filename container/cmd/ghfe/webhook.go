@@ -62,7 +62,7 @@ func (a *App) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	case "installation_target":
 		a.handleInstallationTargetEvent(w, r, event, payload, appID)
 	case "workflow_job":
-		a.handleWorkflowJobEvent(w, r, payload, appID)
+		a.handleWorkflowJobEvent(w, r, body, payload, appID)
 	default:
 		a.recordEvent(r, eventRecord{Event: event, Outcome: internal.OutcomeIgnoredEvent, Payload: payload, AppID: &appID})
 		_, _ = w.Write([]byte("Ignoring " + event + " event"))
@@ -155,7 +155,7 @@ func (a *App) handleInstallationTargetEvent(w http.ResponseWriter, r *http.Reque
 	_, _ = w.Write([]byte(event + "." + action + " logged"))
 }
 
-func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, payload map[string]any, appID int64) {
+func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, body []byte, payload map[string]any, appID int64) {
 	action, _ := payload["action"].(string)
 	repo, _ := payload["repository"].(map[string]any)
 	install, _ := payload["installation"].(map[string]any)
@@ -173,15 +173,41 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, pay
 	ownerType, _ := owner["type"].(string)
 	ownerLogin, _ := owner["login"].(string)
 	installID := asInt64(install["id"])
+	repoFullName, _ := repo["full_name"].(string)
+	if ownerID == 0 {
+		httpError(w, 400, "Owner ID is missing in payload")
+		return
+	}
+	et, err := internal.ParseEntityType(ownerType)
+	if err != nil {
+		httpError(w, 400, err.Error())
+		return
+	}
+	entity := internal.Entity{Type: et, Name: ownerLogin, ID: ownerID}
 
 	trimmed := trimWorkflowJobPayload(payload)
 	base := eventRecord{
 		Payload:        trimmed,
 		AppID:          &appID,
 		InstallationID: &installID,
-		EntityType:     &ownerType,
-		EntityID:       &ownerID,
-		EntityName:     &ownerLogin,
+		EntityType:     (*string)(&entity.Type),
+		EntityID:       &entity.ID,
+		EntityName:     &entity.Name,
+	}
+
+	// Staging proxy: a real repo (e.g. riscv-runner-sample) is wired into
+	// the prod app but its webhooks should drive the staging environment.
+	// Forward the unmodified body to staging ghfe and short-circuit; the
+	// prod instance neither stores nor reconciles the job locally.
+	if shouldProxyToStaging(a.Config, entity, repoFullName) {
+		base.Event = "workflow_job." + action
+		base.Outcome = internal.OutcomeProxiedToStaging
+		a.recordEvent(r, base)
+		if err := a.proxyToStaging(w, r, body); err != nil {
+			slog.Error("Staging proxy failed", "entity", entity, "repo", repoFullName, "err", err)
+			httpError(w, 502, "staging proxy failed")
+		}
+		return
 	}
 
 	if action != "queued" && action != "in_progress" && action != "completed" {
@@ -193,23 +219,12 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, pay
 		return
 	}
 
-	if ownerID == 0 {
-		httpError(w, 400, "Owner ID is missing in payload")
-		return
-	}
-	et, err := internal.ParseEntityType(ownerType)
-	if err != nil {
-		httpError(w, 400, err.Error())
-		return
-	}
-
 	jobID := asInt64(job["id"])
 	if jobID == 0 {
 		httpError(w, 400, "Job ID is missing in payload")
 		return
 	}
 	labels := jsonStrings(job["labels"])
-	repoFullName, _ := repo["full_name"].(string)
 	if repoFullName == "" {
 		httpError(w, 400, "Repository full name is missing in payload")
 		return
@@ -219,11 +234,9 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, pay
 		return
 	}
 
-	// entity_id is the GitHub owner id for both orgs and users.
-	entityID := ownerID
 	base.Event = "workflow_job." + action
 
-	pool, image, matched := matchLabelsToK8s(a.Config, entityID, repoFullName, labels)
+	pool, image, matched := matchLabelsToK8s(a.Config, entity.ID, repoFullName, labels)
 	if !matched {
 		// ignored_no_label is the highest-volume row; trim aggressively.
 		htmlURL, _ := job["html_url"].(string)
@@ -241,7 +254,6 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, pay
 		return
 	}
 
-	entity := internal.Entity{Type: et, Name: ownerLogin, ID: entityID}
 	jobName, _ := job["name"].(string)
 	slog.Info("Received workflow_job",
 		"entity", entity,

@@ -54,6 +54,7 @@ GitHub (workflow_job webhook)
   v
 ghfe (container/cmd/ghfe)
   |  - Verifies webhook signature
+  |  - Proxies workflow_job webhooks for EntityConfig.Staging repos to STAGING_URL (prod only)
   |  - Validates labels, determines entity type (org or personal)
   |  - Resolves (entity_id, job_labels) -> (k8s_pool, k8s_image)
   |  - Writes job to PostgreSQL

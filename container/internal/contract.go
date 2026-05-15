@@ -59,6 +59,7 @@ const (
 	OutcomeIgnoredAction      WebhookOutcome = "ignored_action"
 	OutcomeIgnoredNoLabel     WebhookOutcome = "ignored_no_label"
 	OutcomeIgnoredEvent       WebhookOutcome = "ignored_event"
+	OutcomeProxiedToStaging   WebhookOutcome = "proxied_to_staging"
 	OutcomeAuth404            WebhookOutcome = "auth_404"
 	OutcomeAuthOtherError     WebhookOutcome = "auth_other_error"
 )
