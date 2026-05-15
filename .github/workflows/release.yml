@@ -268,7 +268,7 @@ jobs:
       - name: Trigger sample workflow
         env:
           GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_ACCESS_TOKEN }}
-          GH_REPO: riseproject-dev/riscv-runner-sample
+          GH_REPO: riseproject-dev/riscv-runner-sample-staging
           GH_WORKFLOW: hello.yml
         run: |
           gh workflow run ${GH_WORKFLOW} --repo ${GH_REPO}
@@ -334,3 +334,13 @@ jobs:
 
       - name: Health check
         run: python3 ./bin/check-health.py
+
+      - name: Trigger sample workflow
+        env:
+          GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_ACCESS_TOKEN }}
+          GH_REPO: riseproject-dev/riscv-runner-sample
+          GH_WORKFLOW: hello.yml
+        run: |
+          gh workflow run ${GH_WORKFLOW} --repo ${GH_REPO}
+          sleep 5
+          gh run watch $(gh run list --repo ${GH_REPO} --workflow ${GH_WORKFLOW} --limit 1 --json databaseId --jq '.[0].databaseId') --repo ${GH_REPO} --interval 15 --exit-status

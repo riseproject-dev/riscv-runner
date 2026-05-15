@@ -58,7 +58,7 @@ ENTITY_CONFIG = {
         "max_workers": None,
         "pre_allocated": 0,
         "staging": [
-            "riscv-runner-sample",
+            "riscv-runner-sample-staging",
         ],
     },
     PYTORCH_ORG_ID: {
