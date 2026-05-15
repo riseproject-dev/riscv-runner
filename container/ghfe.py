@@ -218,9 +218,7 @@ def authorize_entity(payload):
     if owner_type not in (EntityType.ORGANIZATION, EntityType.USER):
         raise WebhookError(400, f"Unsupported owner type: {owner_type}")
 
-    entity_type = EntityType(owner_type)
-
-    return owner_id, entity_type
+    return owner_id, EntityType(owner_type)
 
 
 def match_labels_to_k8s(org_id, repo_full_name, job_labels):
@@ -504,21 +502,21 @@ def webhook():
             logger.debug("Ignoring action: %s", action)
             return f"Ignoring action: {action}"
 
-        owner_id, entity_type = authorize_entity(payload)
+        entity_id, entity_type = authorize_entity(payload)
 
         # Check if we should redirect to staging
         if PROD:
             repo_name = payload["repository"].get("name")
-            if owner_id in STAGING_ENTITIES and repo_name and repo_name in STAGING_ENTITIES[owner_id]:
+            if entity_id in STAGING_ENTITIES and repo_name and repo_name in STAGING_ENTITIES[entity_id]:
                 g.print_perf_log = True
-                logger.debug("Proxying request for entity=%s repo=%s to staging (%s)", owner_id, repo_name, STAGING_URL)
+                logger.debug("Proxying request for entity=%s repo=%s to staging (%s)", entity_id, repo_name, STAGING_URL)
                 resp = requests.post(
                     STAGING_URL,
                     data=request.get_data(),
                     headers={k: v for k, v in request.headers if k.lower() != "host"},
                     timeout=30,
                 )
-                logger.info("Proxied request for entity=%s repo=%s to staging, status=%s", owner_id, repo_name, resp.status_code)
+                logger.info("Proxied request for entity=%s repo=%s to staging, status=%s", entity_id, repo_name, resp.status_code)
                 return make_response(resp.content, resp.status_code)
 
         job_id = payload["workflow_job"]["id"]
@@ -536,13 +534,8 @@ def webhook():
         if not repo_id:
             raise WebhookError(400, "Repository ID is missing in payload")
 
-        # entity_id: owner_id (org) for organizations, repo_id for personal accounts.
-        # The log row records the same `entity_id` `add_job` would store.
-        entity_id = owner_id if entity_type == EntityType.ORGANIZATION else repo_id
-        log_fields["entity_id"] = entity_id
-
         # Filter out unsupported jobs early.
-        match = match_labels_to_k8s(owner_id, repo_full_name, job_labels)
+        match = match_labels_to_k8s(entity_id, repo_full_name, job_labels)
         if match is None:
             # ignored_no_label is by far the highest-volume row; keep only the
             # fields a human needs to diagnose "user used an unsupported label"

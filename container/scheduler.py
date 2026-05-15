@@ -28,7 +28,7 @@ POLL_INTERVAL = 15
 
 
 def _gh_authenticate_app(installation_id, entity_type, *, job_id=None,
-                         repo_full_name=None, repo_id=None,
+                         repo_full_name=None,
                          entity_id=None, entity_name=None):
     """Wrap gh.authenticate_app and log every failure to installation_events.
 
@@ -51,7 +51,7 @@ def _gh_authenticate_app(installation_id, entity_type, *, job_id=None,
             "entity_type": entity_type.value,
             "entity_id": entity_id,
             "entity_name": entity_name,
-            "repository": ({"id": repo_id, "full_name": repo_full_name}
+            "repository": ({"full_name": repo_full_name}
                            if repo_full_name else None),
             "workflow_job": {"id": job_id} if job_id else None,
             "http_status": e.status_code,

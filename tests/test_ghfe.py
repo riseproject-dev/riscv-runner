@@ -286,7 +286,7 @@ def test_webhook_queued_personal_account(mock_store):
         mock_store.assert_called_once_with(
             job_id=55555,
             provider="github",
-            entity_id=200,  # repo_id for personal accounts
+            entity_id=99999,
             entity_name="someuser",
             entity_type=EntityType.USER,
             repo_full_name="someuser/myrepo",

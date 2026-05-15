@@ -2066,7 +2066,7 @@ def test_gh_authenticate_app_404_logs_and_reraises(mock_auth, mock_log):
     payload = kwargs["payload"]
     assert payload["installation_id"] == 999
     assert payload["http_status"] == 404
-    assert payload["repository"] == {"id": None, "full_name": "o/r"}
+    assert payload["repository"] == {"full_name": "o/r"}
     assert payload["workflow_job"] == {"id": 12345}
 
 
