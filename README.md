@@ -302,7 +302,9 @@ from the environment.
 Tables live in a `prod` or `staging` schema (same database, isolated by `SET search_path`).
 
 ```sql
-CREATE TYPE status_enum AS ENUM ('pending', 'running', 'completed', 'failed');
+CREATE TYPE status_enum    AS ENUM ('pending', 'running', 'completed', 'failed');
+CREATE TYPE provider_enum  AS ENUM ('github', 'gitlab', 'azdo');
+CREATE TYPE entity_type_enum AS ENUM ('Organization', 'User');
 
 CREATE TABLE jobs (
     job_id          BIGINT PRIMARY KEY,
@@ -323,8 +325,13 @@ CREATE TABLE jobs (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX idx_jobs_active    ON jobs (entity_id, job_labels, created_at) WHERE status != 'completed';
+CREATE INDEX idx_jobs_reconcile ON jobs (installation_id)                   WHERE status != 'completed';
+CREATE INDEX idx_jobs_created   ON jobs (created_at DESC);
+
 CREATE TABLE workers (
     pod_name        TEXT PRIMARY KEY,
+    provider        provider_enum NOT NULL,
     entity_id       BIGINT NOT NULL,
     entity_name     TEXT NOT NULL,
     entity_type     TEXT NOT NULL,        -- 'Organization' or 'User'
@@ -342,7 +349,7 @@ CREATE TABLE workers (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TYPE entity_type_enum AS ENUM ('Organization', 'User');
+CREATE INDEX idx_workers_active ON workers (entity_id, job_labels, k8s_pool) WHERE status != 'completed';
 
 CREATE TABLE installation_events (
     id                BIGSERIAL PRIMARY KEY,
@@ -357,7 +364,12 @@ CREATE TABLE installation_events (
     payload           JSONB NOT NULL,            -- full webhook body, or synthesised dict for scheduler rows
     received_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_install_events_installation ON installation_events (installation_id, entity_id);
+CREATE INDEX idx_install_events_entity       ON installation_events (entity_id, received_at DESC);
 ```
+
+This DDL is the source of truth for the prod and staging schemas; the runtime no longer auto-applies it. The scheduler publishes a `NOTIFY {schema}_queue_event` (channel name varies by `prod` / `staging` schema) on every `jobs` insert; the scheduler `LISTEN`s on that channel as its wake signal.
 
 Status transitions are forward-only: `pending -> running -> (completed | failed)`. All UPDATE queries enforce this with explicit WHERE clauses. A `failed` worker does not count toward supply in `get_pool_demand`, so `demand_match` automatically re-provisions a runner for the same pending job on the next loop iteration.
 
@@ -418,7 +430,25 @@ Per-entity configuration is defined in `ENTITY_CONFIG` in `constants.py`, keyed 
 | `container/db.py` | PostgreSQL database operations |
 | `container/github.py` | GitHub API functions (auth, runner groups, JIT config, job status) |
 | `container/Dockerfile` | Docker image for the ghfe and scheduler containers |
+| `container-go/` | Go reimplementation of ghfe and scheduler (see `container-go/CONTRACT.md`) |
 | `scripts/trace_installation.py` | CLI client for the `/trace/*` endpoints — chronological table + diagnosis hints |
+
+### Go cutover
+
+`container-go/` ships a Go reimplementation deployed alongside the Python tree
+as the `ghfe-go` and `scheduler-go` Scaleway functions. Cutover is gradual:
+
+- **ghfe**: set `GO_GHFE_URL` on the Python ghfe function to the Go ghfe URL,
+  then populate `GO_GHFE_ROUTING={"entities":[<entity_id>, ...]}` with the
+  GitHub owner ids to forward. Only `workflow_job` webhooks are routed; the
+  staging proxy at `container/ghfe.py:509` still runs first. Rollback is
+  removing entries from `GO_GHFE_ROUTING`.
+- **scheduler**: single deployment. Once staging has soaked on the Go
+  scheduler, swap the prod `scheduler` function's image to
+  `scheduler-prod-go`. Rollback is the inverse image swap.
+
+See `container-go/CONTRACT.md` for the frozen behavioral surface the Go port
+must preserve.
 
 ### Infrastructure
 

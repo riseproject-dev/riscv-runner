@@ -936,3 +936,102 @@ def test_webhook_invalid_hook_target_id_returns_400(_mock_add_installation_event
             "Content-Type": "application/json",
         })
         assert resp.status_code == 400
+
+
+# --- GO_GHFE_ROUTING ---
+
+@pytest.fixture
+def _routing(monkeypatch):
+    """Activate GO_GHFE_ROUTING for the test; returns a setter for the id list."""
+    import ghfe
+    monkeypatch.setattr(ghfe, "GO_GHFE_URL", "http://go-ghfe.local")
+    monkeypatch.setattr(ghfe, "GO_GHFE_ROUTING", frozenset())
+
+    def set_ids(ids):
+        monkeypatch.setattr(ghfe, "GO_GHFE_ROUTING", frozenset(ids))
+
+    return set_ids
+
+
+def _wf_payload(*, owner_id=152654596, owner_login="riseproject-dev"):
+    return {
+        "action": "queued",
+        "workflow_job": {"id": 1, "name": "j", "labels": ["ubuntu-24.04-riscv"],
+                          "html_url": "https://example.com/run/1"},
+        "repository": {"id": 100, "full_name": f"{owner_login}/r",
+                       "owner": {"id": owner_id, "login": owner_login, "type": "Organization"}},
+        "installation": {"id": 999},
+    }
+
+
+@patch("ghfe.requests.post")
+def test_ghfe_routes_workflow_job_when_entity_in_list(mock_post, _routing, _mock_add_installation_event):
+    """Routing fires when entity_id matches, forwards body+headers, returns proxy response."""
+    from ghfe import app
+    _routing([152654596])
+    mock_post.return_value = MagicMock(status_code=200, content=b"go-handled")
+
+    body = json.dumps(_wf_payload())
+    with app.test_client() as client:
+        resp = _post_webhook(client, body, "workflow_job")
+    assert resp.status_code == 200
+    assert resp.data == b"go-handled"
+    assert mock_post.call_count == 1
+    args, kwargs = mock_post.call_args
+    assert args[0] == "http://go-ghfe.local"
+    assert kwargs["timeout"] == 30
+    forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
+    assert "host" not in forwarded
+    assert forwarded["x-hub-signature-256"].startswith("sha256=")
+
+
+@patch("db.add_job", return_value=True)
+@patch("ghfe.requests.post")
+def test_ghfe_does_not_route_when_entity_not_in_list(mock_post, mock_add_job, _routing, _mock_add_installation_event):
+    from ghfe import app
+    _routing([21003710])  # different from payload owner id
+
+    body = json.dumps(_wf_payload())
+    with app.test_client() as client:
+        resp = _post_webhook(client, body, "workflow_job")
+    assert resp.status_code == 200
+    assert mock_post.call_count == 0
+    assert mock_add_job.call_count == 1
+
+
+@patch("db.add_job", return_value=True)
+@patch("ghfe.requests.post")
+def test_ghfe_does_not_route_when_url_empty(mock_post, mock_add_job, monkeypatch, _mock_add_installation_event):
+    from ghfe import app
+    monkeypatch.setattr("ghfe.GO_GHFE_URL", "")
+    monkeypatch.setattr("ghfe.GO_GHFE_ROUTING", frozenset([152654596]))
+
+    body = json.dumps(_wf_payload())
+    with app.test_client() as client:
+        resp = _post_webhook(client, body, "workflow_job")
+    assert resp.status_code == 200
+    assert mock_post.call_count == 0
+    assert mock_add_job.call_count == 1
+
+
+@patch("ghfe.requests.post")
+def test_ghfe_does_not_route_non_workflow_job_events(mock_post, _routing, _mock_add_installation_event):
+    """Routing applies only to workflow_job — other events bypass it even
+    when their entity_id is listed."""
+    from ghfe import app
+    _routing([152654596])
+
+    install_payload = {
+        "action": "created",
+        "installation": {
+            "id": 1, "target_id": 152654596, "target_type": "Organization",
+            "account": {"login": "riseproject-dev"},
+        },
+    }
+    with app.test_client() as client:
+        resp = _post_webhook(client, json.dumps(install_payload), "installation")
+        assert resp.status_code == 200
+    with app.test_client() as client:
+        resp = _post_webhook(client, json.dumps({"zen": "ok"}), "ping")
+        assert resp.status_code == 200
+    assert mock_post.call_count == 0

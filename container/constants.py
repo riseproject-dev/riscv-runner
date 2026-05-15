@@ -1,3 +1,4 @@
+import json
 import os
 from enum import Enum
 
@@ -75,6 +76,11 @@ ENTITY_CONFIG = {
 }
 
 STAGING_ENTITIES = {oid: c["staging"] for oid, c in ENTITY_CONFIG.items() if c.get("staging", False)}
+
+GO_GHFE_URL = os.environ.get("GO_GHFE_URL", "")
+GO_GHFE_ROUTING: frozenset[int] = frozenset(
+    int(e) for e in (json.loads(os.environ["GO_GHFE_ROUTING"]).get("entities") or [])
+) if os.environ.get("GO_GHFE_ROUTING") else frozenset()
 
 RUNNER_REGISTRY = "rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s"
 RUNNER_IMAGE = "riscv-runner"

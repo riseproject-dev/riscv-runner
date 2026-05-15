@@ -519,6 +519,18 @@ def webhook():
                 logger.info("Proxied request for entity=%s repo=%s to staging, status=%s", entity_id, repo_name, resp.status_code)
                 return make_response(resp.content, resp.status_code)
 
+        if GO_GHFE_URL and entity_id in GO_GHFE_ROUTING:
+            g.print_perf_log = True
+            logger.debug("Proxying request for entity=%s to Go ghfe (%s)", entity_id, GO_GHFE_URL)
+            resp = requests.post(
+                GO_GHFE_URL,
+                data=request.get_data(),
+                headers={k: v for k, v in request.headers if k.lower() != "host"},
+                timeout=30,
+            )
+            logger.info("Proxied request for entity=%s to Go ghfe, status=%s", entity_id, resp.status_code)
+            return make_response(resp.content, resp.status_code)
+
         job_id = payload["workflow_job"]["id"]
         if not job_id:
             raise WebhookError(400, "Job ID is missing in payload")

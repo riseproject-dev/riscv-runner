@@ -47,6 +47,10 @@ custom:
         PROD_URL: ${env:PROD_URL}
         STAGING_URL: ${env:STAGING_URL}
         LOGLEVEL: ${self:custom.${self:provider.stage}.loglevel}
+        # Cutover knobs: populate once the ghfe-go function URL is known and
+        # you're ready to forward an entity's workflow_job webhooks to Go.
+        GO_GHFE_URL: ${env:GO_GHFE_URL, ""}
+        GO_GHFE_ROUTING: ${env:GO_GHFE_ROUTING, ""}
       # Health check configuration
       healthCheck:
         type: http
@@ -54,6 +58,29 @@ custom:
         interval: 10s
         failureThreshold: 3
       # VPC for PostgreSQL access
+      privateNetworkId: "58fa41d0-f6a4-4b6f-8f65-b788563842c1"
+    ghfe-go:
+      registryImage: ${env:REGISTRY}/${env:IMAGE}:ghfe-${self:custom.${self:provider.stage}.container-tag}-go
+      port: 8080
+      cpuLimit: 500
+      memoryLimit: 512
+      secret:
+        GHAPP_WEBHOOK_SECRET: ${env:GHAPP_WEBHOOK_SECRET}
+        GHAPP_ORG_PRIVATE_KEY: ${env:GHAPP_ORG_PRIVATE_KEY}
+        GHAPP_PERSONAL_PRIVATE_KEY: ${env:GHAPP_PERSONAL_PRIVATE_KEY}
+        K8S_KUBECONFIG: ${env:K8S_KUBECONFIG}
+        POSTGRES_URL: ${env:POSTGRES_URL}
+        TRACE_API_SECRET: ${env:TRACE_API_SECRET}
+      env:
+        PROD: ${self:custom.${self:provider.stage}.prod}
+        PROD_URL: ${env:PROD_URL}
+        STAGING_URL: ${env:STAGING_URL}
+        LOGLEVEL: ${self:custom.${self:provider.stage}.loglevel}
+      healthCheck:
+        type: http
+        httpPath: /health
+        interval: 10s
+        failureThreshold: 3
       privateNetworkId: "58fa41d0-f6a4-4b6f-8f65-b788563842c1"
     scheduler:
       registryImage: ${env:REGISTRY}/${env:IMAGE}:scheduler-${self:custom.${self:provider.stage}.container-tag}

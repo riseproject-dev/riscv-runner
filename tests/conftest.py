@@ -57,6 +57,8 @@ mock_constants.ENTITY_CONFIG = {
     134263123: {"max_workers": 20, "pre_allocated": 0, "staging": False},
 }
 mock_constants.STAGING_ENTITIES = {oid for oid, c in mock_constants.ENTITY_CONFIG.items() if c.get("staging")}
+mock_constants.GO_GHFE_URL = ""
+mock_constants.GO_GHFE_ROUTING = frozenset()
 
 sys.modules["constants"] = mock_constants
 
