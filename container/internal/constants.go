@@ -54,7 +54,7 @@ type EntityConfig struct {
 
 // EntityConfigs is keyed by entity id (org id or user id).
 var EntityConfigs = map[int64]EntityConfig{
-	RiseprojectDevOrgID: {MaxWorkers: nil, Staging: []string{"riscv-runner-sample"}},
+	RiseprojectDevOrgID: {MaxWorkers: nil, Staging: []string{"riscv-runner-sample-staging"}},
 	PyTorchOrgID:        {MaxWorkers: intPtr(20)},
 	GGMLOrgID:           {MaxWorkers: intPtr(20)},
 	LuhenryUserID:       {MaxWorkers: nil},
