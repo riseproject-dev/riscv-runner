@@ -252,7 +252,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-sha-${{ github.sha }}-go
 
       - name: Deploy to Scaleway
-        run: npm ci && npx serverless@3 deploy --stage=staging
+        run: npm ci && npx serverless deploy --stage=staging
         env:
           SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
           GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
