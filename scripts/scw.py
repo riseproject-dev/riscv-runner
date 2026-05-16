@@ -945,24 +945,13 @@ global:
   external_labels:
     node: $(hostname)
 scrape_configs:
-- job_name: node_exporter_net # troubleshooting some networking issues
-  scrape_interval: 30s
-  static_configs:
-  - targets: ['127.0.0.1:9100']
-  metric_relabel_configs:
-    - source_labels: [__name__]
-      regex: 'node_(network_(receive|transmit)_(bytes|packets|drop|errs)_total|netstat_.*|sockstat_TCP_.*|nf_conntrack_entries|softnet_(processed|dropped|times_squeezed)_total|softirqs_functions_total)'
-      action: keep
-    - source_labels: [__name__, type]
-      regex: 'node_softirqs_functions_total;(HI|TIMER|BLOCK|IRQ_POLL|TASKLET|SCHED|HRTIMER|RCU)'
-      action: drop
 - job_name: node_exporter_base
   scrape_interval: 5m
   static_configs:
   - targets: ['127.0.0.1:9100']
   metric_relabel_configs:
     - source_labels: [__name__]
-      regex: 'node_cpu_seconds_total|node_load(1|5|15)|node_uname_info|node_boot_time_seconds|node_time_seconds|node_memory_(MemTotal|MemAvailable|MemFree|Cached|Buffers|SwapTotal|SwapFree)_bytes|node_vmstat_(oom_kill|pgmajfault|pswpin|pswpout)|node_filesystem_(avail|size|files|files_free)_bytes|node_filesystem_readonly|node_filesystem_device_error|node_disk_(read|written)_bytes_total|node_disk_io_time_seconds_total|node_disk_io_now|node_filefd_(allocated|maximum)|node_processes_(state|threads|max_threads|pids|max_processes)|node_timex_(sync_status|offset_seconds|maxerror_seconds)|node_entropy_available_bits|node_textfile_(mtime_seconds|scrape_error)|raw_github_probe_.*|runner_dns_.*'
+      regex: 'node_cpu_seconds_total|node_load(1|5|15)|node_uname_info|node_boot_time_seconds|node_time_seconds|node_memory_(MemTotal|MemAvailable|MemFree|Cached|Buffers|SwapTotal|SwapFree)_bytes|node_vmstat_(oom_kill|pgmajfault|pswpin|pswpout)|node_filesystem_(avail|size|files|files_free)_bytes|node_filesystem_readonly|node_filesystem_device_error|node_disk_(read|written)_bytes_total|node_disk_io_time_seconds_total|node_disk_io_now|node_filefd_(allocated|maximum)|node_processes_(state|threads|max_threads|pids|max_processes)|node_timex_(sync_status|offset_seconds|maxerror_seconds)|node_entropy_available_bits|node_textfile_(mtime_seconds|scrape_error)|raw_github_probe_.*|runner_dns_.*|node_network_(receive|transmit)_(bytes|packets|drop|errs)_total|node_netstat_.*|node_sockstat_TCP_.*|node_nf_conntrack_entries|node_softnet_(processed|dropped|times_squeezed)_total|node_softirqs_functions_total'
       action: keep
 remote_write:
 - url: '@@COCKPIT_METRICS_PUSH_URL@@/api/v1/push'
