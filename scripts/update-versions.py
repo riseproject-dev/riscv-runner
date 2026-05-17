@@ -5,7 +5,7 @@ extract package versions from its internal.ubuntu24.json manifest,
 and update the corresponding ARG lines in the Dockerfiles.
 
 Mapping between JSON fields and Dockerfile ARGs is defined in
-versions-map.json at the repository root.
+images/versions-map.json.
 """
 
 import json
@@ -204,7 +204,7 @@ def main() -> int:
     print("Extracting versions from manifest...")
     lookup = extract_versions(manifest)
 
-    map_path = REPO_ROOT / "versions-map.json"
+    map_path = REPO_ROOT / "images" / "versions-map.json"
     print(f"Loading mapping from {map_path.relative_to(REPO_ROOT)}")
     mapping = json.loads(map_path.read_text())
 
