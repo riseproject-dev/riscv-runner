@@ -7,9 +7,17 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'images/**'
+      - '.github/workflows/deploy-images.yml'
   pull_request:
     branches:
       - main
+    paths:
+      - 'images/**'
+      - '.github/workflows/deploy-images.yml'
+  schedule:
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -75,8 +83,8 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: 0 # No timestamps in layers
         with:
-          context: runner
-          file: runner/Dockerfile.${{ matrix.os }}
+          context: images/runner
+          file: images/runner/Dockerfile.${{ matrix.os }}
           platforms: linux/riscv64
           build-args: |
             OS_VERSION=${{ matrix.os-version }}

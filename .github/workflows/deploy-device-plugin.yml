@@ -1,13 +1,20 @@
 name: Build, Push, and Deploy
 
+# TODO: inline the `make` commands below and remove device-plugin/Makefile.
 on:
   push:
     branches:
       - main
       - staging
+    paths:
+      - 'device-plugin/**'
+      - '.github/workflows/deploy-device-plugin.yml'
   pull_request:
     branches:
       - staging
+    paths:
+      - 'device-plugin/**'
+      - '.github/workflows/deploy-device-plugin.yml'
   workflow_dispatch:
 
 concurrency:
@@ -39,6 +46,9 @@ jobs:
     environment: ${{ needs.resolve.outputs.environment }}
     env:
       TAG: ${{ (needs.resolve.outputs.environment == 'main' && 'latest') || 'staging' }}
+    defaults:
+      run:
+        working-directory: device-plugin
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
