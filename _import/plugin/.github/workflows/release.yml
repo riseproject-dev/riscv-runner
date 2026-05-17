@@ -1,0 +1,65 @@
+name: Build, Push, and Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - staging
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  REGISTRY: rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s
+  IMAGE: riscv-runner
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.result }}
+    steps:
+      - id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "result=main" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "result=staging" >> $GITHUB_OUTPUT
+          fi
+
+  deploy:
+    if: github.repository_owner == 'riseproject-dev' && needs.resolve.outputs.environment != ''
+    needs: [resolve]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.environment }}
+    env:
+      TAG: ${{ (needs.resolve.outputs.environment == 'main' && 'latest') || 'staging' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Login to Scaleway Container Registry
+        if: github.repository_owner == 'riseproject-dev'
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Build and push container images
+        run: make container-push
+
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.K8S_KUBECONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy and restart DaemonSets
+        run: |
+          make kubectl-apply-node-labeller
+          make kubectl-apply-and-wait-device-plugin
