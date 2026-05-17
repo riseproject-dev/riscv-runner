@@ -1,0 +1,942 @@
+
+# Base builder image with common download and build tools
+
+ARG OS_VERSION
+FROM docker.io/ubuntu:${OS_VERSION} AS base-builder
+
+ENV RUNNER_TOOL_CACHE=/opt/hostedtoolcache
+
+ENV DEBIAN_FRONTEND=noninteractive
+# reduce timestamps differences between layers
+ENV SOURCE_DATE_EPOCH=0
+
+RUN bash -eux -o pipefail <<'EOF'
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        btrfs-progs \
+        build-essential \
+        ca-certificates \
+        curl \
+        cmake \
+        g++ \
+        gcc \
+        git \
+        libdevmapper-dev \
+        libseccomp-dev \
+        libssl-dev \
+        make \
+        pkg-config \
+        unzip \
+        wget \
+        xz-utils \
+     && true
+
+  rm -rf /var/lib/apt/lists/*
+EOF
+
+ARG OS_VERSION
+
+# Build Python 3.10
+FROM base-builder AS python-3.10
+
+ARG PYTHON310_VERSION=3.10.20
+ARG PYTHON310_TAG=${PYTHON310_VERSION}-24741349542
+ARG PYTHON310_SHA256=f4d1a502c5f109d05a03333e14e4c0f0b92634c29de76613aaf42d0019b99cd5 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON310_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Python 3.10
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON310_TAG}/python-${PYTHON310_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
+        -o python-${PYTHON310_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON310_SHA256}  python-${PYTHON310_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}/riscv64
+    tar -xzf python-${PYTHON310_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}/riscv64
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}/riscv64.complete
+    rm -f python-${PYTHON310_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}/riscv64/bin/python3.10 --version
+EOF
+
+# Build Python 3.11
+FROM base-builder AS python-3.11
+
+ARG PYTHON311_VERSION=3.11.15
+ARG PYTHON311_TAG=${PYTHON311_VERSION}-24739855755
+ARG PYTHON311_SHA256=4fbfb313efdf4faa4684100a0fde10919766a77c4463b98fe52c146c4b14e4a2 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON311_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Python 3.11
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON311_TAG}/python-${PYTHON311_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
+        -o python-${PYTHON311_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON311_SHA256}  python-${PYTHON311_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}/riscv64
+    tar -xzf python-${PYTHON311_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}/riscv64
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}/riscv64.complete
+    rm -f python-${PYTHON311_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}/riscv64/bin/python3.11 --version
+EOF
+
+# Build Python 3.12
+FROM base-builder AS python-3.12
+
+ARG PYTHON312_VERSION=3.12.13
+ARG PYTHON312_TAG=${PYTHON312_VERSION}-24738165632
+ARG PYTHON312_SHA256=377dd19847333f18e319ce1b5c0f90246646c81d9356050b08b82a366c5bb3f8 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON312_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Python 3.12
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON312_TAG}/python-${PYTHON312_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
+        -o python-${PYTHON312_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON312_SHA256}  python-${PYTHON312_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}/riscv64
+    tar -xzf python-${PYTHON312_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}/riscv64
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}/riscv64.complete
+    rm -f python-${PYTHON312_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}/riscv64/bin/python3.12 --version
+EOF
+
+# Build Python 3.13
+FROM base-builder AS python-3.13
+
+ARG PYTHON313_VERSION=3.13.13
+ARG PYTHON313_TAG=${PYTHON313_VERSION}-24736470736
+ARG PYTHON313_SHA256=0f44fe31a9dc49d3d1c896a0de5b421309abe40b4253b4b975b0e94e43b130ab # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Python 3.13
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON313_TAG}/python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
+        -o python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON313_SHA256}  python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64
+    tar -xzf python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64.complete
+    rm -f python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64/bin/python3.13 --version
+EOF
+
+# Build Python 3.13 (free threaded)
+FROM base-builder AS python-3.13t
+
+ARG PYTHON313_VERSION=3.13.13
+ARG PYTHON313_TAG=${PYTHON313_VERSION}-24736470736
+ARG PYTHON313_SHA256=8b41f6c8406805ecf2a513ad3d52e56ad32353578b0d249fd02a76e280ee2e0c # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Python 3.13
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON313_TAG}/python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz \
+        -o python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON313_SHA256}  python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64-freethreaded
+    tar -xzf python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64-freethreaded
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64-freethreaded.complete
+    rm -f python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64-freethreaded/bin/python3.13 --version
+EOF
+
+# Build Python 3.14
+FROM base-builder AS python-3.14
+
+ARG PYTHON314_VERSION=3.14.4
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-24734614154
+ARG PYTHON314_SHA256=3688a211455a084ae1c77e9a093417d4472906496e977fc2ce8adca5d5978893 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Python 3.14
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON314_TAG}/python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
+        -o python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON314_SHA256}  python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64
+    tar -xzf python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64.complete
+    rm -f python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64/bin/python3.14 --version
+EOF
+
+# Build Python 3.14 (free threaded)
+FROM base-builder AS python-3.14t
+
+ARG PYTHON314_VERSION=3.14.4
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-24734614154
+ARG PYTHON314_SHA256=a575e5c7a74c86bff1110531fdd3592a07a910d8463c9aba982707a2ec06b824 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Python 3.14
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON314_TAG}/python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz \
+        -o python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON314_SHA256}  python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64-freethreaded
+    tar -xzf python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64-freethreaded
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64-freethreaded.complete
+    rm -f python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64-freethreaded/bin/python3.14 --version
+EOF
+
+# Download Go 1.22
+FROM base-builder AS go-1.22
+
+ARG GO122_VERSION=1.22.12
+ARG GO122_SHA256=f03a084aabc812fdc15b29acd5e1ee18e13b3c80be22aec43990119afcaf4947 # https://go.dev/dl/go1.22.12.linux-riscv64.tar.gz
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Go 1.22
+    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO122_VERSION}.linux-riscv64.tar.gz \
+        -o go${GO122_VERSION}.linux-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${GO122_SHA256}  go${GO122_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack and install
+    mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64
+    tar -xzf go${GO122_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64 --strip-components=1
+    touch ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64.complete
+    rm go${GO122_VERSION}.linux-riscv64.tar.gz
+EOF
+
+ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64/bin:${PATH}
+
+# Download Go 1.23
+FROM base-builder AS go-1.23
+
+ARG GO123_VERSION=1.23.12
+ARG GO123_SHA256=5798eda8c167dd620feb54e1bcca1b4cc014a529821d8c01f31d7e17a43cb8ed # https://go.dev/dl/go1.23.12.linux-riscv64.tar.gz
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Go 1.23
+    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO123_VERSION}.linux-riscv64.tar.gz \
+        -o go${GO123_VERSION}.linux-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${GO123_SHA256}  go${GO123_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack and install
+    mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64
+    tar -xzf go${GO123_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64 --strip-components=1
+    touch ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64.complete
+    rm go${GO123_VERSION}.linux-riscv64.tar.gz
+EOF
+
+ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64/bin:${PATH}
+
+# Download Go 1.24
+FROM base-builder AS go-1.24
+
+ARG GO124_VERSION=1.24.13
+ARG GO124_SHA256=9a8166261489d3f38c7a568785b7012c123e3561779d282d568a72d58506754f # https://go.dev/dl/go1.24.13.linux-riscv64.tar.gz
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Go 1.24
+    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO124_VERSION}.linux-riscv64.tar.gz \
+        -o go${GO124_VERSION}.linux-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${GO124_SHA256}  go${GO124_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack and install
+    mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64
+    tar -xzf go${GO124_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64 --strip-components=1
+    touch ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64.complete
+    rm go${GO124_VERSION}.linux-riscv64.tar.gz
+EOF
+
+ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64/bin:${PATH}
+
+# Download Go 1.25
+FROM base-builder AS go-1.25
+
+ARG GO125_VERSION=1.25.9
+ARG GO125_SHA256=2a630be8f854177c13e5fa75f7812c721369ecb9bd6e4c0fb1bd1c708d08b37c # https://dl.google.com/go/go1.25.9.linux-riscv64.tar.gz.sha256
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Go 1.25
+    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO125_VERSION}.linux-riscv64.tar.gz \
+        -o go${GO125_VERSION}.linux-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${GO125_SHA256}  go${GO125_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack and install
+    mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64
+    tar -xzf go${GO125_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64 --strip-components=1
+    touch ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64.complete
+    rm go${GO125_VERSION}.linux-riscv64.tar.gz
+EOF
+
+ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64/bin:${PATH}
+
+# Download Go 1.26
+FROM base-builder AS go-1.26
+
+ARG GO126_VERSION=1.26.1
+ARG GO126_SHA256=56f8a63ae986c75e91001d65e17648564a10f0d2b18d696d13c91e459da1abd4 # https://go.dev/dl/go1.26.1.linux-riscv64.tar.gz
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Go 1.26
+    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO126_VERSION}.linux-riscv64.tar.gz \
+        -o go${GO126_VERSION}.linux-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${GO126_SHA256}  go${GO126_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack and install
+    mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64
+    tar -xzf go${GO126_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64 --strip-components=1
+    touch ${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64.complete
+    rm go${GO126_VERSION}.linux-riscv64.tar.gz
+EOF
+
+ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64/bin:${PATH}
+
+# Build moby (dockerd + docker-proxy)
+FROM go-1.24 AS moby
+
+WORKDIR /build
+
+ARG MOBY_VERSION=28.0.4
+RUN bash -eux -o pipefail <<'EOF'
+    # Download moby
+    git clone --depth 1 --branch "v${MOBY_VERSION}" https://github.com/moby/moby.git
+    pushd moby
+
+    # Build dockerd and docker-proxy
+    # hack/make.sh reads VERSION, DOCKER_BUILDTAGS, and DOCKER_GITCOMMIT to
+    # embed version info and select build features (seccomp for DinD).
+    export VERSION="${MOBY_VERSION}"
+    export DOCKER_BUILDTAGS="seccomp"
+    export DOCKER_GITCOMMIT=$(git rev-parse HEAD)
+    ./hack/make.sh binary
+
+    # Install to /usr/local
+    install -m 755 -p bundles/binary-daemon/dockerd /usr/local/bin/dockerd
+    install -m 755 -p bundles/binary-daemon/docker-proxy /usr/local/bin/docker-proxy
+
+    # Cleanup
+    popd
+    rm -rf moby
+EOF
+
+# Build docker-init (tini) - PID 1 reaper for the entrypoint
+FROM base-builder AS docker-init
+
+WORKDIR /build
+
+ARG TINI_VERSION=0.19.0
+RUN bash -eux -o pipefail <<'EOF'
+    # Download tini
+    git clone --depth 1 --branch "v${TINI_VERSION}" https://github.com/krallin/tini.git
+    pushd tini
+
+    # Build & install to /usr/local
+    cmake .
+    make tini-static
+    install -m 755 -p tini-static /usr/local/bin/docker-init
+
+    # Cleanup
+    popd
+    rm -rf tini
+EOF
+
+# Download Node.js 20
+FROM base-builder AS node-20
+
+ARG NODE20_VERSION=20.20.2
+ARG NODE20_SHA256=97a1b381eb457a904973cd3fa7999feb4fded5d286f4da08bbd0bf112601b0f4 # https://unofficial-builds.nodejs.org/download/release/v20.20.2/SHASUMS256.txt
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Node.js 20
+    curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE20_VERSION}/node-v${NODE20_VERSION}-linux-riscv64.tar.xz" \
+        -o "node-v${NODE20_VERSION}-linux-riscv64.tar.xz"
+
+    # Verify package integrity
+    echo "${NODE20_SHA256}  node-v${NODE20_VERSION}-linux-riscv64.tar.xz" | sha256sum --check
+
+    # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64
+    mkdir -p ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64
+    tar -xJf "node-v${NODE20_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64 --strip-components 1
+    touch ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64.complete
+    rm "node-v${NODE20_VERSION}-linux-riscv64.tar.xz"
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64/bin/node --version
+EOF
+
+# Download Node.js 22
+FROM base-builder AS node-22
+
+ARG NODE22_VERSION=22.22.2
+ARG NODE22_SHA256=ffa6cd3702497badd03fc098df149d06d221ecd431acdda8c4a9d7c2cd05a783 # https://unofficial-builds.nodejs.org/download/release/v22.22.2/SHASUMS256.txt
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Node.js 22
+    curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE22_VERSION}/node-v${NODE22_VERSION}-linux-riscv64.tar.xz" \
+        -o "node-v${NODE22_VERSION}-linux-riscv64.tar.xz"
+
+    # Verify package integrity
+    echo "${NODE22_SHA256}  node-v${NODE22_VERSION}-linux-riscv64.tar.xz" | sha256sum --check
+
+    # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64
+    mkdir -p ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64
+    tar -xJf "node-v${NODE22_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64 --strip-components 1
+    touch ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64.complete
+    rm "node-v${NODE22_VERSION}-linux-riscv64.tar.xz"
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64/bin/node --version
+EOF
+
+# Download Node.js 24
+FROM base-builder AS node-24
+
+ARG NODE24_VERSION=24.14.1
+ARG NODE24_SHA256=b2527028055179c1e53db03803686f759b040409684273b72201fee0e6edd130 # https://unofficial-builds.nodejs.org/download/release/v24.14.1/SHASUMS256.txt
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Node.js 24
+    curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/node-v${NODE24_VERSION}-linux-riscv64.tar.xz" \
+        -o "node-v${NODE24_VERSION}-linux-riscv64.tar.xz"
+
+    # Verify package integrity
+    echo "${NODE24_SHA256}  node-v${NODE24_VERSION}-linux-riscv64.tar.xz" | sha256sum --check
+
+    # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64
+    mkdir -p ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64
+    tar -xJf "node-v${NODE24_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64 --strip-components 1
+    touch ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64.complete
+    rm "node-v${NODE24_VERSION}-linux-riscv64.tar.xz"
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64/bin/node --version
+EOF
+
+# Download Gradle
+FROM base-builder AS gradle
+
+ARG GRADLE_VERSION=9.4.1
+ARG GRADLE_SHA256=2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb # https://services.gradle.org/distributions/gradle-9.4.1-bin.zip.sha256
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Gradle
+    curl -fsSL --retry 12 --retry-all-errors https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip \
+        -o gradle-${GRADLE_VERSION}-bin.zip
+
+    # Verify package integrity
+    echo "${GRADLE_SHA256}  gradle-${GRADLE_VERSION}-bin.zip" | sha256sum --check
+
+    # Unpack to /usr/share
+    unzip -q gradle-${GRADLE_VERSION}-bin.zip -d /usr/share
+    rm gradle-${GRADLE_VERSION}-bin.zip
+EOF
+
+# Download Apache Maven
+FROM base-builder AS maven
+
+ARG MAVEN_VERSION=3.9.14
+ARG MAVEN_SHA512=d50af8ab5e6005b46a07f0ce9d3719e67cfdf898da988a84871304cd59fb1af0fef2f99dea709e6e66f21f732f905979b5c2dce6b6860406f60a70e84d9cf0b8 # https://archive.apache.org/dist/maven/maven-3/3.9.14/binaries/apache-maven-3.9.14-bin.tar.gz.sha512
+RUN bash -eux -o pipefail <<'EOF'
+    # Download Apache Maven
+    curl -fsSL --retry 12 --retry-all-errors https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
+        -o apache-maven-${MAVEN_VERSION}-bin.tar.gz
+
+    # Verify package integrity
+    echo "${MAVEN_SHA512}  apache-maven-${MAVEN_VERSION}-bin.tar.gz" | sha512sum --check
+
+    # Unpack to /usr/share
+    tar -xzf apache-maven-${MAVEN_VERSION}-bin.tar.gz -C /usr/share
+    rm apache-maven-${MAVEN_VERSION}-bin.tar.gz
+EOF
+
+# Download Rust 1.94.0
+FROM base-builder AS rust
+
+ARG RUSTUP_VERSION=1.29.0
+ARG RUSTTOOLCHAIN_VERSION=1.94.1
+ENV RUSTUP_HOME=/build/rust/rustup
+ENV CARGO_HOME=/build/rust/cargo
+RUN bash -eux -o pipefail <<'EOF'
+    curl -fsSL --retry 12 --retry-all-errors https://sh.rustup.rs | sh -s -- \
+        -y \
+        --default-toolchain ${RUSTTOOLCHAIN_VERSION} \
+        --profile minimal \
+        --component rustc,rust-std,cargo,rustfmt,clippy
+EOF
+
+ENV PATH=${RUSTUP_HOME}/bin:${CARGO_HOME}/bin:${PATH}
+
+# Dockerload docker-compose
+FROM base-builder AS docker-compose
+
+ARG DOCKERCOMPOSE_VERSION=2.38.2
+ARG DOCKERCOMPOSE_SHA256=67c65c4015db38b526b262cee9d98915f8fcb56b42be7926a21a7ec2ec0c3d2c
+RUN bash -eux -o pipefail <<'EOF'
+    # Download docker-compose v2
+    mkdir -p /usr/local/lib/docker/cli-plugins
+    curl -fsSL --retry 12 --retry-all-errors "https://github.com/docker/compose/releases/download/v${DOCKERCOMPOSE_VERSION}/docker-compose-linux-riscv64" \
+        -o "/usr/local/lib/docker/cli-plugins/docker-compose"
+
+    # Verify package integrity
+    echo "${DOCKERCOMPOSE_SHA256} /usr/local/lib/docker/cli-plugins/docker-compose" | sha256sum --check
+
+    # Fix permissions on the file
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+EOF
+
+# Download docker-buildx
+FROM base-builder AS docker-buildx
+
+ARG DOCKERBUILDX_VERSION=0.33.0
+ARG DOCKERBUILDX_SHA256=5003b19409f2dfb38fc5f00a8eac4b1d810f6087b88ae007c6983287b93095dd # https://github.com/docker/buildx/releases/v${DOCKERBUILDX_VERSION}
+RUN bash -eux -o pipefail <<'EOF'
+    # Download docker-buildx
+    mkdir -p /usr/local/lib/docker/cli-plugins
+    curl -fsSL --retry 12 --retry-all-errors "https://github.com/docker/buildx/releases/download/v${DOCKERBUILDX_VERSION}/buildx-v${DOCKERBUILDX_VERSION}.linux-riscv64" \
+        -o "/usr/local/lib/docker/cli-plugins/docker-buildx"
+
+    # Verify package integrity
+    echo "${DOCKERBUILDX_SHA256} /usr/local/lib/docker/cli-plugins/docker-buildx" | sha256sum --check
+
+    # Fix permissions on the file
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+EOF
+
+# Build kubernetes
+FROM go-1.26 AS kubernetes
+
+WORKDIR /build
+
+ARG KUBECTL_VERSION=1.35.3
+RUN bash -eux -o pipefail <<'EOF'
+    # Download kubernetes
+    git clone --recurse-submodules --depth 1 https://github.com/kubernetes/kubernetes.git -b v${KUBECTL_VERSION}
+    pushd kubernetes
+    # Build & Install to /usr/local
+    make WHAT="cmd/kubectl"
+    install -m 755 -p _output/local/go/bin/kubectl /usr/local/bin/kubectl
+    # Cleanup
+    popd
+    rm -rf kubernetes
+EOF
+
+# Build ninja
+FROM base-builder AS ninja
+
+WORKDIR /build
+
+ARG NINJA_VERSION=1.13.2
+RUN bash -eux -o pipefail <<'EOF'
+    # Download ninja
+    git clone --recurse-submodules --depth 1 https://github.com/ninja-build/ninja.git -b v${NINJA_VERSION}
+    pushd ninja
+    # Build & Install to /usr/local
+    cmake -Bbuild -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr/local
+    cmake --build build --parallel
+    cmake --install build
+    # Cleanup
+    popd
+    rm -rf ninja
+EOF
+
+##########################################
+# Build final image
+
+ARG OS_VERSION
+FROM docker.io/ubuntu:${OS_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ENV RUNNER_TOOL_CACHE=/opt/hostedtoolcache
+ENV RUNNER_OS=Linux
+ENV RUNNER_ARCH=RISCV64
+ARG RUNNER_VERSION=2.333.1
+ENV RUNNER_VERSION=${RUNNER_VERSION}
+
+RUN bash -eux -o pipefail <<'EOF'
+    # Get information about current OS
+    source /etc/os-release
+
+    # reduce timestamps differences between layers
+    export SOURCE_DATE_EPOCH=0
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        apt-transport-https \
+        gpg \
+     && true
+
+    # Setup Temurin Repository
+    curl -fsSL --retry 12 --retry-all-errors https://packages.adoptium.net/artifactory/api/gpg/key/public \
+        | gpg --dearmor \
+        | tee /etc/apt/trusted.gpg.d/adoptium.gpg >/dev/null
+    echo "deb https://packages.adoptium.net/artifactory/deb ${VERSION_CODENAME} main" \
+        | tee /etc/apt/sources.list.d/adoptium.list
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        acl \
+        ant \
+        ant-optional \
+        apache2 \
+        apt \
+        apt-transport-https \
+        aria2 \
+        autoconf \
+        automake \
+        azure-vm-utils \
+        base-files \
+        bash \
+        binutils \
+        bison \
+        brotli \
+        bsdutils \
+        build-essential \
+        buildah \
+        bzip2 \
+        ca-certificates \
+        ccache \
+        chrony \
+        cifs-utils \
+        clang-{16,17,18} \
+        clang-format-{16,17,18} \
+        clang-tidy-{16,17,18} \
+        cloud-init \
+        cmake \
+        containerd \
+        coreutils \
+        curl \
+        dash \
+        dbus \
+        diffutils \
+        dnsutils \
+        docker-cli \
+        docker-compose \
+        dpkg \
+        dpkg-dev \
+        eatmydata \
+        efibootmgr \
+        fakeroot \
+        file \
+        findutils \
+        flex \
+        fonts-noto-color-emoji \
+        ftp \
+        g++ \
+        g++-{12,13,14} \
+        gettext-base \
+        gcc \
+        gcc-{12,13,14} \
+        gettext-base \
+        gfortran \
+        gfortran-12 \
+        gfortran-13 \
+        gfortran-14 \
+        gh \
+        git \
+        git-ftp \
+        git-lfs \
+        gnupg \
+        gnupg2 \
+        haveged \
+        iproute2 \
+        iptables \
+        iputils-ping \
+        jq \
+        libatomic1 \
+        libbz2-1.0 \
+        libclang-{16,17,18}-dev \
+        libexpat1 \
+        libffi8 \
+        libgdbm6 \
+        libicu-dev \
+        liblzma5 \
+        libncursesw6 \
+        libnss3-tools \
+        libreadline8 \
+        libsqlite3-0 \
+        libsqlite3-dev \
+        libssl-dev \
+        libssl3 \
+        libtool \
+        libyaml-dev \
+        locales \
+        lz4 \
+        m4 \
+        make \
+        mediainfo \
+        mercurial \
+        net-tools \
+        netcat-openbsd \
+        openssh-client \
+        openssl \
+        p7zip-full \
+        parallel \
+        patchelf \
+        php8.3-pgsql \
+        php8.3-phpdbg \
+        php8.3-pspell \
+        php8.3-readline \
+        php8.3-redis \
+        php8.3-snmp \
+        php8.3-soap \
+        php8.3-sqlite3 \
+        php8.3-sybase \
+        php8.3-tidy \
+        php8.3-xdebug \
+        php8.3-xml \
+        php8.3-xsl \
+        php8.3-yaml \
+        php8.3-zip \
+        php8.3-zmq \
+        pigz \
+        pkg-config \
+        podman \
+        pollinate \
+        postgresql-16 \
+        python-babel-localedata \
+        python-is-python3 \
+        python3 \
+        python3-babel \
+        python3-dev \
+        python3-jinja2 \
+        python3-json-pointer \
+        python3-jsonpatch \
+        python3-jsonschema \
+        python3-markupsafe \
+        python3-parted \
+        python3-pip \
+        python3-pyrsistent \
+        python3-serial \
+        python3-six \
+        python3-tz \
+        python3-venv \
+        rpm \
+        rsync \
+        ruby-full \
+        runc \
+        shellcheck \
+        skopeo \
+        snmp \
+        software-properties-common \
+        sphinxsearch \
+        sqlite3 \
+        ssh \
+        ssh-import-id \
+        sshpass \
+        sudo \
+        swig \
+        sysstat \
+        systemd-coredump \
+        tar \
+        telnet \
+        temurin-17-jdk \
+        temurin-21-jdk \
+        temurin-25-jdk \
+        texinfo \
+        time \
+        tk \
+        tree \
+        tzdata \
+        ubuntu-minimal \
+        ubuntu-server \
+        ubuntu-standard \
+        unzip \
+        upx \
+        upx-ucl \
+        util-linux \
+        uuid-runtime \
+        wget \
+        xvfb \
+        xz-utils \
+        zip \
+        zlib1g \
+        zlib1g-dev \
+        zsync \
+     && true
+
+    if [[ "${VERSION_ID}" == "24.04" ]]; then
+        # Install 24.04 specific packages
+        apt-get install -y --no-install-recommends \
+            p7zip-rar \
+         && true
+    elif [[ "${VERSION_ID}" == "26.04" ]]; then
+        # Install 26.04 specific packages
+        true # nothing yet
+    else
+        echo "Unknown Ubuntu version ${VERSION_ID}"
+        exit 1
+    fi
+
+    # Clean apt cache. Do NOT remove /var/lib/dpkg — it holds the package
+    # database and lock files; without it, `apt-get install` fails for users.
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # Add a user which will run the github actions
+    groupadd -f docker
+    useradd -m -u 1001 -G docker runner # also creates a `runner` group
+    # Add runner to sudoers without password prompt
+    echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner
+EOF
+
+# Fix some specific directories' permissions
+RUN bash -eux -o pipefail <<'EOF'
+    # Make sure ${RUNNER_TOOL_CACHE} is writable by `runner`
+    mkdir -p -m 0777 ${RUNNER_TOOL_CACHE}
+    chown runner:runner ${RUNNER_TOOL_CACHE}
+EOF
+
+# Install Python
+ARG PYTHON310_VERSION=3.10.20
+COPY --link --from=python-3.10 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}
+ARG PYTHON311_VERSION=3.11.15
+COPY --link --from=python-3.11 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}
+ARG PYTHON312_VERSION=3.12.13
+COPY --link --from=python-3.12 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}
+ARG PYTHON313_VERSION=3.13.13
+COPY --link --from=python-3.13  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}
+COPY --link --from=python-3.13t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}
+ARG PYTHON314_VERSION=3.14.4
+COPY --link --from=python-3.14  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
+COPY --link --from=python-3.14t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
+
+# Install Go
+ARG GO122_VERSION=1.22.12
+COPY --link --from=go-1.22 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}
+ENV GOROOT_1_22_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64
+ARG GO123_VERSION=1.23.12
+COPY --link --from=go-1.23 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}
+ENV GOROOT_1_23_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64
+ARG GO124_VERSION=1.24.13
+COPY --link --from=go-1.24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}
+ENV GOROOT_1_24_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64
+ARG GO125_VERSION=1.25.9
+COPY --link --from=go-1.25 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}
+ENV GOROOT_1_25_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64
+
+RUN bash -eux -o pipefail <<'EOF'
+    update-alternatives --install /usr/bin/go go ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64/bin/go 100 \
+        --slave /usr/bin/gofmt gofmt ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64/bin/gofmt
+EOF
+
+# Install Node
+ARG NODE20_VERSION=20.20.2
+COPY --link --from=node-20 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}
+ARG NODE22_VERSION=22.22.2
+COPY --link --from=node-22 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}
+ARG NODE24_VERSION=24.14.1
+COPY --link --from=node-24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}
+
+# Install Java environment variables
+ENV JAVA_HOME_17_RISCV64=/usr/lib/jvm/temurin-17-jdk-riscv64/
+ENV JAVA_HOME_21_RISCV64=/usr/lib/jvm/temurin-21-jdk-riscv64/
+ENV JAVA_HOME_25_RISCV64=/usr/lib/jvm/temurin-25-jdk-riscv64/
+ENV JAVA_HOME=${JAVA_HOME_17_RISCV64}
+
+# Install Rust; it needs a runner user-writable location
+COPY --link --from=rust --chown=1001:1001 --chmod=0777 /build/rust/rustup /home/runner/.rustup
+COPY --link --from=rust --chown=1001:1001 --chmod=0777 /build/rust/cargo /home/runner/.cargo
+ENV RUSTUP_HOME=/home/runner/.rustup
+ENV CARGO_HOME=/home/runner/.cargo
+ENV PATH=${RUSTUP_HOME}/bin:${CARGO_HOME}/bin:${PATH}
+
+# Install Gradle
+ARG GRADLE_VERSION=9.4.1
+COPY --link --from=gradle --chmod=0777 /usr/share/gradle-${GRADLE_VERSION} /usr/share/gradle-${GRADLE_VERSION}
+ENV GRADLE_HOME=/usr/share/gradle-${GRADLE_VERSION}
+RUN bash -eux -o pipefail <<'EOF'
+    update-alternatives --install /usr/bin/gradle gradle ${GRADLE_HOME}/bin/gradle 100
+EOF
+
+# Install Apache Maven
+ARG MAVEN_VERSION=3.9.14
+COPY --link --from=maven --chmod=0777 /usr/share/apache-maven-${MAVEN_VERSION} /usr/share/apache-maven-${MAVEN_VERSION}
+ENV MAVEN_HOME=/usr/share/apache-maven-${MAVEN_VERSION}
+RUN bash -eux -o pipefail <<'EOF'
+    update-alternatives --install /usr/bin/mvn mvn ${MAVEN_HOME}/bin/mvn 100 \
+        --slave /usr/bin/mvnDebug mvnDebug ${MAVEN_HOME}/bin/mvnDebug \
+        --slave /usr/bin/mvnyjp mvnyjp ${MAVEN_HOME}/bin/mvnyjp
+EOF
+
+# Install ninja
+COPY --link --from=ninja --chmod=0777 /usr/local/bin/ninja /usr/local/bin/ninja
+
+# Install kubernetes
+COPY --link --from=kubernetes --chmod=0777 /usr/local/bin/kubectl /usr/local/bin/kubectl
+
+# Install Docker CLI Plugins
+COPY --link --from=docker-compose --chmod=0777 /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+COPY --link --from=docker-buildx  --chmod=0777 /usr/local/lib/docker/cli-plugins/docker-buildx  /usr/local/lib/docker/cli-plugins/docker-buildx
+
+# Install dockerd, docker-proxy, and docker-init (tini)
+COPY --link --from=moby --chmod=0777 /usr/local/bin/dockerd /usr/local/bin/dockerd
+COPY --link --from=moby --chmod=0777 /usr/local/bin/docker-proxy /usr/local/bin/docker-proxy
+COPY --link --from=docker-init --chmod=0777 /usr/local/bin/docker-init /usr/local/bin/docker-init
+
+# Fix some specific directories' permissions
+RUN bash -eux -o pipefail <<'EOF'
+    # Make sure /usr/local/bin is writable by `runner`
+    # --link Must come AFTER the COPY into /usr/local/bin, otherwise the COPY
+    # layer's dir metadata (default 0755 root:root) shadows the chmod.
+    chmod 777 /usr/local/bin
+    chmod -R 777 /opt
+EOF
+
+# Setup PATH for local installs
+ENV PATH=/home/runner/.local/bin:${PATH}
+
+COPY riscv-runner-entrypoint.sh /usr/local/bin/riscv-runner-entrypoint.sh
+
+WORKDIR /home/runner
+USER runner
+
+# Setup GitHub runner
+ARG RUNNER_VERSION=2.333.1
+ARG RUNNER_SHA256=b7fe06dae879678b817dbd4286d3527ba3a8867641ea932a0609fb1eed392b7b # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
+RUN bash -eux -o pipefail <<'EOF'
+    # reduce timestamps differences between layers
+    export SOURCE_DATE_EPOCH=0
+
+    curl -fsSL --retry 12 --retry-all-errors "https://github.com/Cloud-V-10xE/github-runner-riscv/releases/download/v${RUNNER_VERSION}-riscv64-net8/actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz" \
+        -o "actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz"
+
+    # Verify package integrity
+    echo "${RUNNER_SHA256} actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p /home/runner/actions-runner/cached/${RUNNER_VERSION}
+    tar -xzf actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz -C /home/runner/actions-runner/cached/${RUNNER_VERSION}
+    rm actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz
+
+    # Install dependencies for the runner (if any)
+    sudo /home/runner/actions-runner/cached/${RUNNER_VERSION}/bin/installdependencies.sh
+
+    # Clean apt cache. Do NOT remove /var/lib/dpkg — it holds the package
+    # database and lock files; without it, `apt-get install` fails for users.
+    sudo apt-get clean
+    sudo rm -rf /var/lib/apt/lists/*
+EOF
+
+ENTRYPOINT ["/usr/local/bin/docker-init", "--", "/usr/local/bin/riscv-runner-entrypoint.sh"]
