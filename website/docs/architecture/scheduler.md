@@ -8,7 +8,7 @@ nav_order: 2
 
 The scheduler is a background service that runs a reconciliation loop. It matches pending job demand to available RISC-V node capacity, provisions runner pods, syncs worker state with Kubernetes and GitHub, and cleans up terminated pods.
 
-**Source:** [`container/scheduler.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/scheduler.py)
+**Source:** [`container/cmd/scheduler/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/main.go)
 
 ## Reconciliation loop
 
@@ -73,7 +73,7 @@ Terminated pods (`Succeeded` or `Failed`) are kept for `POD_DELETE_GRACE_SECONDS
 
 ## Related files
 
-- [`container/scheduler.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/scheduler.py): reconciliation loop, demand matching, worker state sync, cleanup.
-- [`container/k8s.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/k8s.py): Kubernetes pod provisioning, capacity checks, failure-info collection.
-- [`container/github.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/github.py): GitHub API (JIT config, runner groups, job status).
-- [`container/db.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/db.py): PostgreSQL operations for jobs and workers.
+- [`container/cmd/scheduler/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/main.go): reconciliation loop, demand matching, worker state sync, cleanup.
+- [`container/internal/k8s.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/k8s.go): Kubernetes pod provisioning, capacity checks, failure-info collection.
+- [`container/internal/github.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/github.go): GitHub API (JIT config, runner groups, job status).
+- [`container/internal/db.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/db.go): PostgreSQL operations for jobs and workers.

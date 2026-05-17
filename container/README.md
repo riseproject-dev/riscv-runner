@@ -25,7 +25,7 @@ container/
     testutil/     in-memory fakes shared by cmd/ tests
 ```
 
-The Go module path is `github.com/riseproject-dev/riscv-runner-app/container`.
+The Go module path is `github.com/riseproject-dev/riscv-runner/container`.
 
 ## Tests
 

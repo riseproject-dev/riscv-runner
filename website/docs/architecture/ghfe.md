@@ -8,7 +8,7 @@ nav_order: 1
 
 The webhook handler (`ghfe`, the "GitHub front-end") receives GitHub `workflow_job` events, validates them, and records job state in PostgreSQL. It runs as a Flask application and is intentionally minimal: no GitHub API calls, no Kubernetes calls, just signature validation, label resolution, and a write to the database. Heavier work happens in the [scheduler](scheduler).
 
-**Source:** [`container/ghfe.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/ghfe.py)
+**Source:** [`container/cmd/ghfe/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/main.go)
 
 ## Request flow
 
@@ -57,7 +57,7 @@ Jobs and workers live in a `prod` or `staging` schema (the same database, isolat
 | `k8s_pool` / `k8s_image` / `k8s_pod` | – | Resolved pool, image tag, and (later) provisioned pod name |
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | Lifecycle timestamps |
 
-On `queued`, the handler `INSERT`s a row and emits `NOTIFY queue_event` so the scheduler wakes up immediately rather than waiting for its 15-second tick. On `in_progress` and `completed`, the handler updates `status` (forward-only). The full schema, including the `workers` table, is documented in [`riscv-runner-app/README.md`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/README.md).
+On `queued`, the handler `INSERT`s a row and emits `NOTIFY queue_event` so the scheduler wakes up immediately rather than waiting for its 15-second tick. On `in_progress` and `completed`, the handler updates `status` (forward-only). The full schema, including the `workers` table, is documented in [the monorepo `README.md`](https://github.com/riseproject-dev/riscv-runner/blob/main/README.md).
 
 ## Staging proxy
 
@@ -74,6 +74,6 @@ In production mode, webhooks for entities flagged as staging in `ENTITY_CONFIG` 
 
 ## Related files
 
-- [`container/ghfe.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/ghfe.py): webhook handler.
-- [`container/db.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/db.py): PostgreSQL operations.
-- [`container/constants.py`](https://github.com/riseproject-dev/riscv-runner-app/blob/main/container/constants.py): entity configuration, label mappings.
+- [`container/cmd/ghfe/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/main.go): webhook handler.
+- [`container/internal/db.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/db.go): PostgreSQL operations.
+- [`container/internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/constants.go): entity configuration, label mappings.

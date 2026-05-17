@@ -48,7 +48,7 @@ The app listens for `workflow_job` webhooks. When a job requests a RISC-V runner
 
 ## Access model
 
-The service is open to any organization or personal account that installs the app. Contact the [RISE project team](https://github.com/riseproject-dev/riscv-runner-app/issues) if the app installation does not trigger runners for your workflows.
+The service is open to any organization or personal account that installs the app. Contact the [RISE project team](https://github.com/riseproject-dev/riscv-runner/issues) if the app installation does not trigger runners for your workflows.
 
 ## Next step
 

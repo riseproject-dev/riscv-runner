@@ -6,16 +6,17 @@ has_children: true
 
 # Architecture Overview
 
-[RISE RISC-V Runners](https://github.com/apps/rise-risc-v-runners) is a demand-driven autoscaling system that provisions ephemeral GitHub Actions runners on RISC-V Kubernetes nodes. The system spans four repositories, each handling a distinct concern.
+[RISE RISC-V Runners](https://github.com/apps/rise-risc-v-runners) is a demand-driven autoscaling system that provisions ephemeral GitHub Actions runners on RISC-V Kubernetes nodes. The whole service lives in [`riseproject-dev/riscv-runner`](https://github.com/riseproject-dev/riscv-runner) and is split into a few top-level directories, each handling a distinct concern.
 
-## Repository map
+## Component map
 
-| Repository | Language | Role |
-|------------|----------|------|
-| [riscv-runner-app](https://github.com/riseproject-dev/riscv-runner-app) | Python | Webhook handler (`ghfe`), scheduler, GitHub API integration |
-| [riscv-runner-device-plugin](https://github.com/riseproject-dev/riscv-runner-device-plugin) | Go | Kubernetes device plugin (1 pod/node), node labeller (SoC detection) |
-| [riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images) | Dockerfile | Runner image (Ubuntu + tools) |
-| [riscv-runner-sample](https://github.com/riseproject-dev/riscv-runner-sample) | YAML | Example workflows for end users |
+| Directory | Language | Role |
+|-----------|----------|------|
+| [`container/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container) | Go | Webhook handler (`ghfe`), scheduler, GitHub API integration |
+| [`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin) | Go | Kubernetes device plugin (1 pod/node), node labeller (SoC detection) |
+| [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images) | Dockerfile | Runner image (Ubuntu + tools) |
+
+A separate [`riscv-runner-sample`](https://github.com/riseproject-dev/riscv-runner-sample) repo holds example workflows for end users.
 
 ## End-to-end flow
 

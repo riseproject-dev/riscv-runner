@@ -8,11 +8,11 @@ nav_order: 4
 
 Each runner pod uses a single unified container image: the GitHub Actions runner together with the full set of tools listed below. The image is built for `linux/riscv64` and stored in the Scaleway Container Registry.
 
-**Source:** [riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images)
+**Source:** the [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images) directory
 
 ## Runner image
 
-**Dockerfile:** [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu)
+**Dockerfile:** [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/Dockerfile.ubuntu)
 
 The runner image is a multi-stage build based on Ubuntu (24.04 or 26.04). It contains:
 
@@ -34,7 +34,7 @@ The [GitHub Actions Runner for RISC-V](https://github.com/Cloud-V-10xE/github-ru
 | **Packaging** | dpkg, rpm, fakeroot |
 | **Utilities** | jq, shellcheck, tree, rsync, sudo, parallel |
 
-The image aims to track the [official GitHub Actions Ubuntu runner images](https://github.com/actions/runner-images). Pinned versions live in [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/versions-map.json). If your workflow needs a package that isn't in the image, [open an issue](https://github.com/riseproject-dev/riscv-runner-images/issues).
+The image aims to track the [official GitHub Actions Ubuntu runner images](https://github.com/actions/runner-images). Pinned versions live in [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/versions-map.json). If your workflow needs a package that isn't in the image, [open an issue](https://github.com/riseproject-dev/riscv-runner/issues).
 
 ### User configuration
 
@@ -42,14 +42,14 @@ The image creates a non-root `runner` user with passwordless sudo. All workflow 
 
 ## Build pipeline
 
-**Workflow:** [`.github/workflows/release.yml`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/.github/workflows/release.yml)
+**Workflow:** [`.github/workflows/release.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/deploy-images.yml)
 
 A single `build-runner` job builds the runner image, currently for Ubuntu 24.04 (26.04 is staged behind a matrix entry).
 
 - **Trigger:** push to `main` or `staging`, daily schedule, or manual dispatch.
 - **Platform:** `linux/riscv64`, built natively on `ubuntu-24.04-riscv` self-hosted RISC-V runners (no QEMU emulation in the build path).
 - **Caching:** GitHub Actions Cache (`type=gha`) for Docker layer reuse. A concurrency group ensures only one build runs per branch.
-- **Versioning:** [`scripts/update-versions.py`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/scripts/update-versions.py) syncs pinned versions in `versions-map.json` from upstream releases, then a scheduled workflow opens a PR with the diff.
+- **Versioning:** [`scripts/update-versions.py`](https://github.com/riseproject-dev/riscv-runner/blob/main/scripts/update-versions.py) syncs pinned versions in `versions-map.json` from upstream releases, then a scheduled workflow opens a PR with the diff.
 
 ## Registry
 
@@ -70,7 +70,7 @@ rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner
 
 | File | Role |
 |------|------|
-| [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu) | Runner image (multi-stage; tools, language runtimes, container tooling) |
-| [`runner/riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/riscv-runner-entrypoint.sh) | PID-1 entrypoint, execs `run.sh --jitconfig "$RUNNER_JITCONFIG"` |
-| [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/versions-map.json) | Pinned versions for all bundled tools and runtimes |
-| [`.github/workflows/release.yml`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/.github/workflows/release.yml) | CI/CD pipeline |
+| [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/Dockerfile.ubuntu) | Runner image (multi-stage; tools, language runtimes, container tooling) |
+| [`runner/riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/riscv-runner-entrypoint.sh) | PID-1 entrypoint, execs `run.sh --jitconfig "$RUNNER_JITCONFIG"` |
+| [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/versions-map.json) | Pinned versions for all bundled tools and runtimes |
+| [`.github/workflows/release.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/deploy-images.yml) | CI/CD pipeline |

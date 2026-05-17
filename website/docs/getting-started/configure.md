@@ -55,7 +55,7 @@ jobs:
       - run: docker run myapp
 ```
 
-See [riseproject-dev/riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images/blob/main/runner/Dockerfile.ubuntu) for the complete list and [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner-images/blob/main/versions-map.json) for pinned versions.
+See [the runner Dockerfile](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/Dockerfile.ubuntu) for the complete list and [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/versions-map.json) for pinned versions.
 
 ## Runner lifecycle
 

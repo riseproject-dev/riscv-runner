@@ -39,16 +39,15 @@ Use Mermaid fenced code blocks (` ```mermaid `). Rendered client-side by just-th
 
 ## Deployment
 
-Automatic on push to `main` via `.github/workflows/pages.yml`. No manual deploy needed.
+Automatic on push to `main` via `.github/workflows/deploy-website.yml`. No manual deploy needed. The workflow is scoped to `website/**` so it only runs when the site changes.
 
-## Related Repos
+## Related directories in the monorepo
 
-- [`riscv-runner-app`](https://github.com/riseproject-dev/riscv-runner-app): GitHub App webhook handler and worker
-- [`riscv-runner-device-plugin`](https://github.com/riseproject-dev/riscv-runner-device-plugin): Kubernetes device plugin and node labeller
-- [`riscv-runner-images`](https://github.com/riseproject-dev/riscv-runner-images): Runner container images
-- [`riscv-runner-sample`](https://github.com/riseproject-dev/riscv-runner-sample): Sample repository demonstrating usage
+- [`container/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container): GitHub App webhook handler and scheduler
+- [`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin): Kubernetes device plugin and node labeller
+- [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images): Runner container images
 
-Architecture pages reference source files in these repos.
+Architecture pages reference source files in these directories. A separate [`riscv-runner-sample`](https://github.com/riseproject-dev/riscv-runner-sample) repo demonstrates user-facing usage and is not part of this monorepo.
 
 ## Style
 

@@ -23,7 +23,7 @@ Ubuntu 24.04 and Ubuntu 26.04. The OS version is determined by the runner label 
 
 ## How do I get access?
 
-Install the GitHub App on your [organization](https://github.com/apps/rise-risc-v-runners) or [personal account](https://github.com/apps/rise-risc-v-runners-personal). The service is open to all. No allowlist or approval required. Contact the [RISE project team](https://github.com/riseproject-dev/riscv-runner-app/issues) if the app installation does not trigger runners for your workflows.
+Install the GitHub App on your [organization](https://github.com/apps/rise-risc-v-runners) or [personal account](https://github.com/apps/rise-risc-v-runners-personal). The service is open to all. No allowlist or approval required. Contact the [RISE project team](https://github.com/riseproject-dev/riscv-runner/issues) if the app installation does not trigger runners for your workflows.
 
 ## Can I use this for personal repositories?
 
@@ -54,4 +54,4 @@ The scheduler detects pods in the `Failed` state, marks the corresponding worker
 
 ## Where are the runner images hosted?
 
-Images are stored in the Scaleway Container Registry (`rg.fr-par.scw.cloud`). They are rebuilt daily and on every push to the `main` branch of [riscv-runner-images](https://github.com/riseproject-dev/riscv-runner-images).
+Images are stored in the Scaleway Container Registry (`rg.fr-par.scw.cloud`). They are rebuilt daily and on every push to the `main` branch of the [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images) directory.
