@@ -1,0 +1,14 @@
+node_modules
+
+.serverless
+
+__pycache__/
+package/
+**/.venv*/
+*.py[cod]
+*$py.class
+*.so
+
+.coverage
+coverage.xml
+.pytest_cache/

@@ -1,0 +1,29 @@
+name: Add organization to allowlist
+description: Request access to RISC-V runners for your GitHub organization
+title: "Add organization: "
+labels: ["onboarding"]
+body:
+  - type: input
+    id: org-name
+    attributes:
+      label: Organization name
+      description: The GitHub organization login (e.g. `my-org` from github.com/my-org)
+      placeholder: my-org
+    validations:
+      required: true
+  - type: input
+    id: org-id
+    attributes:
+      label: Organization ID
+      description: "Find it using GitHub cli: `gh api orgs/{my-org} --jq .id`"
+      placeholder: "12345678"
+    validations:
+      required: false
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Help us learn what you plan to use the RISC-V runners for
+      placeholder: "CI/CD for our RISC-V port of ..."
+    validations:
+      required: true

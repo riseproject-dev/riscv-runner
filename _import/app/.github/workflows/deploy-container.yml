@@ -1,0 +1,222 @@
+name: Deploy Container
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy-container.yml'
+      - 'container/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy-container.yml'
+      - 'container/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s
+  IMAGE: riscv-runner
+  PROD_URL: https://riseriscvrunnerappqdvknz9s-ghfe.functions.fnc.fr-par.scw.cloud
+  STAGING_URL: https://riseriscvrunnerappst73ndwr0w-ghfe.functions.fnc.fr-par.scw.cloud
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: container
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: container/go.mod
+          cache-dependency-path: container/go.sum
+      - name: go vet
+        run: go vet ./...
+      - name: gofmt check
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt diff:"
+            echo "$out"
+            exit 1
+          fi
+      - name: go test
+        run: go test -race ./... -coverprofile=coverage.out
+
+  build:
+    needs: [test]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: container
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to Container Registry
+        if: github.repository_owner == 'riseproject-dev'
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+
+      - name: Build ghfe image
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          platforms: linux/amd64
+          context: container
+          file: container/Dockerfile
+          target: ghfe
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-sha-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
+          push: ${{ github.repository_owner == 'riseproject-dev' }}
+
+      - name: Build scheduler image
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          platforms: linux/amd64
+          context: container
+          file: container/Dockerfile
+          target: scheduler
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-sha-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
+          push: ${{ github.repository_owner == 'riseproject-dev' }}
+
+  deploy-staging:
+    if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
+    name: "deploy to staging"
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Tag ghfe image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-staging \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-sha-${{ github.sha }}
+
+      - name: Tag scheduler image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-staging \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-sha-${{ github.sha }}
+
+      - name: Deploy to Scaleway
+        working-directory: container
+        run: npm ci && npx serverless deploy --stage=staging
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
+          GHAPP_ORG_PRIVATE_KEY: ${{ secrets.GHAPP_ORG_PRIVATE_KEY }}
+          GHAPP_PERSONAL_PRIVATE_KEY: ${{ secrets.GHAPP_PERSONAL_PRIVATE_KEY }}
+          K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRACE_API_SECRET: ${{ secrets.TRACE_API_SECRET }}
+
+      - name: Health check
+        run: python3 ./bin/check-health.py --staging
+
+      - name: Trigger sample workflow
+        env:
+          GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_ACCESS_TOKEN }}
+          GH_REPO: riseproject-dev/riscv-runner-sample-staging
+          GH_WORKFLOW: hello.yml
+        run: |
+          gh workflow run ${GH_WORKFLOW} --repo ${GH_REPO}
+          sleep 5
+          gh run watch $(gh run list --repo ${GH_REPO} --workflow ${GH_WORKFLOW} --limit 1 --json databaseId --jq '.[0].databaseId') --repo ${GH_REPO} --interval 15 --exit-status
+
+  deploy-prod:
+    if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
+    name: "deploy to prod"
+    needs: [build, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Tag ghfe image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-prod \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:ghfe-sha-${{ github.sha }}
+
+      - name: Tag scheduler image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-prod \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:scheduler-sha-${{ github.sha }}
+
+      - name: Deploy to Scaleway
+        working-directory: container
+        run: npm ci && npx serverless@3 deploy --stage=main
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
+          GHAPP_ORG_PRIVATE_KEY: ${{ secrets.GHAPP_ORG_PRIVATE_KEY }}
+          GHAPP_PERSONAL_PRIVATE_KEY: ${{ secrets.GHAPP_PERSONAL_PRIVATE_KEY }}
+          K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRACE_API_SECRET: ${{ secrets.TRACE_API_SECRET }}
+
+      - name: Health check
+        run: python3 ./bin/check-health.py
+
+      - name: Trigger sample workflow
+        env:
+          GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_ACCESS_TOKEN }}
+          GH_REPO: riseproject-dev/riscv-runner-sample
+          GH_WORKFLOW: hello.yml
+        run: |
+          gh workflow run ${GH_WORKFLOW} --repo ${GH_REPO}
+          sleep 5
+          gh run watch $(gh run list --repo ${GH_REPO} --workflow ${GH_WORKFLOW} --limit 1 --json databaseId --jq '.[0].databaseId') --repo ${GH_REPO} --interval 15 --exit-status
