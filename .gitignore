@@ -1,3 +1,4 @@
+# Jekyll (website/)
 _site/
 .sass-cache/
 .jekyll-cache/
@@ -5,3 +6,22 @@ _site/
 .bundle/
 vendor/
 Gemfile.lock
+
+# Node (container/)
+node_modules
+
+# Serverless (container/)
+.serverless
+
+# Python (scripts/, container/)
+__pycache__/
+package/
+**/.venv*/
+*.py[cod]
+*$py.class
+*.so
+
+# Test/coverage
+.coverage
+coverage.xml
+.pytest_cache/
