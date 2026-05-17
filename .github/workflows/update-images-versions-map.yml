@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 name: Update package versions
 
 on:

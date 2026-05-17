@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package internal hosts shared types, configuration, and clients
 // used by both cmd/ghfe and cmd/scheduler.
 package internal

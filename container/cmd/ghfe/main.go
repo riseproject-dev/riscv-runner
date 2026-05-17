@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Command ghfe runs the GitHub webhook frontend.
 package main
 

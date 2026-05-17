@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package testutil holds in-memory fakes for the DB, GitHub, and Kube
 // interfaces. Use them when testing cmd/ghfe and cmd/scheduler.
 package testutil

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 module github.com/riseproject-dev/riscv-runner-app/container
 
 go 1.26.0

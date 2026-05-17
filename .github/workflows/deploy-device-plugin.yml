@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 name: Build, Push, and Deploy
 
 # TODO: inline the `make` commands below and remove device-plugin/Makefile.

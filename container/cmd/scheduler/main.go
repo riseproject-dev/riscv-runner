@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Command scheduler runs the reconciliation loop + the read-only HTTP
 // dashboards (/usage, /history, /jobs, /workers).
 package main

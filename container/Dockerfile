@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 FROM golang:1.26-trixie AS build
 WORKDIR /src
 COPY go.mod go.sum ./

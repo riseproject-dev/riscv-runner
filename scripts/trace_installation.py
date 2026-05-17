@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Reconstruct GitHub App installation history for an entity.
 
 Pulls events from /trace/* on the production GHFE and prints a chronological

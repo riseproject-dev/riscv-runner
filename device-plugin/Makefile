@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 REGISTRY ?= rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s
 IMAGE    ?= riscv-runner
 TAG      ?= staging

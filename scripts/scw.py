@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Provision RISE RISC-V runner control planes and runners on Scaleway."""
 
 import argparse

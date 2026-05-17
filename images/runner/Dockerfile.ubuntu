@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 
 # Base builder image with common download and build tools
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 title: RISE RISC-V Runners
 description: Run GitHub Actions CI on real RISC-V hardware
 url: https://riscv-runners.riseproject.dev

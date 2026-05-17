@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 set -eux -o pipefail
 
 # Some assertions before we get going

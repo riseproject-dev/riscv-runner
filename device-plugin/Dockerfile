@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
 
 ARG TARGETARCH

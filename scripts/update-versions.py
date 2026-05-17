@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """
 Fetch the latest Ubuntu 24.04 runner-images release from GitHub,
 extract package versions from its internal.ubuntu24.json manifest,
