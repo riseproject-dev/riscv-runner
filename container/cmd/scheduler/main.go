@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 func main() {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // syncWorkersState runs the 5 reconciliation phases. The whole call sits

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // shouldProxyToStaging is true when this is the prod instance and the

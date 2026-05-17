@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
-	"github.com/riseproject-dev/riscv-runner-app/container/internal/testutil"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal/testutil"
 )
 
 func newTraceApp() (*App, *testutil.FakeDB) {

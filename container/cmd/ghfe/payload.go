@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // senderDropKeys / repoDropKeys / repoOwnerDropKeys / orgDropKeys /

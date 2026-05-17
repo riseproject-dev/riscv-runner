@@ -10,8 +10,8 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/riseproject/riscv-runner-device-plugin/pkg/labeler"
-	"github.com/riseproject/riscv-runner-device-plugin/pkg/soc"
+	"github.com/riseproject-dev/riscv-runner/device-plugin/pkg/labeler"
+	"github.com/riseproject-dev/riscv-runner/device-plugin/pkg/soc"
 )
 
 func main() {

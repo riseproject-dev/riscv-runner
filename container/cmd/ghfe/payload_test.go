@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // TestTrimWorkflowJobPayload_DropsURLsLicenseSteps locks down invariant

@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // authPayload is the JSON body written into installation_events.payload

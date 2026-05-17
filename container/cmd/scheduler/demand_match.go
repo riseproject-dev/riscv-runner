@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"math/big"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // demandMatch iterates pending jobs FIFO, groups by k8s_pool, and provisions

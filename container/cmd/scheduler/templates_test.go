@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // TestRenderWorker_RendersV1AndV2FailureInfo locks b081af0: render_worker

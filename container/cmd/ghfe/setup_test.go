@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
-	"github.com/riseproject-dev/riscv-runner-app/container/internal/testutil"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal/testutil"
 )
 
 func newSetupApp(gh *testutil.FakeGH) *App {

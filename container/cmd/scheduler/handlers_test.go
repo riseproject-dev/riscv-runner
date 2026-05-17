@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // TestWorkers_PaginationAndLinkHeader locks invariant caf0e8a: /workers.json

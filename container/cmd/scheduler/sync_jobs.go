@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // syncJobsState converges each active job's DB row with GitHub's view of it.

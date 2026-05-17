@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/riseproject-dev/riscv-runner-app/container/internal"
+	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // FakeDB satisfies internal.DB. Public fields are inspected by tests; methods
