@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-name: Build and Release Github Actions Image
+name: Build and Deploy Images
 
 permissions:
   contents: write

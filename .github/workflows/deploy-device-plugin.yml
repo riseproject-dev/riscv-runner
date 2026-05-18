@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-name: Build, Push, and Deploy
+name: Build and Deploy Kubernetes Device Plugin
 
 # TODO: inline the `make` commands below and remove device-plugin/Makefile.
 on:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-name: Deploy Container
+name: Build and Deploy Container
 
 on:
   push:
