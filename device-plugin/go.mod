@@ -9,7 +9,7 @@ require (
 	google.golang.org/grpc v1.65.0
 	k8s.io/apimachinery v0.31.0
 	k8s.io/client-go v0.31.0
-	k8s.io/klog/v2 v2.130.1
+	k8s.io/klog/v2 v2.140.0
 	k8s.io/kubelet v0.31.0
 )
 
