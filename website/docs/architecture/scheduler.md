@@ -103,18 +103,24 @@ Each iteration of `syncWorkersState` runs under `LOCK TABLE workers IN EXCLUSIVE
 |---|---|---|
 | 1 | `OrphanSweep` | Worker rows with no matching k8s pod are marked terminal. |
 | 2 | `PodPhaseSync` | Pod phase `Running` / `Succeeded` / `Failed` is reflected onto the worker status. `failure_info` is populated for failed pods. |
+| 2.5 | `UnreachableNodeCheck` | Lists nodes tainted with `node.kubernetes.io/unreachable` and fails any worker whose pod is stranded on one. The pod is force-deleted so it does not sit in `Terminating` forever waiting on an absent kubelet. Skipped if the node-list call fails or returns no unreachable nodes. |
 | 3 | `HealthChecks` | Per `(installation, entity_type, entity_id, repo)` fetches GH access tokens and runner lists; `classifyWorker` runs a state machine over each worker (see below). |
 | 4 | `GitHubCleanup` | Deletes GH-registered runners whose worker row is terminal or missing. Org runners are scoped to the `RISE RISC-V Runners` runner group; repo runners are filtered by `rise-riscv-runner{-staging}-` name prefix. |
 | 5 | `DeleteTerminalPods` | Deletes Succeeded/Failed pods past `PodDeleteGrace` (6h). |
 
 ### Health checks
 
-Two health checks run in phase 3. Rather than deleting the pod directly, the scheduler patches `spec.activeDeadlineSeconds = 1`. The kubelet then transitions the pod to `Failed` (reason `DeadlineExceeded`), so it enters the normal grace-and-delete flow and logs/events remain inspectable.
+Phase 3 runs a per-worker decision tree. Rather than deleting the pod directly, the scheduler patches `spec.activeDeadlineSeconds = 1`. The kubelet then transitions the pod to `Failed` (reason `DeadlineExceeded`), so it enters the normal grace-and-delete flow and logs/events remain inspectable.
 
 - **`runner_never_registered`** — pod has been `Running` for more than `RunnerRegistrationTimeout` (120s) but the runner never appeared in the GitHub API. Worker is marked `failed` with full diagnostics in `failure_info`; pod is killed so its slot frees up for a retry.
 - **`pod_stuck_pending`** — pod has been `Pending` for more than `PodPendingTimeout` (600s), typically due to missing capacity or an image-pull failure.
+- **`runner_idle`** — runner is registered with GitHub, online, and not busy for longer than `RunnerPendingTimeout` (600s).
 
-Both checks first try to delete the GH-side runner. If GitHub refuses (e.g. `422 "Runner is busy"`), `syncWorkersState` aborts cleanup for that worker. GitHub believes a job is still running, so the worker is left alone and retried next cycle.
+Phase 3 first tries to delete the GH-side runner. If GitHub refuses (e.g. `422 "Runner is busy"`), `syncWorkersState` aborts cleanup for that worker. GitHub believes a job is still running, so the worker is left alone and retried next cycle.
+
+Phase 2.5 (`UnreachableNodeCheck`) handles the separate case of a pod on a node the kube node controller has marked unreachable. The kubelet is gone, so:
+
+- **`node_unreachable`** — failure reason recorded on the worker. The pod is force-deleted (zero grace period) instead of patched, since patching `activeDeadlineSeconds` cannot be applied without a live kubelet. The GH runner row, now offline, is cleaned up by Phase 4 on a subsequent iteration.
 
 ## Lifecycle state machines
 

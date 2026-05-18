@@ -75,6 +75,7 @@ const (
 	ReasonPodStuckPending       FailureReason = "pod_stuck_pending"
 	ReasonRunnerNeverRegistered FailureReason = "runner_never_registered"
 	ReasonRunnerIdle            FailureReason = "runner_idle"
+	ReasonNodeUnreachable       FailureReason = "node_unreachable"
 )
 
 // Job is one row of the jobs table.
@@ -222,6 +223,31 @@ type EventInfo struct {
 	Count     int32  `json:"count"`
 	FirstSeen string `json:"first_seen,omitempty"`
 	LastSeen  string `json:"last_seen,omitempty"`
+}
+
+// Node is the subset of K8s node state we consume.
+type Node struct {
+	Name   string
+	Taints []NodeTaint
+}
+
+// NodeTaint mirrors corev1.Taint but stays caller-typed.
+type NodeTaint struct {
+	Key    string
+	Value  string
+	Effect string
+}
+
+// IsUnreachable returns true when the node controller has marked the node
+// unreachable (kubelet has stopped reporting past the controller grace
+// period). The same key is added with both NoSchedule and NoExecute effects.
+func (n Node) IsUnreachable() bool {
+	for _, t := range n.Taints {
+		if t.Key == "node.kubernetes.io/unreachable" {
+			return true
+		}
+	}
+	return false
 }
 
 // Pod is the subset of K8s pod state we consume; KubeClient returns this shape
@@ -422,9 +448,11 @@ type Capacity struct {
 type KubeClient interface {
 	ProvisionRunner(ctx context.Context, jitConfig, runnerName, image, pool string, entity Entity) error
 	ListPods(ctx context.Context) ([]Pod, error)
+	ListNodes(ctx context.Context) ([]Node, error)
 	GetPodEvents(ctx context.Context, podName string) ([]PodEvent, error)
 	GetPodLogs(ctx context.Context, podName, container string) (string, error)
 	DeletePod(ctx context.Context, podName string) error
+	ForceDeletePod(ctx context.Context, podName string) error
 	KillPod(ctx context.Context, podName string) error
 	AvailableSlots(ctx context.Context, pool string) (Capacity, error)
 	CollectPodFailureInfo(ctx context.Context, pod Pod, reason FailureReason) FailureInfoV2

@@ -398,23 +398,27 @@ type FakeKube struct {
 	mu sync.Mutex
 
 	PodsByName  map[string]internal.Pod
+	NodesByName map[string]internal.Node
 	EventsByPod map[string][]internal.PodEvent
 	LogsByPod   map[string]string
 	SlotsByPool map[string]int
 	SlotCalls   map[string]int
 
-	ProvisionCalls []string
-	DeleteCalls    []string
-	KillCalls      []string
+	ProvisionCalls   []string
+	DeleteCalls      []string
+	ForceDeleteCalls []string
+	KillCalls        []string
 
 	OnProvisionRunner func(jit, name, image, pool string, entity internal.Entity) error
 	OnGetPodEvents    func(podName string) ([]internal.PodEvent, error)
+	OnListNodes       func() ([]internal.Node, error)
 }
 
 // NewFakeKube allocates the maps so callers can mutate them directly.
 func NewFakeKube() *FakeKube {
 	return &FakeKube{
 		PodsByName:  map[string]internal.Pod{},
+		NodesByName: map[string]internal.Node{},
 		EventsByPod: map[string][]internal.PodEvent{},
 		LogsByPod:   map[string]string{},
 		SlotsByPool: map[string]int{},
@@ -459,6 +463,27 @@ func (f *FakeKube) DeletePod(ctx context.Context, podName string) error {
 	f.DeleteCalls = append(f.DeleteCalls, podName)
 	delete(f.PodsByName, podName)
 	return nil
+}
+
+func (f *FakeKube) ForceDeletePod(ctx context.Context, podName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ForceDeleteCalls = append(f.ForceDeleteCalls, podName)
+	delete(f.PodsByName, podName)
+	return nil
+}
+
+func (f *FakeKube) ListNodes(ctx context.Context) ([]internal.Node, error) {
+	if f.OnListNodes != nil {
+		return f.OnListNodes()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]internal.Node, 0, len(f.NodesByName))
+	for _, n := range f.NodesByName {
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 func (f *FakeKube) KillPod(ctx context.Context, podName string) error {

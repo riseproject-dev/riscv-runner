@@ -81,7 +81,7 @@ WHERE status = 'failed'
 GROUP BY 1;
 ```
 
-`failure_info->>'reason'` values: `pod_failed` (Kubernetes Failed phase), `pod_stuck_pending` (never reached Running), `runner_never_registered` (Running but never appeared in the GitHub API).
+`failure_info->>'reason'` values: `pod_failed` (Kubernetes `Failed` phase), `pod_stuck_pending` (never reached Running), `runner_never_registered` (Running but never appeared in the GitHub API), `runner_idle` (registered with GitHub but stayed idle past the timeout), `node_unreachable` (pod was stranded on a node tainted with `node.kubernetes.io/unreachable`).
 
 Substitute `prod.` for `staging.` when inspecting the production schema.
 

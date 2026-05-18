@@ -15,6 +15,15 @@ import (
 // inside WithWorkerLock (see runSchedulerIteration), so all writes share a
 // transaction and execute under LOCK TABLE workers IN EXCLUSIVE MODE.
 func (a *App) syncWorkersState(ctx context.Context) error {
+	nodes, err := a.K8s.ListNodes(ctx)
+	if err != nil {
+		return err
+	}
+	nodesByName := make(map[string]internal.Node, len(nodes))
+	for _, n := range nodes {
+		nodesByName[n.Name] = n
+	}
+
 	pods, err := a.K8s.ListPods(ctx)
 	if err != nil {
 		return err
@@ -35,6 +44,16 @@ func (a *App) syncWorkersState(ctx context.Context) error {
 	a.OrphanSweep(ctx, podsByName, workersByName)
 	a.PodPhaseSync(ctx, podsByName, workersByName)
 
+	// Update workers list
+	workers, err = a.DB.GetWorkersForReconcile(ctx, time.Hour)
+	if err != nil {
+		return err
+	}
+	workersByName = indexWorkers(workers)
+
+	a.UnreachableNodeCheck(ctx, podsByName, workersByName, nodesByName)
+
+	// Update workers list
 	workers, err = a.DB.GetWorkersForReconcile(ctx, time.Hour)
 	if err != nil {
 		return err
@@ -43,6 +62,7 @@ func (a *App) syncWorkersState(ctx context.Context) error {
 
 	a.HealthChecks(ctx, podsByName, workersByName, ghRunnersByKey)
 
+	// Update workers list
 	workers, err = a.DB.GetWorkersForReconcile(ctx, time.Hour)
 	if err != nil {
 		return err
@@ -96,6 +116,37 @@ func (a *App) PodPhaseSync(ctx context.Context, pods map[string]internal.Pod, wo
 					slog.Error("MarkWorkerFailed failed", "entity", w.Entity(), "pod_name", name, "err", err)
 				}
 			}
+		}
+	}
+}
+
+// Fails workers whose pod is on an unreachable node. PodPhaseSync misses
+// them (no kubelet, no phase transition); force-delete since KillPod's
+// activeDeadlineSeconds patch can't reach an absent kubelet either.
+func (a *App) UnreachableNodeCheck(ctx context.Context, pods map[string]internal.Pod, workers map[string]internal.Worker, nodes map[string]internal.Node) {
+	for name, w := range workers {
+		if w.Status != "pending" && w.Status != "running" {
+			continue
+		}
+		p, ok := pods[name]
+		if !ok || p.NodeName == "" {
+			continue
+		}
+		n, ok := nodes[p.NodeName]
+		if !ok || !n.IsUnreachable() {
+			continue
+		}
+		e := w.Entity()
+		slog.Warn("Worker pod stranded on unreachable node, marking failed",
+			"entity", e, "worker", name, "node", p.NodeName)
+		info := a.K8s.CollectPodFailureInfo(ctx, p, internal.ReasonNodeUnreachable)
+		now := time.Now().UTC()
+		if err := a.DB.MarkWorkerFailed(ctx, name, p.NodeName, info, &now); err != nil {
+			slog.Error("MarkWorkerFailed failed", "entity", e, "worker", name, "err", err)
+			continue
+		}
+		if err := a.K8s.ForceDeletePod(ctx, name); err != nil {
+			slog.Error("ForceDeletePod failed", "entity", e, "worker", name, "err", err)
 		}
 	}
 }

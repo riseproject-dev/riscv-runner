@@ -239,6 +239,40 @@ func (k *K8sClient) DeletePod(ctx context.Context, podName string) error {
 	return err
 }
 
+// Removes the pod API object without waiting for kubelet ack. A graceful
+// delete hangs in Terminating when the node is gone.
+func (k *K8sClient) ForceDeletePod(ctx context.Context, podName string) error {
+	grace := int64(0)
+	err := k.cs.CoreV1().Pods(k.Namespace).Delete(ctx, podName, metav1.DeleteOptions{GracePeriodSeconds: &grace})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+func (k *K8sClient) ListNodes(ctx context.Context) ([]Node, error) {
+	list, err := k.cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Node, 0, len(list.Items))
+	for i := range list.Items {
+		out = append(out, convertNode(&list.Items[i]))
+	}
+	return out, nil
+}
+
+func convertNode(n *corev1.Node) Node {
+	out := Node{Name: n.Name}
+	if len(n.Spec.Taints) > 0 {
+		out.Taints = make([]NodeTaint, 0, len(n.Spec.Taints))
+		for _, t := range n.Spec.Taints {
+			out.Taints = append(out.Taints, NodeTaint{Key: t.Key, Value: t.Value, Effect: string(t.Effect)})
+		}
+	}
+	return out
+}
+
 // KillPod patches activeDeadlineSeconds=1 so the kubelet marks the pod Failed
 // (DeadlineExceeded) without removing it from the cluster — logs and events
 // stay inspectable until Phase 5 deletes the pod. 404 is treated as success.
