@@ -153,7 +153,7 @@ jobs:
           GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
           GHAPP_ORG_PRIVATE_KEY: ${{ secrets.GHAPP_ORG_PRIVATE_KEY }}
           GHAPP_PERSONAL_PRIVATE_KEY: ${{ secrets.GHAPP_PERSONAL_PRIVATE_KEY }}
-          K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG }}
+          K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG_GH_APP }}
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
           TRACE_API_SECRET: ${{ secrets.TRACE_API_SECRET }}
 
@@ -215,7 +215,7 @@ jobs:
           GHAPP_WEBHOOK_SECRET: ${{ secrets.GHAPP_WEBHOOK_SECRET }}
           GHAPP_ORG_PRIVATE_KEY: ${{ secrets.GHAPP_ORG_PRIVATE_KEY }}
           GHAPP_PERSONAL_PRIVATE_KEY: ${{ secrets.GHAPP_PERSONAL_PRIVATE_KEY }}
-          K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG }}
+          K8S_KUBECONFIG: ${{ secrets.K8S_KUBECONFIG_GH_APP }}
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
           TRACE_API_SECRET: ${{ secrets.TRACE_API_SECRET }}
 

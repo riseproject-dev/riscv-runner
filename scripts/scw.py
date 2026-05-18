@@ -2056,8 +2056,8 @@ runcmd:
     kubectl apply -f /etc/kubernetes/clusterroles.yml
 
     # Apply device plugin DaemonSets
-    curl -fsSL https://raw.githubusercontent.com/riseproject-dev/riscv-runner-device-plugin/refs/heads/@@ENVIRONMENT@@/k8s-ds-device-plugin.yaml | env TAG="@@ENVIRONMENT@@" envsubst | kubectl apply -f -
-    curl -fsSL https://raw.githubusercontent.com/riseproject-dev/riscv-runner-device-plugin/refs/heads/@@ENVIRONMENT@@/k8s-ds-node-labeller.yaml | env TAG="@@ENVIRONMENT@@" envsubst | kubectl apply -f -
+    curl -fsSL https://raw.githubusercontent.com/riseproject-dev/riscv-runner/refs/heads/main/device-plugin/k8s-ds-device-plugin.yaml | env TAG="@@TAG@@" envsubst | kubectl apply -f -
+    curl -fsSL https://raw.githubusercontent.com/riseproject-dev/riscv-runner/refs/heads/main/device-plugin/k8s-ds-node-labeller.yaml | env TAG="@@TAG@@" envsubst | kubectl apply -f -
 """
 
 
@@ -2085,9 +2085,7 @@ def cmd_control_plane_create(args):
     print(f"Creating control plane {hostname}")
     print(f"{'='*60}")
 
-    environment = "staging" if staging else "main"
-
-    cloud_init = CLOUD_INIT.replace("@@ENVIRONMENT@@", environment)
+    cloud_init = CLOUD_INIT.replace("@@TAG@@", "staging" if staging else "latest")
 
     server = Instance.create(hostname, CONTROL_PLANE_SERVER_TYPE, BLOCK_STORAGE_SIZE, cloud_init)
     print(f"Server created: {server.id}")
@@ -2119,9 +2117,8 @@ def cmd_control_plane_create(args):
 
 
     print(f"Run the following commands to update GitHub secrets:")
-    print(f"(set -o pipefail; ssh root@{public_ip} cat /etc/kubernetes/kubeconfig-gh-deploy.conf | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner-images --env {environment})")
-    print(f"(set -o pipefail; ssh root@{public_ip} cat /etc/kubernetes/kubeconfig-gh-deploy.conf | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner-device-plugin --env {environment})")
-    print(f"(set -o pipefail; ssh root@{public_ip} cat /etc/kubernetes/kubeconfig-gh-app.conf | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner-app --env {environment})")
+    print(f"(set -o pipefail; ssh root@{public_ip} cat /etc/kubernetes/kubeconfig-gh-app.conf    | gh secret set K8S_KUBECONFIG_GH_APP    --repo riseproject-dev/riscv-runner --env {"staging" if staging else "prod"})")
+    print(f"(set -o pipefail; ssh root@{public_ip} cat /etc/kubernetes/kubeconfig-gh-deploy.conf | gh secret set K8S_KUBECONFIG_GH_DEPLOY --repo riseproject-dev/riscv-runner --env {"staging" if staging else "prod"})")
 
     print(f"\n{'='*60}")
     print(f"Control plane {hostname} provisioned successfully")

@@ -138,7 +138,7 @@ jobs:
       - name: Set up kubeconfig
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.K8S_KUBECONFIG }}" > ~/.kube/config
+          echo "${{ secrets.K8S_KUBECONFIG_GH_DEPLOY }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Rollout Restart
@@ -177,7 +177,7 @@ jobs:
       - name: Set up kubeconfig
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.K8S_KUBECONFIG }}" > ~/.kube/config
+          echo "${{ secrets.K8S_KUBECONFIG_GH_DEPLOY }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Rollout Restart
