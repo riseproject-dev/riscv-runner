@@ -5,7 +5,7 @@ module github.com/riseproject-dev/riscv-runner/device-plugin
 go 1.26.0
 
 require (
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/fsnotify/fsnotify v1.10.1
 	google.golang.org/grpc v1.81.1
 	k8s.io/apimachinery v0.36.1
 	k8s.io/client-go v0.36.1
