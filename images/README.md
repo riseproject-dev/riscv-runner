@@ -1,86 +1,59 @@
-# RISC-V Runner Images
+# images
 
-Container images for running GitHub Actions runners on RISC-V (`linux/riscv64`). Built natively on RISC-V hardware and pushed to the Scaleway Container Registry.
+Container image for running GitHub Actions workflows on RISC-V (`linux/riscv64`). Built natively on RISC-V hardware and pushed to the Scaleway Container Registry.
 
-## Runner image
-
-**Dockerfile:** [`runner/Dockerfile.ubuntu`](runner/Dockerfile.ubuntu)
-
-GitHub Actions runner image based on Ubuntu. Available variants:
-
-| Tag | Base |
-|-----|------|
-| `riscv-runner:ubuntu-24.04-<suffix>` | Ubuntu 24.04 |
-| `riscv-runner:ubuntu-26.04-<suffix>` | Ubuntu 26.04 |
-
-`<suffix>` is `latest` for builds from `main`, and the branch slug otherwise (e.g. `staging`).
-
-The runner image includes:
-
-- [GitHub Actions Runner for RISC-V](https://github.com/Cloud-V-10xE/github-runner-riscv) (built with .NET 8)
-- Java (Adoptium Temurin)
-- Python (including free-threaded variants)
-- Node.js, Go, Rust
-- Apache Ant, Gradle, Apache Maven
-- Docker (CLI + daemon, Buildx, Compose), podman, buildah, skopeo, runc, kubectl
-- git, curl, wget, jq, sudo, and many more CLI tools
-
-Pinned versions for every tool above live in [`versions-map.json`](versions-map.json) and are kept in sync with upstream by [`../scripts/update-versions.py`](../scripts/update-versions.py).
-
-The image aims to match the packages installed in the [official GitHub Actions runner images](https://github.com/actions/runner-images). If a package you depend on is missing, open an issue.
-
-Build args:
-
-- `OS_VERSION` — Ubuntu base image version (default: `latest`)
-
-The image creates a non-root `runner` user with passwordless sudo. All workflow steps run inside this single container. The pod runs with `privileged: true` so the in-pod Docker daemon can program iptables and bridge devices.
+For the full image inventory (every preinstalled tool with its version), the build-and-deploy pipeline, image tags, and the version-sync script, see [Architecture — Container Images](https://riscv-runners.riseproject.dev/docs/architecture/images). This README covers only what a contributor working in `images/` needs to know.
 
 ## Layout
 
 ```
 images/
 ├── runner/
-│   ├── Dockerfile.ubuntu              Runner image (multi-stage)
-│   └── riscv-runner-entrypoint.sh     PID-1 entrypoint, execs the runner
-└── versions-map.json                  Pinned versions for all bundled tools
+│   ├── Dockerfile.ubuntu              Runner image (multi-stage, parameterised by OS_VERSION)
+│   └── riscv-runner-entrypoint.sh     PID-1 entrypoint, exec's run.sh --jitconfig "$RUNNER_JITCONFIG"
+└── versions-map.json                  Mapping from Dockerfile ARGs to upstream version sources
 ```
 
-The runner build pipeline lives in [`../.github/workflows/deploy-images.yml`](../.github/workflows/deploy-images.yml). The companion update script that refreshes `versions-map.json` from upstream is [`../scripts/update-versions.py`](../scripts/update-versions.py), scheduled by [`../.github/workflows/update-images-versions-map.yml`](../.github/workflows/update-images-versions-map.yml).
+Companion files outside `images/`:
 
-## CI/CD
+- [`../scripts/update-versions.py`](../scripts/update-versions.py) — refreshes `versions-map.json` and the matching `ARG …_VERSION=` lines from the latest `actions/runner-images` release.
+- [`../.github/workflows/deploy-images.yml`](../.github/workflows/deploy-images.yml) — build, staging deploy, prod deploy.
+- [`../.github/workflows/update-images-versions-map.yml`](../.github/workflows/update-images-versions-map.yml) — weekly version sync.
 
-[`../.github/workflows/deploy-images.yml`](../.github/workflows/deploy-images.yml) triggers on:
+## Build locally
 
-- pushes to `main` that touch `images/**` or the workflow itself
-- pull requests to `main` with the same path filter
-- a daily schedule (06:00 UTC)
-- manual dispatch
-
-A single `build-runner` job builds the runner image natively on `ubuntu-24.04-riscv` self-hosted RISC-V runners. Images are pushed to the Scaleway Container Registry. GitHub Actions Cache (`type=gha`) speeds up subsequent builds. A concurrency group ensures only the latest run per branch executes.
-
-Builds from `main` go through staging first, then prod after an environment-gated approval.
-
-## Building locally
-
-```bash
+```sh
 docker buildx build \
   --platform linux/riscv64 \
   --file runner/Dockerfile.ubuntu \
   --build-arg OS_VERSION=24.04 \
-  --tag riscv-runner:ubuntu-24.04 \
+  --tag riscv-runner:ubuntu-24.04-local \
   runner
 ```
 
-Best run on a RISC-V host (`linux/riscv64`) so the build does not need any emulation.
+Best run on a RISC-V host so no emulation is involved. On x86_64, `binfmt_misc` with QEMU will let the build complete, slowly.
 
-## Registry
+## Updating pinned versions
 
-Images are stored in the Scaleway Container Registry:
-
-```
-rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner
+```sh
+python3 ../scripts/update-versions.py
 ```
 
-## License
+Reads the latest `ubuntu24/*` release of `actions/runner-images`, walks `versions-map.json`, and rewrites the matching `ARG …_VERSION=` lines in `runner/Dockerfile.ubuntu`. SHA256/SHA512 hashes are not updated automatically and must be edited by hand before merging.
 
-[MIT](../LICENSE).
+The weekly workflow runs the same script and opens a draft PR if anything changes.
+
+## Adding a new entry to `versions-map.json`
+
+Each entry maps a Dockerfile ARG name to a field in the upstream runner-images manifest:
+
+```json
+{
+  "arg": "PYTHON312_VERSION",
+  "json_tool": "Cached Tools/Python",
+  "match_prefix": "3.12",
+  "dockerfile": "images/runner/Dockerfile.ubuntu"
+}
+```
+
+`json_tool` is the path through the manifest tree; `match_prefix` filters list-valued entries (e.g. Python's multiple installed versions). `dockerfile` is the path from the repository root.

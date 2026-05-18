@@ -19,7 +19,7 @@ nav_order: 4
 
 ## What operating systems are available?
 
-Ubuntu 24.04 and Ubuntu 26.04. The OS version is determined by the runner label you choose (e.g., `ubuntu-24.04-riscv` vs `ubuntu-26.04-riscv`).
+Ubuntu 24.04 is the only label currently routable. Ubuntu 26.04 is staged in the build pipeline and will be re-enabled once RVA23 hardware lands.
 
 ## How do I get access?
 
@@ -38,11 +38,11 @@ Concurrency is limited by:
 
 ## How long can a job run?
 
-Pods have an active deadline of approximately 6 days. Jobs exceeding this limit are terminated. For most CI workloads, this is not a constraint.
+Pods have an `activeDeadlineSeconds` of 525,600 (about 6 days). Jobs exceeding this limit are terminated by the kubelet. For most CI workloads, this is not a constraint.
 
 ## What if my job is queued but no runner picks it up?
 
-The worker checks for pending jobs every 15 seconds. If no RISC-V nodes with available capacity match your label, the job remains queued until a node becomes available. Check the [Runner Labels Reference](getting-started/labels) to make sure you are using a valid label.
+The scheduler is woken immediately when a webhook arrives, and otherwise polls every 15 seconds. If no RISC-V nodes with available capacity match your label, the job remains queued until a node becomes available. Check the [Runner Labels Reference](getting-started/labels) to make sure you are using a valid single-label `runs-on:` value.
 
 ## Can I SSH into the runner?
 

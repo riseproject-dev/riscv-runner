@@ -73,7 +73,9 @@ sequenceDiagram
 
 ## Components
 
-- [GitHub Frontend](ghfe): request validation, label matching, PostgreSQL storage
-- [Scheduler](scheduler): reconciliation loop, demand matching, pod lifecycle
-- [Kubernetes Infrastructure](kubernetes): device plugin, node labeller, scheduling
-- [Container Images](images): runner image and build pipeline
+- [Webhook Handler](ghfe): request validation, label matching, PostgreSQL writes.
+- [Scheduler](scheduler): reconciliation loop, demand matching, pod lifecycle, dashboards.
+- [Kubernetes Infrastructure](kubernetes): device plugin, node labeller, scheduling.
+- [Container Images](images): runner image and build pipeline.
+- [Database Schema](database): jobs, workers, installation events.
+- [Installation Event Log](installation-events): audit trail and trace endpoints.

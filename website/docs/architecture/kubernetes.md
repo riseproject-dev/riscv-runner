@@ -82,8 +82,9 @@ The node labeller detects the SoC on each RISC-V node and applies a `riseproject
 |-------------------------------|-------------|
 | `scaleway,em-rv1-c4m16s128-a` | `scw-em-rv1` |
 | `sophgo,mango` | `cloudv10x-pioneer` |
+| `spacemit,k1-x` | `cloudv10x-jupiter` |
 
-3. If no known mapping exists, sanitize the first compatible entry (replace commas/spaces with hyphens, lowercase) and use that as the label
+3. If no known mapping exists, sanitize the first compatible entry (replace commas/spaces with hyphens, lowercase) and use that as the label. If the compatible file is missing or empty, the label is set to `<unknown>`.
 
 ### DaemonSet configuration
 
