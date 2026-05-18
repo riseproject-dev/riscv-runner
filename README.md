@@ -58,7 +58,7 @@ Two Go binaries deployed together as a single Scaleway Container Function:
 - **`cmd/ghfe`** — GitHub App webhook handler. Receives `workflow_job` events, validates signatures, and enqueues jobs for the scheduler.
 - **`cmd/scheduler`** — Reconciles GitHub job state with Kubernetes pod state. Polls the GitHub API to detect lost or stuck jobs and provisions ephemeral runner pods.
 
-Architecture diagrams: [`website/docs/architecture/ghfe.md`](website/docs/architecture/ghfe.md), [`website/docs/architecture/scheduler.md`](website/docs/architecture/scheduler.md).
+Architecture diagrams: [`website/docs/architecture/ghfe.md`](website/docs/architecture/ghfe.md), [`website/docs/architecture/scheduler.md`](website/docs/architecture/scheduler.md). Full reference, including the demand-matching algorithm, lifecycle state machines, database schema, HTTP routes, cluster provisioning, and ops runbooks, lives in [`container/README.md`](container/README.md).
 
 ```sh
 cd container
@@ -75,6 +75,8 @@ Ubuntu-based container image with the GitHub Actions runner and the standard CI 
 Pinned tool versions live in [`images/versions-map.json`](images/versions-map.json) and are kept in sync with upstream by [`scripts/update-versions.py`](scripts/update-versions.py), run weekly by [`.github/workflows/update-images-versions-map.yml`](.github/workflows/update-images-versions-map.yml).
 
 The image aims to match the package set in [`actions/runner-images`](https://github.com/actions/runner-images). Report missing packages as an issue.
+
+Full image variant table, the complete tool inventory, build details, and registry layout: [`images/README.md`](images/README.md).
 
 ```sh
 docker buildx build \
@@ -94,7 +96,7 @@ Two Go binaries deployed as DaemonSets on RISC-V worker nodes:
 - **`cmd/k8s-device-plugin`** — Registers a `riseproject.com/runner=1` extended resource with the kubelet on each node. Pods request this resource to get exclusive scheduling, which gives the scheduler concurrency control per node.
 - **`cmd/k8s-node-labeller`** — Detects the RISC-V SoC by reading `/sys/firmware/devicetree/base/compatible` and labels the node with `riseproject.dev/board=<board>`. Used as a node selector to pin builds to specific hardware.
 
-Both binaries share `pkg/soc` for SoC detection but build into separate images. Board map lives in [`device-plugin/pkg/soc/detect.go`](device-plugin/pkg/soc/detect.go).
+Both binaries share `pkg/soc` for SoC detection but build into separate images. Board map lives in [`device-plugin/pkg/soc/detect.go`](device-plugin/pkg/soc/detect.go). Architecture, board-mapping table, build commands, deploy steps, and verification: [`device-plugin/README.md`](device-plugin/README.md).
 
 ```sh
 cd device-plugin
