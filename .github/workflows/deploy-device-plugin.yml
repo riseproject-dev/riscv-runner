@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
-      group: deploy-staging-device-plugin
+      group: ${{ github.workflow_ref }}-deploy-staging
       cancel-in-progress: false
     env:
       TAG: staging
@@ -176,7 +176,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
-      group: deploy-prod-device-plugin
+      group: ${{ github.workflow_ref }}-deploy-prod
       cancel-in-progress: false
     env:
       TAG: latest

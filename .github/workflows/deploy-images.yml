@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
-      group: deploy-staging
+      group: ${{ github.workflow_ref }}-deploy-staging
       cancel-in-progress: false
     steps:
       - name: Login to Container Registry
@@ -155,7 +155,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
-      group: deploy-prod
+      group: ${{ github.workflow_ref }}-deploy-prod
       cancel-in-progress: false
     steps:
       - name: Login to Container Registry
