@@ -27,6 +27,7 @@ const (
 // It advertises a single "riseproject.com/runner" device per node
 // to control CI job concurrency.
 type Plugin struct {
+	pluginapi.UnimplementedDevicePluginServer
 	server *grpc.Server
 	socket string
 	stop   chan struct{}

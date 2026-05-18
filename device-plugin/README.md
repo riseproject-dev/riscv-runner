@@ -20,44 +20,64 @@ device-plugin/
 │   ├── plugin/plugin.go                gRPC Device Plugin server, kubelet registration
 │   ├── soc/detect.go                   /sys/firmware/devicetree/base/compatible → board name
 │   └── labeler/labeler.go              MergePatch the node with riseproject.dev/board
-├── Dockerfile                          image for k8s-device-plugin
-├── labeller.Dockerfile                 image for k8s-node-labeller
-├── Makefile
-├── k8s-ds-device-plugin.yaml           DaemonSet (kube-system)
-└── k8s-ds-node-labeller.yaml           DaemonSet + ServiceAccount + ClusterRole + binding (kube-system)
+├── Dockerfile                          multi-stage build with `device-plugin` and `node-labeller` targets
+├── k8s-ds-device-plugin.yaml           DaemonSet (kube-system); references `${TAG}`
+└── k8s-ds-node-labeller.yaml           DaemonSet + ServiceAccount + ClusterRole + binding (kube-system); references `${TAG}`
 ```
 
 External dependencies: `google.golang.org/grpc`, `k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1`, `k8s.io/client-go`, `github.com/fsnotify/fsnotify`, `k8s.io/klog/v2`.
 
-## Build
+## Develop
+
+From `device-plugin/`:
 
 ```sh
-# Both binaries for linux/riscv64.
-make build
-
-# Individually.
-make build-device-plugin
-make build-node-labeller
-
-# Container images (riscv64).
-make container-build
-make container-push
+go vet ./...
+gofmt -l .              # exits 0 with no output if everything is formatted
+go test -race ./...
 ```
 
-Defaults: `REGISTRY=rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s`, `IMAGE=riscv-runner`, `TAG=staging`, `GOARCH=riscv64`. Override with `make container-push TAG=latest`.
+CI mirrors this in [`../.github/workflows/deploy-device-plugin.yml`](../.github/workflows/deploy-device-plugin.yml) before building images.
 
-> The `make` targets here are slated for inlining into [`../.github/workflows/deploy-device-plugin.yml`](../.github/workflows/deploy-device-plugin.yml) so the Makefile can be removed.
+## Build a local image
+
+The same `Dockerfile` produces both binaries; pick the target.
+
+```sh
+REGISTRY=rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s
+IMAGE=riscv-runner
+
+docker buildx build \
+  --platform linux/riscv64 \
+  --file Dockerfile \
+  --target device-plugin \
+  --tag "$REGISTRY/$IMAGE:device-plugin-local" \
+  .
+
+docker buildx build \
+  --platform linux/riscv64 \
+  --file Dockerfile \
+  --target node-labeller \
+  --tag "$REGISTRY/$IMAGE:node-labeller-local" \
+  .
+```
+
+The Dockerfile cross-compiles Go natively on the build host and copies the binary into `gcr.io/distroless/base-debian13`. CGO is disabled.
 
 ## Apply manifests
 
+The DaemonSet manifests contain `${TAG}` placeholders that select the image tag (e.g. `staging` or `latest`). Render the manifests through `envsubst` before piping to `kubectl`:
+
 ```sh
-make kubectl-apply-node-labeller
-make kubectl-apply-and-wait-device-plugin
+TAG=staging envsubst < k8s-ds-node-labeller.yaml | kubectl apply -f -
+TAG=staging envsubst < k8s-ds-device-plugin.yaml | kubectl apply -f -
+
+kubectl rollout restart daemonset/rise-riscv-runner-node-labeller -n kube-system
+kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
+kubectl rollout status  daemonset/rise-riscv-runner-device-plugin -n kube-system --watch
 ```
 
-Both targets envsubst `${TAG}` into the manifests before piping to `kubectl apply`. The `-and-wait` variant waits for the rollout to finish.
-
-CI applies the same manifests automatically via [`../.github/workflows/deploy-device-plugin.yml`](../.github/workflows/deploy-device-plugin.yml).
+`TAG=latest` deploys the prod tag. CI applies the same manifests automatically via [`../.github/workflows/deploy-device-plugin.yml`](../.github/workflows/deploy-device-plugin.yml).
 
 ## Adding a new board
 

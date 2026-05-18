@@ -1,15 +1,20 @@
 # SPDX-License-Identifier: MIT
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
-
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS build
 ARG TARGETARCH
-WORKDIR /app
-
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-
 COPY . .
-RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o k8s-device-plugin ./cmd/k8s-device-plugin
+RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/k8s-device-plugin ./cmd/k8s-device-plugin \
+ && CGO_ENABLED=0 GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/k8s-node-labeller ./cmd/k8s-node-labeller
 
-FROM alpine:3.20
-COPY --from=builder /app/k8s-device-plugin /usr/local/bin/k8s-device-plugin
-ENTRYPOINT ["/usr/local/bin/k8s-device-plugin"]
+FROM gcr.io/distroless/base-debian13 AS base
+WORKDIR /app
+
+FROM base AS device-plugin
+COPY --from=build /out/k8s-device-plugin /app/k8s-device-plugin
+ENTRYPOINT ["/app/k8s-device-plugin"]
+
+FROM base AS node-labeller
+COPY --from=build /out/k8s-node-labeller /app/k8s-node-labeller
+ENTRYPOINT ["/app/k8s-node-labeller"]
