@@ -201,7 +201,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 	// the prod app but its webhooks should drive the staging environment.
 	// Forward the unmodified body to staging ghfe and short-circuit; the
 	// prod instance neither stores nor reconciles the job locally.
-	if shouldProxyToStaging(a.Config, entity, repoFullName) {
+	if shouldProxyToStaging(a.Config, entity) {
 		base.Event = "workflow_job." + action
 		base.Outcome = internal.OutcomeProxiedToStaging
 		a.recordEvent(r, base)

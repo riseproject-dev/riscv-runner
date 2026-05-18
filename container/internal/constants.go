@@ -20,10 +20,11 @@ const (
 	// Organization / user IDs we special-case. Get a new one with:
 	//   gh api orgs/<orgname> --jq '.id'
 	//   gh api users/<username> --jq '.id'
-	RiseprojectDevOrgID int64 = 152654596 // github.com/riseproject-dev
-	PyTorchOrgID        int64 = 21003710  // github.com/pytorch
-	GGMLOrgID           int64 = 134263123 // github.com/ggml-org (for llama.cpp)
-	LuhenryUserID       int64 = 660779    // github.com/luhenry
+	RiseprojectDevOrgID     int64 = 152654596 // github.com/riseproject-dev
+	RiseprojectStagingOrgID int64 = 277861810 // github.com/riseproject-staging
+	PyTorchOrgID            int64 = 21003710  // github.com/pytorch
+	GGMLOrgID               int64 = 134263123 // github.com/ggml-org (for llama.cpp)
+	LuhenryUserID           int64 = 660779    // github.com/luhenry
 
 	RunnerRegistry = "rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s"
 	RunnerImage    = "riscv-runner"
@@ -52,15 +53,16 @@ const (
 // and lists staging repos that proxy through to the staging environment.
 type EntityConfig struct {
 	MaxWorkers *int // nil = unlimited
-	Staging    []string
+	Staging    bool
 }
 
 // EntityConfigs is keyed by entity id (org id or user id).
 var EntityConfigs = map[int64]EntityConfig{
-	RiseprojectDevOrgID: {MaxWorkers: nil, Staging: []string{"riscv-runner-sample-staging"}},
-	PyTorchOrgID:        {MaxWorkers: intPtr(20)},
-	GGMLOrgID:           {MaxWorkers: intPtr(20)},
-	LuhenryUserID:       {MaxWorkers: nil},
+	RiseprojectDevOrgID:     {MaxWorkers: nil},
+	RiseprojectStagingOrgID: {MaxWorkers: nil, Staging: true},
+	PyTorchOrgID:            {MaxWorkers: intPtr(20)},
+	GGMLOrgID:               {MaxWorkers: intPtr(20)},
+	LuhenryUserID:           {MaxWorkers: nil},
 }
 
 // DefaultMaxWorkers applies when an entity has no entry in EntityConfigs.

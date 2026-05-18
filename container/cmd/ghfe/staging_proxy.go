@@ -7,33 +7,20 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
 
 // shouldProxyToStaging is true when this is the prod instance and the
-// (entity, repo) pair is listed as a staging-test repo in EntityConfigs.
+// entity is listed as a staging-test repo in EntityConfigs.
 // Prod forwards those workflow_job webhooks to the staging ghfe so the
 // staging environment can exercise a real repo end-to-end.
-func shouldProxyToStaging(cfg internal.Config, entity internal.Entity, repoFullName string) bool {
+func shouldProxyToStaging(cfg internal.Config, entity internal.Entity) bool {
 	if !cfg.Prod || cfg.StagingURL == "" {
 		return false
 	}
 	ec, ok := internal.EntityConfigs[entity.ID]
-	if !ok || len(ec.Staging) == 0 {
-		return false
-	}
-	repoName := repoFullName
-	if i := strings.IndexByte(repoFullName, '/'); i >= 0 {
-		repoName = repoFullName[i+1:]
-	}
-	for _, r := range ec.Staging {
-		if r == repoName {
-			return true
-		}
-	}
-	return false
+	return ok && ec.Staging
 }
 
 // proxyToStaging forwards the unmodified webhook body to the staging
