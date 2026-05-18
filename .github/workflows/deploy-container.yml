@@ -220,6 +220,7 @@ jobs:
           TRACE_API_SECRET: ${{ secrets.TRACE_API_SECRET }}
 
       - name: Health check
+        working-directory: container
         run: python3 ./bin/check-health.py
 
       - name: Trigger sample workflow
