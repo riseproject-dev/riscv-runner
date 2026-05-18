@@ -27,7 +27,7 @@ from scaleway.instance.v1.custom_api import InstanceUtilsV1API
 from scaleway.instance.v1.types import VolumeServerTemplate, VolumeVolumeType, ServerAction
 from scaleway.baremetal.v1 import BaremetalV1API
 from scaleway.baremetal.v1.content import SERVER_TRANSIENT_STATUSES, SERVER_INSTALL_TRANSIENT_STATUSES
-from scaleway.baremetal.v1.types import CreateServerRequestInstall, OfferSubscriptionPeriod
+from scaleway.baremetal.v1.types import CreateServerRequestInstall, OfferSubscriptionPeriod, ServerBootType
 from scaleway.baremetal.v3 import BaremetalV3PrivateNetworkAPI
 from scaleway.ipam.v1 import IpamV1API
 from scaleway.ipam.v1.types import ResourceType
@@ -539,6 +539,9 @@ class BareMetal:
 
     def start(self):
         baremetal_api.start_server(server_id=self.id)
+
+    def reboot(self):
+        baremetal_api.reboot_server(server_id=self.id, ServerBootType.NORMAL)
 
     def get_public_ip(self):
         server = baremetal_api.get_server(server_id=self.id)
@@ -1457,10 +1460,6 @@ def setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip):
     ssh.run(script, **_tagged_streams())
 
 
-def reboot_runner(ssh):
-    ssh.run("sudo reboot", **_tagged_streams())
-
-
 def find_server_by_name(hostname):
     resp = baremetal_api.list_servers(name=hostname)
     for server in resp.servers:
@@ -1621,7 +1620,8 @@ def cmd_runner_create(args):
         ssh = ssh_connect(host=ip, user="ubuntu")
         setup_runner(ssh, runner, pn)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        reboot_runner(ssh)
+        server.reboot()
+        time.sleep(15)
 
         print(f"Waiting for node {runner} to be ready in k8s")
         wait_k8s_node(runner, k8s)
@@ -1702,7 +1702,8 @@ def cmd_runner_reinstall(args):
         ssh = ssh_connect(host=ip, user="ubuntu")
         setup_runner(ssh, runner, pn)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        reboot_runner(ssh)
+        server.reboot()
+        time.sleep(15)
 
         print(f"Waiting for node {runner} to be ready on k8s")
         wait_k8s_node(runner, k8s)
@@ -1776,7 +1777,8 @@ def cmd_runner_setup(args):
         ssh = ssh_connect(host=ip, user="ubuntu")
         setup_runner(ssh, runner, pn)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        reboot_runner(ssh)
+        server.reboot()
+        time.sleep(15)
 
         print(f"Waiting for node {runner} to be ready on k8s")
         wait_k8s_node(runner, k8s)
@@ -1820,8 +1822,8 @@ def cmd_runner_reboot(args):
         ip = server.get_public_ip()
         print(f"Public IP: {ip}")
 
-        ssh = ssh_connect(host=ip, user="ubuntu")
-        reboot_runner(ssh)
+        server.reboot()
+        time.sleep(15)
 
         print(f"Waiting for node {runner} to be ready on k8s")
         wait_k8s_node(runner, k8s)
