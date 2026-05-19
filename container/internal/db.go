@@ -151,23 +151,40 @@ func (d *pgDB) WithWorkerLock(ctx context.Context, fn func(ctx context.Context) 
 
 // --- Job writes ---
 
-// AddJob inserts a job row and emits NOTIFY on success. labels are sorted
-// at write time so demand-match's equality query matches regardless of input order.
-func (d *pgDB) AddJob(ctx context.Context, j Job, labels []string) (bool, error) {
+// AddJob inserts a job row and emits NOTIFY on success. labels are sorted at
+// write time so demand-match's equality query matches regardless of input
+// order.
+func (d *pgDB) AddJob(ctx context.Context, gh GHJob, entity Entity, provider, repoFullName string,
+	installationID int64, k8sPool, k8sImage, htmlURL string, labels []string) (bool, error) {
+	j := Job{
+		JobID:          gh.ID,
+		JobName:        nilIfEmpty(gh.Name),
+		JobCreatedAt:   gh.CreatedAt,
+		Provider:       provider,
+		EntityID:       entity.ID,
+		EntityName:     entity.Name,
+		EntityType:     string(entity.Type),
+		RepoFullName:   repoFullName,
+		InstallationID: installationID,
+		K8sPool:        k8sPool,
+		K8sImage:       k8sImage,
+	}
+	if htmlURL != "" {
+		j.HTMLURL = &htmlURL
+	}
 	sortedLabels := SortedJSON(labels)
 	now := time.Now().UTC()
-	htmlURL := ""
-	if j.HTMLURL != nil {
-		htmlURL = *j.HTMLURL
-	}
 	tag, err := d.q(ctx).Exec(ctx, `
 		INSERT INTO jobs (job_id, status, provider, entity_id, entity_name, entity_type,
 		                  repo_full_name, installation_id, job_labels, k8s_pool,
-		                  k8s_image, html_url, created_at, updated_at)
-		VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $12)
+		                  k8s_image, html_url, created_at, updated_at,
+		                  job_name, job_created_at)
+		VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $12,
+		        $13, $14)
 		ON CONFLICT (job_id) DO NOTHING
 	`, j.JobID, j.Provider, j.EntityID, j.EntityName, j.EntityType,
-		j.RepoFullName, j.InstallationID, sortedLabels, j.K8sPool, j.K8sImage, htmlURL, now)
+		j.RepoFullName, j.InstallationID, sortedLabels, j.K8sPool, j.K8sImage, htmlURL, now,
+		j.JobName, j.JobCreatedAt)
 	if err != nil {
 		return false, err
 	}
@@ -180,19 +197,27 @@ func (d *pgDB) AddJob(ctx context.Context, j Job, labels []string) (bool, error)
 	return created, nil
 }
 
-// markJobStatus encapsulates the pending→running and pending|running→completed paths.
-func (d *pgDB) markJobStatus(ctx context.Context, jobID int64, runnerName, newStatus, allowedClause string) (string, error) {
+// nilIfEmpty returns nil for "" and a pointer otherwise, for nullable text columns.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func (d *pgDB) MarkJobRunning(ctx context.Context, gh GHJob) (string, error) {
 	q := d.q(ctx)
 	var prev *string
-	err := q.QueryRow(ctx, fmt.Sprintf(`
+	err := q.QueryRow(ctx, `
 		WITH prev AS (SELECT status FROM jobs WHERE job_id = $1)
 		UPDATE jobs
-		SET status = '%s',
+		SET status = 'running',
 		    k8s_pod = COALESCE(k8s_pod, $2),
+		    job_started_at = COALESCE(job_started_at, $3),
 		    updated_at = now()
-		WHERE job_id = $1 AND %s
-		RETURNING (SELECT status::text FROM prev) as prev_status
-	`, newStatus, allowedClause), jobID, runnerName).Scan(&prev)
+		WHERE job_id = $1 AND status = 'pending'
+		RETURNING (SELECT status::text FROM prev) AS prev_status
+	`, gh.ID, gh.RunnerName, gh.StartedAt).Scan(&prev)
 	if err == nil && prev != nil {
 		return *prev, nil
 	}
@@ -201,7 +226,7 @@ func (d *pgDB) markJobStatus(ctx context.Context, jobID int64, runnerName, newSt
 	}
 	// UPDATE matched nothing — look up current status to return the right value.
 	var current *string
-	err = q.QueryRow(ctx, "SELECT status::text FROM jobs WHERE job_id = $1", jobID).Scan(&current)
+	err = q.QueryRow(ctx, "SELECT status::text FROM jobs WHERE job_id = $1", gh.ID).Scan(&current)
 	if errors.Is(err, pgx.ErrNoRows) || current == nil {
 		return "", nil
 	}
@@ -211,12 +236,36 @@ func (d *pgDB) markJobStatus(ctx context.Context, jobID int64, runnerName, newSt
 	return *current, nil
 }
 
-func (d *pgDB) MarkJobRunning(ctx context.Context, jobID int64, runnerName string) (string, error) {
-	return d.markJobStatus(ctx, jobID, runnerName, "running", "status = 'pending'")
-}
-
-func (d *pgDB) MarkJobCompleted(ctx context.Context, jobID int64, runnerName string) (string, error) {
-	return d.markJobStatus(ctx, jobID, runnerName, "completed", "(status = 'pending' OR status = 'running')")
+func (d *pgDB) MarkJobCompleted(ctx context.Context, gh GHJob) (string, error) {
+	q := d.q(ctx)
+	var prev *string
+	err := q.QueryRow(ctx, `
+		WITH prev AS (SELECT status FROM jobs WHERE job_id = $1)
+		UPDATE jobs
+		SET status = 'completed',
+		    k8s_pod = COALESCE(k8s_pod, $2),
+		    job_started_at = COALESCE(job_started_at, $3),
+		    job_completed_at = COALESCE(job_completed_at, $4),
+		    job_conclusion = COALESCE(job_conclusion, $5),
+		    updated_at = now()
+		WHERE job_id = $1 AND (status = 'pending' OR status = 'running')
+		RETURNING (SELECT status::text FROM prev) AS prev_status
+	`, gh.ID, gh.RunnerName, gh.StartedAt, gh.CompletedAt, gh.Conclusion).Scan(&prev)
+	if err == nil && prev != nil {
+		return *prev, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	var current *string
+	err = q.QueryRow(ctx, "SELECT status::text FROM jobs WHERE job_id = $1", gh.ID).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) || current == nil {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return *current, nil
 }
 
 func (d *pgDB) MarkJobFailed(ctx context.Context, jobID int64, info FailureInfo) (string, error) {
@@ -270,7 +319,8 @@ func (d *pgDB) scanJobs(rows pgx.Rows) ([]Job, error) {
 		var j Job
 		if err := rows.Scan(&j.JobID, &j.Status, &j.FailureInfo, &j.Provider, &j.EntityID, &j.EntityName,
 			&j.EntityType, &j.RepoFullName, &j.InstallationID, &j.JobLabels, &j.K8sPool,
-			&j.K8sImage, &j.K8sPod, &j.HTMLURL, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			&j.K8sImage, &j.K8sPod, &j.HTMLURL, &j.CreatedAt, &j.UpdatedAt,
+			&j.JobName, &j.JobConclusion, &j.JobCreatedAt, &j.JobStartedAt, &j.JobCompletedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, j)
@@ -281,7 +331,8 @@ func (d *pgDB) scanJobs(rows pgx.Rows) ([]Job, error) {
 func (d *pgDB) GetActiveJobs(ctx context.Context) ([]Job, error) {
 	rows, err := d.q(ctx).Query(ctx, `SELECT job_id, status, failure_info, provider, entity_id, entity_name,
 			entity_type, repo_full_name, installation_id, job_labels, k8s_pool,
-			k8s_image, k8s_pod, html_url, created_at, updated_at FROM jobs
+			k8s_image, k8s_pod, html_url, created_at, updated_at,
+			job_name, job_conclusion, job_created_at, job_started_at, job_completed_at FROM jobs
 		WHERE status = 'pending' OR status = 'running' ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -292,7 +343,8 @@ func (d *pgDB) GetActiveJobs(ctx context.Context) ([]Job, error) {
 func (d *pgDB) GetPendingJobs(ctx context.Context) ([]Job, error) {
 	rows, err := d.q(ctx).Query(ctx, `SELECT job_id, status, failure_info, provider, entity_id, entity_name,
 			entity_type, repo_full_name, installation_id, job_labels, k8s_pool,
-			k8s_image, k8s_pod, html_url, created_at, updated_at FROM jobs
+			k8s_image, k8s_pod, html_url, created_at, updated_at,
+			job_name, job_conclusion, job_created_at, job_started_at, job_completed_at FROM jobs
 		WHERE status = 'pending' ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -309,7 +361,8 @@ func (d *pgDB) GetAllJobs(ctx context.Context, start, end string, page, perPage 
 	pageArgs := append(append([]any{}, args...), perPage, page*perPage)
 	rows, err := d.q(ctx).Query(ctx, `SELECT job_id, status, failure_info, provider, entity_id, entity_name,
 			entity_type, repo_full_name, installation_id, job_labels, k8s_pool,
-			k8s_image, k8s_pod, html_url, created_at, updated_at FROM jobs `+where+`
+			k8s_image, k8s_pod, html_url, created_at, updated_at,
+			job_name, job_conclusion, job_created_at, job_started_at, job_completed_at FROM jobs `+where+`
 		ORDER BY created_at DESC LIMIT $`+fmt.Sprint(len(args)+1)+` OFFSET $`+fmt.Sprint(len(args)+2),
 		pageArgs...)
 	if err != nil {

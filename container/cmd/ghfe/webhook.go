@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/riseproject-dev/riscv-runner/container/internal"
 )
@@ -256,12 +257,22 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 		return
 	}
 
-	jobName, _ := job["name"].(string)
+	// Parse the GH-side facts once; both the persisted Job and every log
+	// statement below derive from this single struct.
+	runnerName, _ := job["runner_name"].(string)
+	ghJob := internal.GHJob{
+		ID:          jobID,
+		Name:        asString(job["name"]),
+		RunnerName:  runnerName,
+		Conclusion:  asStringPtr(job["conclusion"]),
+		CreatedAt:   asTimePtr(job["created_at"]),
+		StartedAt:   asTimePtr(job["started_at"]),
+		CompletedAt: asTimePtr(job["completed_at"]),
+	}
 	slog.Info("Received workflow_job",
 		"entity", entity,
 		"action", action,
-		"job_id", jobID,
-		"name", jobName,
+		"job", ghJob,
 		"repo", repoFullName,
 		"labels", labels,
 	)
@@ -282,74 +293,60 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 			httpError(w, 400, "HTML URL is missing in payload")
 			return
 		}
-		j := internal.Job{
-			JobID:          jobID,
-			Provider:       "github",
-			EntityID:       entity.ID,
-			EntityName:     entity.Name,
-			EntityType:     string(entity.Type),
-			RepoFullName:   repoFullName,
-			InstallationID: installID,
-			K8sPool:        pool,
-			K8sImage:       image,
-			HTMLURL:        &htmlURL,
-		}
-		stored, err := a.DB.AddJob(r.Context(), j, labels)
+		stored, err := a.DB.AddJob(r.Context(), ghJob, entity, "github", repoFullName, installID, pool, image, htmlURL, labels)
 		if err != nil {
-			slog.Error("AddJob failed", "entity", entity, "job_id", jobID, "err", err)
+			slog.Error("AddJob failed", "entity", entity, "job", ghJob, "err", err)
 			httpError(w, 500, "internal error")
 			return
 		}
 		base.Outcome = internal.OutcomeJobStored
 		msg := "Job " + i64s(jobID) + " stored."
 		if stored {
-			slog.Info("Stored job", "entity", entity, "job_id", jobID, "k8s_pool", pool)
+			slog.Info("Stored job", "entity", entity, "job", ghJob, "k8s_pool", pool)
 		} else {
 			base.Outcome = internal.OutcomeJobAlreadyExists
 			msg = "Job " + i64s(jobID) + " already exists."
-			slog.Debug("Job already exists, skipping", "entity", entity, "job_id", jobID)
+			slog.Debug("Job already exists, skipping", "entity", entity, "job", ghJob)
 		}
 		a.recordEvent(r, base)
 		_, _ = w.Write([]byte(msg))
 
 	case "in_progress":
-		runner, _ := job["runner_name"].(string)
-		prev, err := a.DB.MarkJobRunning(r.Context(), jobID, runner)
+		prev, err := a.DB.MarkJobRunning(r.Context(), ghJob)
 		if err != nil {
-			slog.Error("MarkJobRunning failed", "entity", entity, "job_id", jobID, "err", err)
+			slog.Error("MarkJobRunning failed", "entity", entity, "job", ghJob, "err", err)
 			httpError(w, 500, "internal error")
 			return
 		}
 		if prev == "" {
 			base.Outcome = internal.OutcomeJobNotFound
 			a.recordEvent(r, base)
-			slog.Warn("Job not found on in_progress event", "entity", entity, "job_id", jobID)
+			slog.Warn("Job not found on in_progress event", "entity", entity, "job", ghJob)
 			_, _ = w.Write([]byte("Job " + i64s(jobID) + " not found."))
 			return
 		}
 		base.Outcome = internal.OutcomeJobMarkedRunning
 		a.recordEvent(r, base)
-		slog.Info("Job marked running", "entity", entity, "job_id", jobID, "prev_status", prev)
+		slog.Info("Job marked running", "entity", entity, "job", ghJob, "prev_status", prev)
 		_, _ = w.Write([]byte("Job " + i64s(jobID) + " marked running (was " + prev + ")."))
 
 	case "completed":
-		runner, _ := job["runner_name"].(string)
-		prev, err := a.DB.MarkJobCompleted(r.Context(), jobID, runner)
+		prev, err := a.DB.MarkJobCompleted(r.Context(), ghJob)
 		if err != nil {
-			slog.Error("MarkJobCompleted failed", "entity", entity, "job_id", jobID, "err", err)
+			slog.Error("MarkJobCompleted failed", "entity", entity, "job", ghJob, "err", err)
 			httpError(w, 500, "internal error")
 			return
 		}
 		if prev == "" {
 			base.Outcome = internal.OutcomeJobNotFound
 			a.recordEvent(r, base)
-			slog.Warn("Job not found on completed event", "entity", entity, "job_id", jobID)
+			slog.Warn("Job not found on completed event", "entity", entity, "job", ghJob)
 			_, _ = w.Write([]byte("Job " + i64s(jobID) + " not found."))
 			return
 		}
 		base.Outcome = internal.OutcomeJobMarkedCompleted
 		a.recordEvent(r, base)
-		slog.Info("Job marked completed", "entity", entity, "job_id", jobID, "prev_status", prev)
+		slog.Info("Job marked completed", "entity", entity, "job", ghJob, "prev_status", prev)
 		_, _ = w.Write([]byte("Job " + i64s(jobID) + " completed (was " + prev + ")."))
 	}
 }
@@ -381,6 +378,36 @@ func asInt64(v any) int64 {
 		return int64(x)
 	}
 	return 0
+}
+
+// asString returns the string value or "" on missing / wrong type.
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// asStringPtr returns a *string for non-empty string values, else nil. Used
+// when persisting nullable text columns (job_name, job_conclusion).
+func asStringPtr(v any) *string {
+	s, _ := v.(string)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// asTimePtr parses an ISO-8601 timestamp from the payload into a *time.Time.
+// Nil on missing/empty/unparseable — the column stays NULL.
+func asTimePtr(v any) *time.Time {
+	s, _ := v.(string)
+	if s == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 func i64s(v int64) string { return strconv.FormatInt(v, 10) }

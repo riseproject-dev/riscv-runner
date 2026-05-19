@@ -81,6 +81,11 @@ const (
 // Job is one row of the jobs table.
 type Job struct {
 	JobID          int64           `db:"job_id" json:"job_id"`
+	JobName        *string         `db:"job_name" json:"job_name,omitempty"`
+	JobConclusion  *string         `db:"job_conclusion" json:"job_conclusion,omitempty"`
+	JobCreatedAt   *time.Time      `db:"job_created_at" json:"job_created_at,omitempty"`
+	JobStartedAt   *time.Time      `db:"job_started_at" json:"job_started_at,omitempty"`
+	JobCompletedAt *time.Time      `db:"job_completed_at" json:"job_completed_at,omitempty"`
 	Status         string          `db:"status" json:"status"`
 	FailureInfo    json.RawMessage `db:"failure_info" json:"failure_info,omitempty"`
 	Provider       string          `db:"provider" json:"provider"`
@@ -102,6 +107,19 @@ type Job struct {
 // the SQL roundtrip and JSON shape UI consumers depend on (invariant 1055cc8).
 func (j Job) Entity() Entity {
 	return Entity{Type: EntityType(j.EntityType), Name: j.EntityName, ID: j.EntityID}
+}
+
+// LogValue groups the identifying GitHub-side facts so callers log `"job", j`
+// once instead of repeating id/name/conclusion attrs at every call site.
+func (j Job) LogValue() slog.Value {
+	attrs := []slog.Attr{slog.Int64("id", j.JobID)}
+	if j.JobName != nil && *j.JobName != "" {
+		attrs = append(attrs, slog.String("name", *j.JobName))
+	}
+	if j.JobConclusion != nil && *j.JobConclusion != "" {
+		attrs = append(attrs, slog.String("conclusion", *j.JobConclusion))
+	}
+	return slog.GroupValue(attrs...)
 }
 
 // Worker is one row of the workers table.
@@ -330,10 +348,25 @@ type GHRunner struct {
 
 // GHJob is the subset of the GitHub job-info response we use.
 type GHJob struct {
-	Status     string  `json:"status"`     // queued, in_progress, completed
-	Conclusion *string `json:"conclusion"` // null, success, failure, cancelled, ...
-	RunnerName string  `json:"runner_name"`
-	RunID      int64   `json:"run_id"`
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Status      string     `json:"status"`     // queued, in_progress, completed
+	Conclusion  *string    `json:"conclusion"` // null, success, failure, cancelled, ...
+	RunnerName  string     `json:"runner_name"`
+	RunID       int64      `json:"run_id"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+// LogValue groups the identifying GitHub-side facts so callers log `"job", j`
+// once instead of repeating id/name/conclusion attrs at every call site.
+func (j GHJob) LogValue() slog.Value {
+	attrs := []slog.Attr{slog.Int64("id", j.ID), slog.String("name", j.Name)}
+	if j.Conclusion != nil && *j.Conclusion != "" {
+		attrs = append(attrs, slog.String("conclusion", *j.Conclusion))
+	}
+	return slog.GroupValue(attrs...)
 }
 
 // GHRun is the subset of the GitHub workflow-run response we use.
@@ -368,9 +401,10 @@ type DB interface {
 	WaitForJob(ctx context.Context, timeout time.Duration) error
 
 	// Job writes
-	AddJob(ctx context.Context, j Job, labels []string) (bool, error)
-	MarkJobRunning(ctx context.Context, jobID int64, runnerName string) (string, error)
-	MarkJobCompleted(ctx context.Context, jobID int64, runnerName string) (string, error)
+	AddJob(ctx context.Context, gh GHJob, entity Entity, provider, repoFullName string,
+		installationID int64, k8sPool, k8sImage, htmlURL string, labels []string) (bool, error)
+	MarkJobRunning(ctx context.Context, gh GHJob) (string, error)
+	MarkJobCompleted(ctx context.Context, gh GHJob) (string, error)
 	MarkJobFailed(ctx context.Context, jobID int64, info FailureInfo) (string, error)
 
 	// Job reads

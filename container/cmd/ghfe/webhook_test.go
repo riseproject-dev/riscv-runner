@@ -494,7 +494,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 	// in_progress + DB has pending → outcome=job_marked_running, body says "marked running".
 	{
 		app, db := newTestApp()
-		db.OnMarkJobRunning = func(int64, string) (string, error) { return "pending", nil }
+		db.OnMarkJobRunning = func(internal.GHJob) (string, error) { return "pending", nil }
 		w := httptest.NewRecorder()
 		app.handleWebhook(w, signedRequest(t, body("in_progress"), "workflow_job", "2167633"))
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "marked running") {
@@ -508,7 +508,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 	// in_progress + DB has no row → outcome=job_not_found.
 	{
 		app, db := newTestApp()
-		db.OnMarkJobRunning = func(int64, string) (string, error) { return "", nil }
+		db.OnMarkJobRunning = func(internal.GHJob) (string, error) { return "", nil }
 		w := httptest.NewRecorder()
 		app.handleWebhook(w, signedRequest(t, body("in_progress"), "workflow_job", "2167633"))
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "not found") {
@@ -523,7 +523,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 	// before recordEvent ran). Internal 5xx errors are not anchored to an outcome.
 	{
 		app, db := newTestApp()
-		db.OnMarkJobRunning = func(int64, string) (string, error) { return "", errBoom }
+		db.OnMarkJobRunning = func(internal.GHJob) (string, error) { return "", errBoom }
 		w := httptest.NewRecorder()
 		app.handleWebhook(w, signedRequest(t, body("in_progress"), "workflow_job", "2167633"))
 		if w.Code != 500 {
@@ -537,7 +537,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 	// completed + DB had running → outcome=job_marked_completed.
 	{
 		app, db := newTestApp()
-		db.OnMarkJobComplete = func(int64, string) (string, error) { return "running", nil }
+		db.OnMarkJobComplete = func(internal.GHJob) (string, error) { return "running", nil }
 		w := httptest.NewRecorder()
 		app.handleWebhook(w, signedRequest(t, body("completed"), "workflow_job", "2167633"))
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "completed") {
@@ -551,7 +551,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 	// completed + DB has no row → outcome=job_not_found.
 	{
 		app, db := newTestApp()
-		db.OnMarkJobComplete = func(int64, string) (string, error) { return "", nil }
+		db.OnMarkJobComplete = func(internal.GHJob) (string, error) { return "", nil }
 		w := httptest.NewRecorder()
 		app.handleWebhook(w, signedRequest(t, body("completed"), "workflow_job", "2167633"))
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "not found") {
@@ -565,7 +565,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 	// completed + DB error → 500, no row.
 	{
 		app, db := newTestApp()
-		db.OnMarkJobComplete = func(int64, string) (string, error) { return "", errBoom }
+		db.OnMarkJobComplete = func(internal.GHJob) (string, error) { return "", errBoom }
 		w := httptest.NewRecorder()
 		app.handleWebhook(w, signedRequest(t, body("completed"), "workflow_job", "2167633"))
 		if w.Code != 500 {
@@ -580,7 +580,9 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 // TestWebhook_QueuedAddJobError covers the AddJob DB-error branch.
 func TestWebhook_QueuedAddJobError(t *testing.T) {
 	app, db := newTestApp()
-	db.OnAddJob = func(internal.Job, []string) (bool, error) { return false, errBoom }
+	db.OnAddJob = func(internal.GHJob, internal.Entity, string, string, int64, string, string, string, []string) (bool, error) {
+		return false, errBoom
+	}
 	body := mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},
@@ -604,7 +606,9 @@ func TestWebhook_QueuedAddJobError(t *testing.T) {
 // TestWebhook_QueuedAlreadyExists covers the stored=false branch.
 func TestWebhook_QueuedAlreadyExists(t *testing.T) {
 	app, db := newTestApp()
-	db.OnAddJob = func(internal.Job, []string) (bool, error) { return false, nil }
+	db.OnAddJob = func(internal.GHJob, internal.Entity, string, string, int64, string, string, string, []string) (bool, error) {
+		return false, nil
+	}
 	body := mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},

@@ -121,7 +121,10 @@ func TestSyncOneJob_CompletedMarksCompleted(t *testing.T) {
 		return internal.GHJob{Status: "completed", RunnerName: "r"}, nil
 	}
 	called := false
-	db.OnMarkJobComplete = func(int64, string) (string, error) { called = true; return "pending", nil }
+	db.OnMarkJobComplete = func(internal.GHJob) (string, error) {
+		called = true
+		return "pending", nil
+	}
 	db.Jobs = []internal.Job{{JobID: 1, Status: "pending", RepoFullName: "a/r", EntityName: "a", EntityType: "Organization", InstallationID: 9}}
 	if err := app.syncJobsState(context.Background()); err != nil {
 		t.Fatal(err)
@@ -140,7 +143,10 @@ func TestSyncOneJob_ConclusionImpliesCompleted(t *testing.T) {
 		return internal.GHJob{Status: "in_progress", Conclusion: &conc, RunnerName: "r"}, nil
 	}
 	called := false
-	db.OnMarkJobComplete = func(int64, string) (string, error) { called = true; return "running", nil }
+	db.OnMarkJobComplete = func(internal.GHJob) (string, error) {
+		called = true
+		return "running", nil
+	}
 	db.Jobs = []internal.Job{{JobID: 1, Status: "running", RepoFullName: "a/r", EntityName: "a", EntityType: "Organization", InstallationID: 9}}
 	if err := app.syncJobsState(context.Background()); err != nil {
 		t.Fatal(err)
@@ -158,7 +164,7 @@ func TestSyncOneJob_InProgressFromPendingPromotesToRunning(t *testing.T) {
 		return internal.GHJob{Status: "in_progress", RunnerName: "r"}, nil
 	}
 	called := false
-	db.OnMarkJobRunning = func(int64, string) (string, error) { called = true; return "pending", nil }
+	db.OnMarkJobRunning = func(internal.GHJob) (string, error) { called = true; return "pending", nil }
 	db.Jobs = []internal.Job{{JobID: 1, Status: "pending", RepoFullName: "a/r", EntityName: "a", EntityType: "Organization", InstallationID: 9}}
 	if err := app.syncJobsState(context.Background()); err != nil {
 		t.Fatal(err)
@@ -272,7 +278,7 @@ func TestSyncOneJob_InProgressFromRunningIsNoop(t *testing.T) {
 		return internal.GHJob{Status: "in_progress", RunnerName: "r"}, nil
 	}
 	called := false
-	db.OnMarkJobRunning = func(int64, string) (string, error) { called = true; return "running", nil }
+	db.OnMarkJobRunning = func(internal.GHJob) (string, error) { called = true; return "running", nil }
 	db.Jobs = []internal.Job{{JobID: 1, Status: "running", RepoFullName: "a/r", EntityName: "a", EntityType: "Organization", InstallationID: 9}}
 	if err := app.syncJobsState(context.Background()); err != nil {
 		t.Fatal(err)

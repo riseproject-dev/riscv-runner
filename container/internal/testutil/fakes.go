@@ -25,11 +25,11 @@ type FakeDB struct {
 	EntityWorkerCnt map[int64]int
 	JobExistsByPod  map[string]bool
 
-	OnAddJob          func(internal.Job, []string) (bool, error)
+	OnAddJob          func(internal.GHJob, internal.Entity, string, string, int64, string, string, string, []string) (bool, error)
 	OnAddWorker       func(internal.Worker, []string) error
 	OnAddEvent        func(internal.InstallationEvent, []byte) (int64, error)
-	OnMarkJobRunning  func(int64, string) (string, error)
-	OnMarkJobComplete func(int64, string) (string, error)
+	OnMarkJobRunning  func(internal.GHJob) (string, error)
+	OnMarkJobComplete func(internal.GHJob) (string, error)
 	OnMarkJobFailed   func(int64, internal.FailureInfo) (string, error)
 
 	OnGetActiveJobs           func() ([]internal.Job, error)
@@ -92,31 +92,53 @@ func (f *FakeDB) SetPoolDemand(entityID int64, labels []string, jobs, workers in
 func (f *FakeDB) Close()                                                {}
 func (f *FakeDB) WaitForJob(ctx context.Context, t time.Duration) error { return nil }
 
-func (f *FakeDB) AddJob(ctx context.Context, j internal.Job, labels []string) (bool, error) {
+func (f *FakeDB) AddJob(ctx context.Context, gh internal.GHJob, entity internal.Entity,
+	provider, repoFullName string, installationID int64,
+	k8sPool, k8sImage, htmlURL string, labels []string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.OnAddJob != nil {
-		return f.OnAddJob(j, labels)
+		return f.OnAddJob(gh, entity, provider, repoFullName, installationID, k8sPool, k8sImage, htmlURL, labels)
 	}
 	for _, e := range f.Jobs {
-		if e.JobID == j.JobID {
+		if e.JobID == gh.ID {
 			return false, nil
 		}
+	}
+	j := internal.Job{
+		JobID:          gh.ID,
+		Provider:       provider,
+		EntityID:       entity.ID,
+		EntityName:     entity.Name,
+		EntityType:     string(entity.Type),
+		RepoFullName:   repoFullName,
+		InstallationID: installationID,
+		K8sPool:        k8sPool,
+		K8sImage:       k8sImage,
+		JobCreatedAt:   gh.CreatedAt,
+	}
+	if gh.Name != "" {
+		name := gh.Name
+		j.JobName = &name
+	}
+	if htmlURL != "" {
+		u := htmlURL
+		j.HTMLURL = &u
 	}
 	f.Jobs = append(f.Jobs, j)
 	return true, nil
 }
 
-func (f *FakeDB) MarkJobRunning(ctx context.Context, jobID int64, runner string) (string, error) {
+func (f *FakeDB) MarkJobRunning(ctx context.Context, gh internal.GHJob) (string, error) {
 	if f.OnMarkJobRunning != nil {
-		return f.OnMarkJobRunning(jobID, runner)
+		return f.OnMarkJobRunning(gh)
 	}
 	return "pending", nil
 }
 
-func (f *FakeDB) MarkJobCompleted(ctx context.Context, jobID int64, runner string) (string, error) {
+func (f *FakeDB) MarkJobCompleted(ctx context.Context, gh internal.GHJob) (string, error) {
 	if f.OnMarkJobComplete != nil {
-		return f.OnMarkJobComplete(jobID, runner)
+		return f.OnMarkJobComplete(gh)
 	}
 	return "running", nil
 }

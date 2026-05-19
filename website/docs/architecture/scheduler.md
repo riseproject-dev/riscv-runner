@@ -14,7 +14,7 @@ The scheduler is a background Go service that runs a reconciliation loop. It mat
 
 The scheduler is woken by PostgreSQL `LISTEN/NOTIFY` (the [`ghfe`](ghfe) webhook handler emits a `{schema}_queue_event` notification when a new job is recorded) or by a 15-second timeout (`PollInterval`). Each iteration acquires the workers-table lock, runs three phases, then releases the lock:
 
-1. **`syncJobsState`** — reconciles every active DB job against `GH.GetJobInfo`. If GitHub returns 404 the job is marked `failed`. If the job's parent run has completed but the job is still queued past `JobStuckQueuedMinAge` (10m), it is marked failed too.
+1. **`syncJobsState`** — reconciles every active DB job against `GH.GetJobInfo`. If GitHub returns 404 the job is marked `failed`. If the job's parent run has completed but the job is still queued past `JobStuckQueuedMinAge` (10m), it is marked failed too. Reconcile writes also fill in `job_started_at`, `job_completed_at`, and `job_conclusion` for jobs that finished while the scheduler was not looking; `COALESCE` keeps the first non-null write wins.
 2. **`syncWorkersState`** — single transaction holding `LOCK TABLE workers IN EXCLUSIVE MODE`, running five sub-phases (see below).
 3. **`demandMatch`** — provisions new runner pods where demand exceeds supply.
 

@@ -18,6 +18,8 @@ The scheduler exposes read-only HTML dashboards over the public function URL:
 
 Each page has a `.json` variant returning paginated JSON with a GitHub-style `Link` header. Query params: `start`, `end` (`YYYY-MM-DD` or `-Xd`), `page`, `per_page` (default 100).
 
+Each job line in the HTML views renders as `[status][conclusion]  recorded_at  (duration)  labels  pod  link — job_name`. The conclusion bracket and duration are populated from `job_conclusion` / `job_started_at` / `job_completed_at`, which come from the GitHub `workflow_job` payload. `(running 12m)` appears when the job has started but is not yet finished; old rows that pre-date the timing columns omit the duration. The trailing `— job_name` is the workflow step name (e.g. `ubuntu-cpu-riscv64-native`).
+
 ## Cleaning up terminated runner pods
 
 Runner pods stay alive for 6 hours after reaching `Succeeded` or `Failed` so their logs and events stay inspectable via `kubectl`. The worker row in PostgreSQL transitions to `completed`/`failed` immediately on phase change, so pool supply accounting stays correct throughout the grace period.

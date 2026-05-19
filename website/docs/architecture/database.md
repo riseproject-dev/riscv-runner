@@ -26,22 +26,27 @@ CREATE TYPE entity_type_enum AS ENUM ('Organization', 'User');
 
 ```sql
 CREATE TABLE jobs (
-    job_id          BIGINT PRIMARY KEY,
-    status          status_enum NOT NULL DEFAULT 'pending',
-    failure_info    JSONB,
-    provider        provider_enum NOT NULL,
-    entity_id       BIGINT NOT NULL,
-    entity_name     TEXT NOT NULL,
-    entity_type     TEXT NOT NULL,                -- 'Organization' or 'User'
-    repo_full_name  TEXT NOT NULL,
-    installation_id BIGINT NOT NULL,
-    job_labels      JSONB NOT NULL DEFAULT '[]',  -- sorted at write time
-    k8s_pool        TEXT NOT NULL,
-    k8s_image       TEXT NOT NULL,
-    k8s_pod         TEXT,
-    html_url        TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    job_id            BIGINT PRIMARY KEY,
+    job_name          TEXT,
+    job_conclusion    TEXT,                       -- success | failure | cancelled | skipped | neutral | timed_out | action_required
+    job_created_at    TIMESTAMPTZ,
+    job_started_at    TIMESTAMPTZ,
+    job_completed_at  TIMESTAMPTZ,
+    status            status_enum NOT NULL DEFAULT 'pending',
+    failure_info      JSONB,
+    provider          provider_enum NOT NULL,
+    entity_id         BIGINT NOT NULL,
+    entity_name       TEXT NOT NULL,
+    entity_type       TEXT NOT NULL,              -- 'Organization' or 'User'
+    repo_full_name    TEXT NOT NULL,
+    installation_id   BIGINT NOT NULL,
+    job_labels        JSONB NOT NULL DEFAULT '[]',-- sorted at write time
+    k8s_pool          TEXT NOT NULL,
+    k8s_image         TEXT NOT NULL,
+    k8s_pod           TEXT,
+    html_url          TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_jobs_active    ON jobs (entity_id, job_labels, created_at) WHERE status != 'completed';
@@ -52,6 +57,8 @@ CREATE INDEX idx_jobs_created   ON jobs (created_at DESC);
 Inserts come exclusively from [`ghfe`](ghfe), with `ON CONFLICT (job_id) DO NOTHING` so redelivered webhooks are no-ops. Every `INSERT` fires a trigger that emits `NOTIFY {schema}_queue_event`; the scheduler `LISTEN`s on that channel and wakes immediately rather than waiting for its 15-second tick.
 
 Status transitions are forward-only: `pending → running → completed | failed`. All `UPDATE` queries enforce this with explicit `WHERE` clauses, so out-of-order webhook deliveries cannot regress state.
+
+The `created_at` column is our wall-clock when the row was inserted (effectively when the webhook arrived); `job_created_at` / `job_started_at` / `job_completed_at` are GitHub's own timestamps from the `workflow_job` payload. The two need not match: GitHub created the job before the webhook reached us, and the runner started after we provisioned a pod. Writes use `COALESCE(col, $)` so the first non-null write wins; subsequent webhooks or reconciler ticks never clobber an earlier value.
 
 ## `workers`
 

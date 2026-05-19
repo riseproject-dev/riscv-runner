@@ -22,7 +22,7 @@ func (a *App) syncJobsState(ctx context.Context) error {
 	}
 	for _, j := range jobs {
 		if err := a.syncOneJob(ctx, j); err != nil {
-			slog.Debug("syncOneJob failed", "entity", j.Entity(), "job_id", j.JobID, "err", err)
+			slog.Debug("syncOneJob failed", "entity", j.Entity(), "job", j, "err", err)
 		}
 	}
 	return nil
@@ -44,7 +44,7 @@ func (a *App) syncOneJob(ctx context.Context, j internal.Job) error {
 		var apiErr *internal.GitHubAPIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 			slog.Warn("Installation not found, marking job failed",
-				"entity", e, "installation_id", j.InstallationID, "job_id", j.JobID)
+				"entity", e, "installation_id", j.InstallationID, "job", j)
 			_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfoV1{
 				Message: fmt.Sprintf("installation not found for installation_id=%d entity_type=%s",
 					j.InstallationID, e.Type),
@@ -60,14 +60,14 @@ func (a *App) syncOneJob(ctx context.Context, j internal.Job) error {
 	if err != nil {
 		var apiErr *internal.GitHubAPIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
-			slog.Warn("Job not found, marking as failed", "entity", e, "job_id", j.JobID)
+			slog.Warn("Job not found, marking as failed", "entity", e, "job", j)
 			_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfoV1{
 				Message: fmt.Sprintf("job not found for job_id=%d entity=%s entity_id=%d entity_type=%s",
 					j.JobID, e.Name, e.ID, e.Type),
 			})
 			return nil
 		}
-		slog.Error("Failed to get job status", "entity", e, "job_id", j.JobID, "err", err)
+		slog.Error("Failed to get job status", "entity", e, "job", j, "err", err)
 		return nil
 	}
 
@@ -79,13 +79,13 @@ func (a *App) syncOneJob(ctx context.Context, j internal.Job) error {
 	switch status {
 	case "completed":
 		slog.Info("GH reconcile: job is completed on GitHub",
-			"entity", e, "job_id", j.JobID, "prev_status", j.Status)
-		_, _ = a.DB.MarkJobCompleted(ctx, j.JobID, ghJob.RunnerName)
+			"entity", e, "job", j, "prev_status", j.Status)
+		_, _ = a.DB.MarkJobCompleted(ctx, ghJob)
 	case "in_progress":
 		if j.Status == "pending" {
 			slog.Info("GH reconcile: job is in_progress on GitHub (was pending in DB)",
-				"entity", e, "job_id", j.JobID)
-			_, _ = a.DB.MarkJobRunning(ctx, j.JobID, ghJob.RunnerName)
+				"entity", e, "job", j)
+			_, _ = a.DB.MarkJobRunning(ctx, ghJob)
 		}
 	case "queued":
 		a.reconcileStuckQueued(ctx, j, ghJob, token)
@@ -106,7 +106,7 @@ func (a *App) reconcileStuckQueued(ctx context.Context, j internal.Job, ghJob in
 	}
 	run, err := a.GH.GetRunInfo(ctx, token, j.RepoFullName, ghJob.RunID)
 	if err != nil {
-		slog.Debug("GetRunInfo failed", "entity", j.Entity(), "job_id", j.JobID, "run_id", ghJob.RunID, "err", err)
+		slog.Debug("GetRunInfo failed", "entity", j.Entity(), "job", j, "run_id", ghJob.RunID, "err", err)
 		return
 	}
 	if run.Status != "completed" {
@@ -117,7 +117,7 @@ func (a *App) reconcileStuckQueued(ctx context.Context, j internal.Job, ghJob in
 		conclusion = *run.Conclusion
 	}
 	slog.Warn("GH reconcile: job stuck queued while run is completed; marking failed",
-		"entity", j.Entity(), "job_id", j.JobID, "run_id", ghJob.RunID, "run_conclusion", conclusion)
+		"entity", j.Entity(), "job", j, "run_id", ghJob.RunID, "run_conclusion", conclusion)
 	_, _ = a.DB.MarkJobFailed(ctx, j.JobID, internal.FailureInfoV1{
 		Message: fmt.Sprintf("workflow run %d completed (conclusion=%s) while job %d stayed queued",
 			ghJob.RunID, conclusion, j.JobID),

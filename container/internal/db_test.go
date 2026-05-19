@@ -42,6 +42,7 @@ func jobScanRow() []any {
 		int64(1), "pending", []byte(`{}`), "github", int64(99), "acme",
 		"Organization", "acme/r", int64(7), []byte(`["x"]`), "scw-em-rv1",
 		"img", nil, nil, time.Now(), time.Now(),
+		nil, nil, nil, nil, nil,
 	}
 }
 
@@ -57,7 +58,8 @@ func jobColumns() []string {
 	return []string{"job_id", "status", "failure_info", "provider", "entity_id",
 		"entity_name", "entity_type", "repo_full_name", "installation_id",
 		"job_labels", "k8s_pool", "k8s_image", "k8s_pod", "html_url",
-		"created_at", "updated_at"}
+		"created_at", "updated_at",
+		"job_name", "job_conclusion", "job_created_at", "job_started_at", "job_completed_at"}
 }
 
 func workerColumns() []string {
@@ -68,14 +70,14 @@ func workerColumns() []string {
 
 func TestAddJob_InsertedAndNotifies(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(12)...).
+	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(14)...).
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 	mock.ExpectExec(`NOTIFY staging_queue_event`).WithArgs(pgxmock.AnyArg()).
 		WillReturnResult(pgxmock.NewResult("NOTIFY", 0))
 
-	got, err := db.AddJob(context.Background(), Job{JobID: 1, Provider: "github", EntityID: 99,
-		EntityName: "acme", EntityType: "Organization", RepoFullName: "acme/r",
-		InstallationID: 7, K8sPool: "scw-em-rv1", K8sImage: "img"}, []string{"x"})
+	got, err := db.AddJob(context.Background(), GHJob{ID: 1},
+		Entity{Type: EntityOrganization, Name: "acme", ID: 99},
+		"github", "acme/r", 7, "scw-em-rv1", "img", "", []string{"x"})
 	if err != nil || !got {
 		t.Fatalf("AddJob: got=%v err=%v", got, err)
 	}
@@ -86,8 +88,9 @@ func TestAddJob_InsertedAndNotifies(t *testing.T) {
 
 func TestAddJob_DuplicateReturnsFalse(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(12)...).WillReturnResult(pgxmock.NewResult("INSERT", 0))
-	got, err := db.AddJob(context.Background(), Job{JobID: 1, EntityType: "User"}, nil)
+	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(14)...).WillReturnResult(pgxmock.NewResult("INSERT", 0))
+	got, err := db.AddJob(context.Background(), GHJob{ID: 1},
+		Entity{Type: EntityUser}, "github", "", 0, "", "", "", nil)
 	if err != nil || got {
 		t.Fatalf("AddJob duplicate: got=%v err=%v", got, err)
 	}
@@ -98,8 +101,8 @@ func TestAddJob_DuplicateReturnsFalse(t *testing.T) {
 
 func TestAddJob_PropagatesError(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(12)...).WillReturnError(errors.New("dial"))
-	_, err := db.AddJob(context.Background(), Job{JobID: 1}, nil)
+	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(14)...).WillReturnError(errors.New("dial"))
+	_, err := db.AddJob(context.Background(), GHJob{ID: 1}, Entity{}, "", "", 0, "", "", "", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -109,9 +112,9 @@ func TestMarkJobRunning_ReturnsPrevStatus(t *testing.T) {
 	db, mock := newMockDB(t)
 	prev := "pending"
 	mock.ExpectQuery(`WITH prev AS .*UPDATE jobs.*status = 'running'`).
-		WithArgs(int64(1), "runner-x").
+		WithArgs(int64(1), "runner-x", pgxmock.AnyArg()).
 		WillReturnRows(pgxmock.NewRows([]string{"prev_status"}).AddRow(&prev))
-	prev, err := db.MarkJobRunning(context.Background(), 1, "runner-x")
+	prev, err := db.MarkJobRunning(context.Background(), GHJob{ID: 1, RunnerName: "runner-x"})
 	if err != nil || prev != "pending" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
@@ -121,12 +124,12 @@ func TestMarkJobRunning_NoOpReadsCurrent(t *testing.T) {
 	db, mock := newMockDB(t)
 	cur := "completed"
 	mock.ExpectQuery(`UPDATE jobs.*status = 'running'`).
-		WithArgs(int64(2), "rn").
+		WithArgs(int64(2), "rn", pgxmock.AnyArg()).
 		WillReturnRows(pgxmock.NewRows([]string{"prev_status"}).AddRow((*string)(nil)))
 	mock.ExpectQuery(`SELECT status::text FROM jobs WHERE job_id`).
 		WithArgs(int64(2)).
 		WillReturnRows(pgxmock.NewRows([]string{"status"}).AddRow(&cur))
-	prev, err := db.MarkJobRunning(context.Background(), 2, "rn")
+	prev, err := db.MarkJobRunning(context.Background(), GHJob{ID: 2, RunnerName: "rn"})
 	if err != nil || prev != "completed" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
@@ -135,12 +138,12 @@ func TestMarkJobRunning_NoOpReadsCurrent(t *testing.T) {
 func TestMarkJobRunning_NotFoundReturnsEmpty(t *testing.T) {
 	db, mock := newMockDB(t)
 	mock.ExpectQuery(`UPDATE jobs.*status = 'running'`).
-		WithArgs(int64(3), "").
+		WithArgs(int64(3), "", pgxmock.AnyArg()).
 		WillReturnRows(pgxmock.NewRows([]string{"prev_status"}).AddRow((*string)(nil)))
 	mock.ExpectQuery(`SELECT status::text FROM jobs WHERE job_id`).
 		WithArgs(int64(3)).
 		WillReturnError(pgx.ErrNoRows)
-	prev, err := db.MarkJobRunning(context.Background(), 3, "")
+	prev, err := db.MarkJobRunning(context.Background(), GHJob{ID: 3})
 	if err != nil || prev != "" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
@@ -150,9 +153,9 @@ func TestMarkJobCompleted_AcceptsRunningOrPending(t *testing.T) {
 	db, mock := newMockDB(t)
 	prev := "running"
 	mock.ExpectQuery(`UPDATE jobs.*status = 'completed'`).
-		WithArgs(int64(1), "rn").
+		WithArgs(int64(1), "rn", pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
 		WillReturnRows(pgxmock.NewRows([]string{"prev_status"}).AddRow(&prev))
-	prev, err := db.MarkJobCompleted(context.Background(), 1, "rn")
+	prev, err := db.MarkJobCompleted(context.Background(), GHJob{ID: 1, RunnerName: "rn"})
 	if err != nil || prev != "running" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}

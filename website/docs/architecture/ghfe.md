@@ -88,10 +88,10 @@ Jobs and `installation_events` are written to PostgreSQL. The `jobs` table is th
 
 On `workflow_job.queued`, the handler:
 
-1. `INSERT`s a row into `jobs` with `ON CONFLICT (job_id) DO NOTHING` (so a redelivered webhook is a no-op).
+1. `INSERT`s a row into `jobs` with `ON CONFLICT (job_id) DO NOTHING` (so a redelivered webhook is a no-op). Populates `job_name` and `job_created_at` from the payload.
 2. The PostgreSQL trigger emits `NOTIFY {schema}_queue_event`. The scheduler `LISTEN`s on that channel and wakes immediately rather than waiting for its 15-second tick.
 
-On `workflow_job.in_progress` and `workflow_job.completed`, the handler updates `status` with a `WHERE` clause that enforces forward-only transitions.
+On `workflow_job.in_progress`, the handler updates `status` to `running` and sets `job_started_at` via `COALESCE`. On `workflow_job.completed`, it sets `status` to `completed`, plus `job_started_at`, `job_completed_at`, and `job_conclusion` (all `COALESCE`-once). `WHERE` clauses enforce forward-only `status` transitions, and `COALESCE` makes the timing/conclusion writes idempotent against webhook redeliveries.
 
 ## Environment
 

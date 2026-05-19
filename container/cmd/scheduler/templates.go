@@ -22,6 +22,17 @@ var statusColors = map[string]string{
 	"failed":    "#d90606",
 }
 
+// conclusionColors covers GitHub's terminal job outcomes.
+var conclusionColors = map[string]string{
+	"success":         "#16a34a",
+	"failure":         "#d90606",
+	"cancelled":       "#ea580c",
+	"skipped":         "#666",
+	"neutral":         "#666",
+	"timed_out":       "#d90606",
+	"action_required": "#ccc504",
+}
+
 func formatStatus(s string) string {
 	color, ok := statusColors[s]
 	if !ok {
@@ -30,11 +41,36 @@ func formatStatus(s string) string {
 	return fmt.Sprintf(`<span style="color:%s">[%-9s]</span>`, color, s)
 }
 
+// formatConclusion renders the GitHub conclusion next to the status, or
+// returns the empty string when conclusion is unset.
+func formatConclusion(c *string) string {
+	if c == nil || *c == "" {
+		return ""
+	}
+	color, ok := conclusionColors[*c]
+	if !ok {
+		color = "#666"
+	}
+	return fmt.Sprintf(`<span style="color:%s">[%s]</span>`, color, html.EscapeString(*c))
+}
+
 func formatTimestamp(t time.Time) string {
 	if t.IsZero() {
 		return "?"
 	}
 	return t.UTC().Format("2006-01-02 15:04:05 UTC")
+}
+
+// formatJobDuration returns "(12m34s)" when the job has both timestamps,
+// "(running 12m)" when only the start is known, "" otherwise.
+func formatJobDuration(j internal.Job) string {
+	if j.JobStartedAt == nil {
+		return ""
+	}
+	if j.JobCompletedAt != nil {
+		return "(" + j.JobCompletedAt.Sub(*j.JobStartedAt).Truncate(time.Second).String() + ")"
+	}
+	return "(running " + time.Since(*j.JobStartedAt).Truncate(time.Second).String() + ")"
 }
 
 // formatLabelsRaw renders a JSONB-encoded labels array as "[a, b]" or
@@ -57,7 +93,7 @@ func formatLabels(raw json.RawMessage) string {
 }
 
 func renderJob(j internal.Job) string {
-	status := formatStatus(j.Status)
+	status := formatStatus(j.Status) + formatConclusion(j.JobConclusion)
 	repo := html.EscapeString(j.RepoFullName)
 	htmlURL := ""
 	if j.HTMLURL != nil {
@@ -72,7 +108,16 @@ func renderJob(j internal.Job) string {
 	if htmlURL != "" {
 		link = fmt.Sprintf(`<a href="%s">%s#%d</a>`, html.EscapeString(htmlURL), repo, j.JobID)
 	}
-	return fmt.Sprintf("%s  %s  %s  %s  %s", status, formatTimestamp(j.CreatedAt), labels, pod, link)
+	parts := []string{status, formatTimestamp(j.CreatedAt)}
+	if d := formatJobDuration(j); d != "" {
+		parts = append(parts, d)
+	}
+	parts = append(parts, labels, pod, link)
+	line := strings.Join(parts, "  ")
+	if j.JobName != nil && *j.JobName != "" {
+		line += " — " + html.EscapeString(*j.JobName)
+	}
+	return line
 }
 
 // renderWorker formats one worker row as lines (caller joins with newline
