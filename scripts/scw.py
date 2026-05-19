@@ -1267,6 +1267,83 @@ sudo sed -i 's|sandbox_image = ".*"|sandbox_image = "cloudv10x/pause:3.10"|' /et
 sudo systemctl restart containerd
 
 ###############################################################################
+## containerd liveness watchdog
+## Restarts containerd+kubelet when the CRI socket stops responding,
+## since systemd cannot detect this on its own.
+
+cat <<'EOF' | sudo tee /usr/local/bin/containerd-watchdog.sh
+#!/bin/bash
+# Exit 0 = healthy or rate-limited (no restart). Exit 1 = restart needed.
+set -u
+STATE=/run/containerd-watchdog.fails
+HISTORY=/run/containerd-watchdog.restarts
+THRESHOLD=3
+MIN_INTERVAL=900
+HOUR_LIMIT=4
+
+if /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock --timeout 5s version >/dev/null 2>&1; then
+  echo 0 > "$STATE"
+  exit 0
+fi
+
+FAILS=$(cat "$STATE" 2>/dev/null || echo 0)
+FAILS=$((FAILS + 1))
+echo "$FAILS" > "$STATE"
+
+if [ "$FAILS" -lt "$THRESHOLD" ]; then
+  logger -t containerd-watchdog "CRI probe failed ($FAILS/$THRESHOLD)"
+  exit 0
+fi
+
+NOW=$(date +%s)
+touch "$HISTORY"
+awk -v now="$NOW" '$1 > now-3600' "$HISTORY" > "$HISTORY.tmp" && mv "$HISTORY.tmp" "$HISTORY"
+LAST=$(tail -1 "$HISTORY" 2>/dev/null | cut -d' ' -f1)
+COUNT=$(wc -l < "$HISTORY")
+
+if [ -n "$LAST" ] && [ $((NOW - LAST)) -lt "$MIN_INTERVAL" ]; then
+  logger -t containerd-watchdog "rate-limited: last restart $((NOW - LAST))s ago, need ${MIN_INTERVAL}s"
+  exit 0
+fi
+if [ "$COUNT" -ge "$HOUR_LIMIT" ]; then
+  logger -t containerd-watchdog "rate-limited: $COUNT restarts in last hour, limit $HOUR_LIMIT"
+  exit 0
+fi
+
+logger -t containerd-watchdog "requesting restart (CRI probe failed $FAILS times in a row)"
+echo "$NOW" >> "$HISTORY"
+echo 0 > "$STATE"
+exit 1
+EOF
+sudo chmod 0755 /usr/local/bin/containerd-watchdog.sh
+sudo chown root:root /usr/local/bin/containerd-watchdog.sh
+
+cat <<'EOF' | sudo tee /etc/systemd/system/containerd-watchdog.service
+[Unit]
+Description=Probe containerd CRI; restart if unresponsive
+After=containerd.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/containerd-watchdog.sh
+SuccessExitStatus=0 1
+ExecStopPost=/bin/sh -c '[ "$EXIT_STATUS" = "0" ] || systemctl restart containerd.service'
+EOF
+
+cat <<'EOF' | sudo tee /etc/systemd/system/containerd-watchdog.timer
+[Unit]
+Description=Run containerd-watchdog every 30 seconds
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30s
+Unit=containerd-watchdog.service
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable containerd-watchdog.timer
+
+###############################################################################
 ## Install crictl
 
 CRICTL_VERSION="v1.35.0" # https://github.com/kubernetes-sigs/cri-tools/releases/tag/v1.35.0
@@ -1337,6 +1414,83 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now kubelet
+
+###############################################################################
+## kubelet liveness watchdog
+## Restarts kubelet when /healthz stops responding, since the process can
+## stay "active (running)" while internally deadlocked.
+
+cat <<'EOF' | sudo tee /usr/local/bin/kubelet-watchdog.sh
+#!/bin/bash
+# Exit 0 = healthy or rate-limited (no restart). Exit 1 = restart needed.
+set -u
+STATE=/run/kubelet-watchdog.fails
+HISTORY=/run/kubelet-watchdog.restarts
+THRESHOLD=3
+MIN_INTERVAL=900
+HOUR_LIMIT=4
+
+if curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:10248/healthz; then
+  echo 0 > "$STATE"
+  exit 0
+fi
+
+FAILS=$(cat "$STATE" 2>/dev/null || echo 0)
+FAILS=$((FAILS + 1))
+echo "$FAILS" > "$STATE"
+
+if [ "$FAILS" -lt "$THRESHOLD" ]; then
+  logger -t kubelet-watchdog "healthz probe failed ($FAILS/$THRESHOLD)"
+  exit 0
+fi
+
+NOW=$(date +%s)
+touch "$HISTORY"
+awk -v now="$NOW" '$1 > now-3600' "$HISTORY" > "$HISTORY.tmp" && mv "$HISTORY.tmp" "$HISTORY"
+LAST=$(tail -1 "$HISTORY" 2>/dev/null | cut -d' ' -f1)
+COUNT=$(wc -l < "$HISTORY")
+
+if [ -n "$LAST" ] && [ $((NOW - LAST)) -lt "$MIN_INTERVAL" ]; then
+  logger -t kubelet-watchdog "rate-limited: last restart $((NOW - LAST))s ago, need ${MIN_INTERVAL}s"
+  exit 0
+fi
+if [ "$COUNT" -ge "$HOUR_LIMIT" ]; then
+  logger -t kubelet-watchdog "rate-limited: $COUNT restarts in last hour, limit $HOUR_LIMIT"
+  exit 0
+fi
+
+logger -t kubelet-watchdog "requesting restart (healthz probe failed $FAILS times in a row)"
+echo "$NOW" >> "$HISTORY"
+echo 0 > "$STATE"
+exit 1
+EOF
+sudo chmod 0755 /usr/local/bin/kubelet-watchdog.sh
+sudo chown root:root /usr/local/bin/kubelet-watchdog.sh
+
+cat <<'EOF' | sudo tee /etc/systemd/system/kubelet-watchdog.service
+[Unit]
+Description=Probe kubelet /healthz; restart if unresponsive
+After=kubelet.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kubelet-watchdog.sh
+SuccessExitStatus=0 1
+ExecStopPost=/bin/sh -c '[ "$EXIT_STATUS" = "0" ] || systemctl restart kubelet.service'
+EOF
+
+cat <<'EOF' | sudo tee /etc/systemd/system/kubelet-watchdog.timer
+[Unit]
+Description=Run kubelet-watchdog every 30 seconds
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30s
+Unit=kubelet-watchdog.service
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable kubelet-watchdog.timer
 """
 
 KUBEADM_SCRIPT=r"""
