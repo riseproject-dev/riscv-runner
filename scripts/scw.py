@@ -541,7 +541,7 @@ class BareMetal:
         baremetal_api.start_server(server_id=self.id)
 
     def reboot(self):
-        baremetal_api.reboot_server(server_id=self.id, ServerBootType.NORMAL)
+        baremetal_api.reboot_server(server_id=self.id, boot_type=ServerBootType.NORMAL)
 
     def get_public_ip(self):
         server = baremetal_api.get_server(server_id=self.id)
