@@ -6,6 +6,7 @@ nav_order: 1
 
 
 [2026-05-22 11:27 CET] We are currently experiencing an incident with [Scaleway seeing networking issues in their datacenter](https://status.scaleway.com/incidents/qkj49g6g3ykp). We are monitoring the situation and will update this website as soon as we have more information
+[2026-05-22 16:39 CET] It's partially back up but at reduced capacity. We are doing everything we can to get back to full capacity as soon as possible. We'll also reach out to anyone who was impacted to let them know.
 {: .warning}
 
 # RISE RISC-V Runners
