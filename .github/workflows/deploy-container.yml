@@ -161,15 +161,16 @@ jobs:
         working-directory: container
         run: python3 ./bin/check-health.py
 
-      - name: Trigger sample workflow
-        env:
-          GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_STAGING_ACCESS_TOKEN }}
-          GH_REPO: riseproject-staging/riscv-runner-sample
-          GH_WORKFLOW: hello.yml
-        run: |
-          gh workflow run ${GH_WORKFLOW} --repo ${GH_REPO}
-          sleep 5
-          gh run watch $(gh run list --repo ${GH_REPO} --workflow ${GH_WORKFLOW} --limit 1 --json databaseId --jq '.[0].databaseId') --repo ${GH_REPO} --interval 15 --exit-status
+      # FIXME: with scaleway incident from 2026-05-22, we have no more runners on staging environment
+      # - name: Trigger sample workflow
+      #   env:
+      #     GH_TOKEN: ${{ secrets.RISCV_RUNNER_SAMPLE_STAGING_ACCESS_TOKEN }}
+      #     GH_REPO: riseproject-staging/riscv-runner-sample
+      #     GH_WORKFLOW: hello.yml
+      #   run: |
+      #     gh workflow run ${GH_WORKFLOW} --repo ${GH_REPO}
+      #     sleep 5
+      #     gh run watch $(gh run list --repo ${GH_REPO} --workflow ${GH_WORKFLOW} --limit 1 --json databaseId --jq '.[0].databaseId') --repo ${GH_REPO} --interval 15 --exit-status
 
   deploy-prod:
     if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
