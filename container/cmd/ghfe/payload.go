@@ -108,6 +108,13 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 		return "", "", false
 	}
 
+	isMengZhuoScope := orgID == internal.MengZhuoUserID
+	if isMengZhuoScope {
+		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
+			return "cloudv10x-jupiter", cfg.ImageUbuntu24, true
+		}
+	}
+
 	if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
 		return "scw-em-rv1", cfg.ImageUbuntu24, true
 	}

@@ -25,6 +25,7 @@ const (
 	PyTorchOrgID            int64 = 21003710  // github.com/pytorch
 	GGMLOrgID               int64 = 134263123 // github.com/ggml-org (for llama.cpp)
 	LuhenryUserID           int64 = 660779    // github.com/luhenry
+	MengZhuoUserID          int64 = 885662    // github.com/mengzhuo
 
 	RunnerRegistry = "rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s"
 	RunnerImage    = "riscv-runner"
@@ -63,6 +64,8 @@ var EntityConfigs = map[int64]EntityConfig{
 	PyTorchOrgID:            {MaxWorkers: intPtr(20)},
 	GGMLOrgID:               {MaxWorkers: intPtr(20)},
 	LuhenryUserID:           {MaxWorkers: nil},
+	// To try out the BPI-F3 he provided that are currently attached to staging
+	MengZhuoUserID: {MaxWorkers: intPtr(20), Staging: true},
 }
 
 // DefaultMaxWorkers applies when an entity has no entry in EntityConfigs.
