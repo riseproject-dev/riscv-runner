@@ -570,7 +570,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV RUNNER_TOOL_CACHE=/opt/hostedtoolcache
 ENV RUNNER_OS=Linux
 ENV RUNNER_ARCH=RISCV64
-ARG RUNNER_VERSION=2.333.1
+ARG RUNNER_VERSION=2.335.1
 ENV RUNNER_VERSION=${RUNNER_VERSION}
 
 RUN bash -eux -o pipefail <<'EOF'
@@ -914,7 +914,7 @@ WORKDIR /home/runner
 USER runner
 
 # Setup GitHub runner
-ARG RUNNER_VERSION=2.333.1
+ARG RUNNER_VERSION=2.335.1
 ARG RUNNER_SHA256=b7fe06dae879678b817dbd4286d3527ba3a8867641ea932a0609fb1eed392b7b # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
 RUN bash -eux -o pipefail <<'EOF'
     # reduce timestamps differences between layers
