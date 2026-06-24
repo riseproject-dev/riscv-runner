@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04-riscv
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: uname -m        # riscv64
       - run: gcc --version    # native riscv64-linux-gnu-gcc
       - run: make
@@ -49,7 +49,7 @@ jobs:
   docker:
     runs-on: ubuntu-24.04-riscv
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: docker build -t myapp .
       - run: docker run myapp
 ```

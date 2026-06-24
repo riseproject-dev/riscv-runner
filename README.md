@@ -19,7 +19,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04-riscv
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: uname -m   # prints riscv64
 ```
 
