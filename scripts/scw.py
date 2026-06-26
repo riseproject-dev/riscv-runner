@@ -1774,7 +1774,7 @@ def cmd_runner_create(args):
         ssh = ssh_connect(host=ip, user="ubuntu")
         setup_runner(ssh, runner, pn)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        server.reboot()
+        ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
         print(f"Waiting for node {runner} to be ready in k8s")
@@ -1856,7 +1856,7 @@ def cmd_runner_reinstall(args):
         ssh = ssh_connect(host=ip, user="ubuntu")
         setup_runner(ssh, runner, pn)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        server.reboot()
+        ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
         print(f"Waiting for node {runner} to be ready on k8s")
@@ -1931,7 +1931,7 @@ def cmd_runner_setup(args):
         ssh = ssh_connect(host=ip, user="ubuntu")
         setup_runner(ssh, runner, pn)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        server.reboot()
+        ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
         print(f"Waiting for node {runner} to be ready on k8s")
