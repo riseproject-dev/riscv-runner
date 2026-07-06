@@ -31,8 +31,9 @@ Save this as `.github/workflows/riscv.yml` in your repository.
 | Label | Description |
 |-------|-------------|
 | `ubuntu-24.04-riscv` | Standard RISC-V runner, Ubuntu 24.04 |
+| `ubuntu-26.04-riscv` | Standard RISC-V runner, Ubuntu 26.04 |
 
-`ubuntu-26.04-riscv` is not yet routable: the webhook handler only matches `ubuntu-24.04-riscv` today, and the image build matrix only produces the 24.04 image. The label will be re-enabled when RVA23 hardware lands. See the [Runner Labels Reference](labels) for full hardware specs.
+See the [Runner Labels Reference](labels) for full hardware specs.
 
 ## Pre-installed tools
 

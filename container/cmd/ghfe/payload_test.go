@@ -74,20 +74,22 @@ func TestMatchLabelsToK8s(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		orgID    int64
-		repo     string
-		labels   []string
-		wantPool string
-		wantOK   bool
+		name      string
+		orgID     int64
+		repo      string
+		labels    []string
+		wantPool  string
+		wantImage string
+		wantOK    bool
 	}{
-		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, "scw-em-rv1", true},
-		{"general no labels", 999, "x/y", []string{}, "", false},
-		{"general other", 999, "x/y", []string{"ubuntu-26.04-riscv"}, "", false},
+		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, "scw-em-rv1", cfg.ImageUbuntu24, true},
+		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, "spacemit-k3-pico-itx", cfg.ImageUbuntu26, true},
+		{"general no labels", 999, "x/y", []string{}, "", "", false},
+		{"general other", 999, "x/y", []string{"ubuntu-98.04-riscv"}, "", "", false},
 
-		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv"}, "cloudv10x-jupiter", true},
-		{"ggml with extra label", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv", "extra"}, "", false},
-		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{"ubuntu-24.04-riscv"}, "cloudv10x-jupiter", true},
+		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv"}, "cloudv10x-jupiter", cfg.ImageUbuntu24, true},
+		{"ggml with extra label", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv", "extra"}, "", "", false},
+		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{"ubuntu-24.04-riscv"}, "cloudv10x-jupiter", cfg.ImageUbuntu24, true},
 	}
 
 	for _, tc := range tests {
@@ -99,8 +101,8 @@ func TestMatchLabelsToK8s(t *testing.T) {
 			if ok && pool != tc.wantPool {
 				t.Fatalf("pool=%q want=%q", pool, tc.wantPool)
 			}
-			if ok && image != cfg.ImageUbuntu24 {
-				t.Fatalf("image=%q want img24", image)
+			if ok && image != tc.wantImage {
+				t.Fatalf("image=%q want=%q", image, tc.wantImage)
 			}
 		})
 	}

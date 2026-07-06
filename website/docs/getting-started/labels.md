@@ -10,10 +10,10 @@ Each label maps to a specific hardware configuration, OS version, and Kubernetes
 
 ## Labels
 
-| Label | OS | Board | SoC | Status |
-|-------|-----|-------|-----|--------|
-| `ubuntu-24.04-riscv` | Ubuntu 24.04 | Scaleway EM-RV1 | SpacemiT K1 | Generally available |
-| `ubuntu-26.04-riscv` | Ubuntu 26.04 | TBD | TBD | Not yet enabled (awaiting RVA23 hardware) |
+| Label | OS | Board | Status |
+|-------|-----|-------|--------|
+| `ubuntu-24.04-riscv` | Ubuntu 24.04 | Scaleway EM-RV1 | Generally available |
+| `ubuntu-26.04-riscv` | Ubuntu 26.04 | Spacemit K3 | Early Access |
 
 The webhook handler only recognises single-label arrays; jobs using multiple `runs-on` labels (other than via `[self-hosted, ...]` matrix combinations) will not be picked up. See the routing table in [Webhook Handler § Label matching](../architecture/ghfe#label-matching).
 

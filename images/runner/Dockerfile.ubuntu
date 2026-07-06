@@ -44,6 +44,13 @@ ARG PYTHON310_VERSION=3.10.20
 ARG PYTHON310_TAG=${PYTHON310_VERSION}-24741349542
 ARG PYTHON310_SHA256=f4d1a502c5f109d05a03333e14e4c0f0b92634c29de76613aaf42d0019b99cd5 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON310_TAG}
 RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}/riscv64.complete
+        exit 0
+    fi
+
     # Download Python 3.10
     curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON310_TAG}/python-${PYTHON310_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
         -o python-${PYTHON310_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
@@ -68,6 +75,13 @@ ARG PYTHON311_VERSION=3.11.15
 ARG PYTHON311_TAG=${PYTHON311_VERSION}-24739855755
 ARG PYTHON311_SHA256=4fbfb313efdf4faa4684100a0fde10919766a77c4463b98fe52c146c4b14e4a2 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON311_TAG}
 RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}/riscv64.complete
+        exit 0
+    fi
+
     # Download Python 3.11
     curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON311_TAG}/python-${PYTHON311_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
         -o python-${PYTHON311_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
@@ -92,6 +106,13 @@ ARG PYTHON312_VERSION=3.12.13
 ARG PYTHON312_TAG=${PYTHON312_VERSION}-24738165632
 ARG PYTHON312_SHA256=377dd19847333f18e319ce1b5c0f90246646c81d9356050b08b82a366c5bb3f8 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON312_TAG}
 RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}/riscv64.complete
+        exit 0
+    fi
+
     # Download Python 3.12
     curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON312_TAG}/python-${PYTHON312_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
         -o python-${PYTHON312_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
@@ -116,6 +137,13 @@ ARG PYTHON313_VERSION=3.13.13
 ARG PYTHON313_TAG=${PYTHON313_VERSION}-24736470736
 ARG PYTHON313_SHA256=0f44fe31a9dc49d3d1c896a0de5b421309abe40b4253b4b975b0e94e43b130ab # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
 RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64.complete
+        exit 0
+    fi
+
     # Download Python 3.13
     curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON313_TAG}/python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
         -o python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
@@ -140,6 +168,13 @@ ARG PYTHON313_VERSION=3.13.13
 ARG PYTHON313_TAG=${PYTHON313_VERSION}-24736470736
 ARG PYTHON313_SHA256=8b41f6c8406805ecf2a513ad3d52e56ad32353578b0d249fd02a76e280ee2e0c # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
 RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}/riscv64.complete
+        exit 0
+    fi
+
     # Download Python 3.13
     curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON313_TAG}/python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz \
         -o python-${PYTHON313_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
@@ -164,6 +199,13 @@ ARG PYTHON314_VERSION=3.14.4
 ARG PYTHON314_TAG=${PYTHON314_VERSION}-24734614154
 ARG PYTHON314_SHA256=3688a211455a084ae1c77e9a093417d4472906496e977fc2ce8adca5d5978893 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64.complete
+        exit 0
+    fi
+
     # Download Python 3.14
     curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON314_TAG}/python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
         -o python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
@@ -188,6 +230,13 @@ ARG PYTHON314_VERSION=3.14.4
 ARG PYTHON314_TAG=${PYTHON314_VERSION}-24734614154
 ARG PYTHON314_SHA256=a575e5c7a74c86bff1110531fdd3592a07a910d8463c9aba982707a2ec06b824 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64.complete
+        exit 0
+    fi
+
     # Download Python 3.14
     curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON314_TAG}/python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz \
         -o python-${PYTHON314_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
@@ -348,10 +397,10 @@ FROM base-builder AS docker-init
 
 WORKDIR /build
 
-ARG TINI_VERSION=0.19.0
+ARG TINI_VERSION=0.19.1
 RUN bash -eux -o pipefail <<'EOF'
     # Download tini
-    git clone --depth 1 --branch "v${TINI_VERSION}" https://github.com/krallin/tini.git
+    git clone --depth 1 --branch "v${TINI_VERSION}" https://github.com/riseproject-dev/tini.git
     pushd tini
 
     # Build & install to /usr/local
@@ -620,9 +669,6 @@ RUN bash -eux -o pipefail <<'EOF'
         ccache \
         chrony \
         cifs-utils \
-        clang-{16,17,18} \
-        clang-format-{16,17,18} \
-        clang-tidy-{16,17,18} \
         cloud-init \
         cmake \
         containerd \
@@ -645,15 +691,10 @@ RUN bash -eux -o pipefail <<'EOF'
         fonts-noto-color-emoji \
         ftp \
         g++ \
-        g++-{12,13,14} \
         gettext-base \
         gcc \
-        gcc-{12,13,14} \
         gettext-base \
         gfortran \
-        gfortran-12 \
-        gfortran-13 \
-        gfortran-14 \
         gh \
         git \
         git-ftp \
@@ -667,7 +708,6 @@ RUN bash -eux -o pipefail <<'EOF'
         jq \
         libatomic1 \
         libbz2-1.0 \
-        libclang-{16,17,18}-dev \
         libexpat1 \
         libffi8 \
         libgdbm6 \
@@ -695,22 +735,6 @@ RUN bash -eux -o pipefail <<'EOF'
         p7zip-full \
         parallel \
         patchelf \
-        php8.3-pgsql \
-        php8.3-phpdbg \
-        php8.3-pspell \
-        php8.3-readline \
-        php8.3-redis \
-        php8.3-snmp \
-        php8.3-soap \
-        php8.3-sqlite3 \
-        php8.3-sybase \
-        php8.3-tidy \
-        php8.3-xdebug \
-        php8.3-xml \
-        php8.3-xsl \
-        php8.3-yaml \
-        php8.3-zip \
-        php8.3-zmq \
         pigz \
         pkg-config \
         podman \
@@ -780,26 +804,47 @@ RUN bash -eux -o pipefail <<'EOF'
     if [[ "${VERSION_ID}" == "24.04" ]]; then
         # Install 24.04 specific packages
         apt-get install -y --no-install-recommends \
+            clang-{16,17,18} \
+            clang-format-{16,17,18} \
+            clang-tidy-{16,17,18} \
+            g++-{12,13,14} \
+            gcc-{12,13,14} \
+            gfortran-{12,13,14} \
+            libclang-{16,17,18}-dev \
             p7zip-rar \
+            php8.3-{pgsql,phpdbg,pspell,readline,redis,snmp,soap,sqlite3,sybase,tidy,xdebug,xml,xsl,yaml,zip,zmq} \
+            postgresql-16 \
          && true
     elif [[ "${VERSION_ID}" == "26.04" ]]; then
         # Install 26.04 specific packages
-        true # nothing yet
+        apt-get install -y --no-install-recommends \
+            clang-{20,21,22} \
+            clang-format-{20,21,22} \
+            clang-tidy-{20,21,22} \
+            g++-{13,14,15} \
+            gcc-{13,14,15} \
+            gfortran-{13,14,15} \
+            libclang-{20,21,22}-dev \
+            php8.5-{pgsql,phpdbg,pspell,readline,redis,snmp,soap,sqlite3,sybase,tidy,xdebug,xml,xsl,yaml,zip,zmq} \
+            postgresql-18 \
+         && true
     else
         echo "Unknown Ubuntu version ${VERSION_ID}"
         exit 1
     fi
 
+    # Add a user which will run the github actions
+    groupadd -f docker
+    useradd -m -u 1001 -G docker runner # also creates a `runner` group
+
+    # Add runner to sudoers without password prompt
+    apt-get install -y --no-install-recommends sudo
+    echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner
+
     # Clean apt cache. Do NOT remove /var/lib/dpkg — it holds the package
     # database and lock files; without it, `apt-get install` fails for users.
     apt-get clean
     rm -rf /var/lib/apt/lists/*
-
-    # Add a user which will run the github actions
-    groupadd -f docker
-    useradd -m -u 1001 -G docker runner # also creates a `runner` group
-    # Add runner to sudoers without password prompt
-    echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner
 EOF
 
 # Fix some specific directories' permissions

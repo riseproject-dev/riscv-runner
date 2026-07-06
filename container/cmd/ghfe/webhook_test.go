@@ -193,7 +193,7 @@ func TestIgnoredNoLabel_PayloadMinimized(t *testing.T) {
 		},
 		"workflow_job": map[string]any{
 			"id":       float64(7),
-			"labels":   []any{"ubuntu-26.04-riscv"},
+			"labels":   []any{"ubuntu-98.04-riscv"},
 			"html_url": "https://example.com",
 			"url":      "drop",
 			"steps":    []any{"a"},

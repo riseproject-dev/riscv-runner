@@ -80,8 +80,11 @@ rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner
 | Tag | Image | Source branch |
 |-----|-------|---------------|
 | `ubuntu-24.04-latest` | Runner image, Ubuntu 24.04 | `main` (deploy-prod) |
+| `ubuntu-26.04-latest` | Runner image, Ubuntu 26.04 | `main` (deploy-prod) |
 | `ubuntu-24.04-staging` | Runner image, Ubuntu 24.04 | `main` (deploy-staging) |
+| `ubuntu-26.04-staging` | Runner image, Ubuntu 26.04 | `main` (deploy-staging) |
 | `ubuntu-24.04-sha-<sha>` | Per-commit build | every build |
+| `ubuntu-26.04-sha-<sha>` | Per-commit build | every build |
 
 ## Source files
 

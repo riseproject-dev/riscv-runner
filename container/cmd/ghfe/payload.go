@@ -4,6 +4,7 @@ package main
 
 import (
 	"github.com/riseproject-dev/riscv-runner/container/internal"
+	"slices"
 )
 
 // senderDropKeys / repoDropKeys / repoOwnerDropKeys / orgDropKeys /
@@ -117,6 +118,12 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 
 	if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
 		return "scw-em-rv1", cfg.ImageUbuntu24, true
+	}
+	if len(labels) == 2 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") {
+		return "spacemit-k3-pico-itx", cfg.ImageUbuntu24, true
+	}
+	if len(labels) == 1 && labels[0] == "ubuntu-26.04-riscv" {
+		return "spacemit-k3-pico-itx", cfg.ImageUbuntu26, true
 	}
 	return "", "", false
 }

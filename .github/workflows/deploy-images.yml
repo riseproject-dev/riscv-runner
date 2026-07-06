@@ -52,11 +52,10 @@ jobs:
         include:
         - os: ubuntu
           os-version: 24.04
-          runs-on: ubuntu-24.04
-        # - os: ubuntu
-        #   os-version: 26.04
-        #   runs-on: ubuntu-latest # ubuntu-26.04-riscv-rva23 # Ubuntu 26.04 requires RVA23 hardware to run
-    runs-on: ${{ matrix.runs-on }}
+        - os: ubuntu
+          os-version: 26.04
+      fail-fast: false
+    runs-on: ubuntu-latest
     needs: [setup]
     permissions:
       packages: write
@@ -138,6 +137,12 @@ jobs:
             -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-staging \
             ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-sha-${{ github.sha }}
 
+      - name: Tag ubuntu-26.04 image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-staging \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-sha-${{ github.sha }}
+
       - name: Set up kubeconfig
         run: |
           mkdir -p ~/.kube
@@ -176,6 +181,12 @@ jobs:
           docker buildx imagetools create \
             -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-latest \
             ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-sha-${{ github.sha }}
+
+      - name: Tag ubuntu-26.04 image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-latest \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-sha-${{ github.sha }}
 
       - name: Set up kubeconfig
         run: |
