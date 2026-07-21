@@ -64,8 +64,6 @@ var EntityConfigs = map[int64]EntityConfig{
 	PyTorchOrgID:            {MaxWorkers: intPtr(20)},
 	GGMLOrgID:               {MaxWorkers: intPtr(20)},
 	LuhenryUserID:           {MaxWorkers: nil},
-	// To try out the BPI-F3 he provided that are currently attached to staging
-	MengZhuoUserID: {MaxWorkers: intPtr(20), Staging: true},
 }
 
 // DefaultMaxWorkers applies when an entity has no entry in EntityConfigs.
