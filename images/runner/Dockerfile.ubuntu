@@ -619,7 +619,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV RUNNER_TOOL_CACHE=/opt/hostedtoolcache
 ENV RUNNER_OS=Linux
 ENV RUNNER_ARCH=RISCV64
-ARG RUNNER_VERSION=2.335.1
+ARG RUNNER_VERSION=2.336.0
 ENV RUNNER_VERSION=${RUNNER_VERSION}
 
 RUN bash -eux -o pipefail <<'EOF'
@@ -959,8 +959,8 @@ WORKDIR /home/runner
 USER runner
 
 # Setup GitHub runner
-ARG RUNNER_VERSION=2.335.1
-ARG RUNNER_SHA256=b7fe06dae879678b817dbd4286d3527ba3a8867641ea932a0609fb1eed392b7b # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
+ARG RUNNER_VERSION=2.336.0
+ARG RUNNER_SHA256=404d376f36c38656fa95a155a83cf9387a1612c70c6498fc0e11595f7c9c3238 # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
 RUN bash -eux -o pipefail <<'EOF'
     # reduce timestamps differences between layers
     export SOURCE_DATE_EPOCH=0
@@ -969,7 +969,7 @@ RUN bash -eux -o pipefail <<'EOF'
         -o "actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz"
 
     # Verify package integrity
-    # echo "${RUNNER_SHA256} actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz" | sha256sum --check
+    echo "${RUNNER_SHA256} actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz" | sha256sum --check
 
     # Unpack tar file
     mkdir -p /home/runner/actions-runner/cached/${RUNNER_VERSION}
