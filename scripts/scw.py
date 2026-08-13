@@ -56,6 +56,7 @@ SSH_OPTS = [
 
 SSH_KEY_IDS = [
     "ba303e6a-25a5-477b-a823-55dc2d1961a4",  # Ludovic Henry
+    "c2e6c553-f1aa-4ca2-b8ec-63289ac24ead",  # Puneetha Ramachandra
 ]
 
 
