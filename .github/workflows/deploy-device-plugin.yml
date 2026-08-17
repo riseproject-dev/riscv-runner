@@ -56,6 +56,10 @@ jobs:
     defaults:
       run:
         working-directory: device-plugin
+    env:
+      # Dependabot runs read the (empty) Dependabot secret store, so SCW_SECRET_KEY
+      # is unavailable and a registry login would fail. Build without publishing.
+      PUSH_IMAGES: ${{ github.repository_owner == 'riseproject-dev' && github.actor != 'dependabot[bot]' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,7 +72,7 @@ jobs:
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Login to Container Registry
-        if: github.repository_owner == 'riseproject-dev'
+        if: env.PUSH_IMAGES == 'true'
         uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         with:
           registry: ${{ env.REGISTRY }}
@@ -92,7 +96,7 @@ jobs:
             type=gha,scope=docker
           cache-to: |
             ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
-          push: ${{ github.repository_owner == 'riseproject-dev' }}
+          push: ${{ env.PUSH_IMAGES == 'true' }}
 
       - name: Build node-labeller image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -107,7 +111,7 @@ jobs:
             type=gha,scope=docker
           cache-to: |
             ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
-          push: ${{ github.repository_owner == 'riseproject-dev' }}
+          push: ${{ env.PUSH_IMAGES == 'true' }}
 
   deploy-staging:
     if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
