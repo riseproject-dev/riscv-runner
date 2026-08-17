@@ -5,7 +5,6 @@ _site/
 .jekyll-metadata
 .bundle/
 vendor/
-Gemfile.lock
 
 # Node (container/)
 node_modules
