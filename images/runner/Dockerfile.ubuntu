@@ -133,9 +133,9 @@ EOF
 # Build Python 3.13
 FROM base-builder AS python-3.13
 
-ARG PYTHON313_VERSION=3.13.13
-ARG PYTHON313_TAG=${PYTHON313_VERSION}-24736470736
-ARG PYTHON313_SHA256=0f44fe31a9dc49d3d1c896a0de5b421309abe40b4253b4b975b0e94e43b130ab # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
+ARG PYTHON313_VERSION=3.13.15
+ARG PYTHON313_TAG=${PYTHON313_VERSION}-31085547134
+ARG PYTHON313_SHA256=66d986653ea77a4c1f6196310cb4ed5b411b95a2e38af520a619fec88e0ca89a # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -164,9 +164,9 @@ EOF
 # Build Python 3.13 (free threaded)
 FROM base-builder AS python-3.13t
 
-ARG PYTHON313_VERSION=3.13.13
-ARG PYTHON313_TAG=${PYTHON313_VERSION}-24736470736
-ARG PYTHON313_SHA256=8b41f6c8406805ecf2a513ad3d52e56ad32353578b0d249fd02a76e280ee2e0c # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
+ARG PYTHON313_VERSION=3.13.15
+ARG PYTHON313_TAG=${PYTHON313_VERSION}-31085547134
+ARG PYTHON313_SHA256=0325c53e5175bd4b96d6e0415bff27964cf6974bd675801c02cf3faff2278678 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -195,9 +195,9 @@ EOF
 # Build Python 3.14
 FROM base-builder AS python-3.14
 
-ARG PYTHON314_VERSION=3.14.4
-ARG PYTHON314_TAG=${PYTHON314_VERSION}-24734614154
-ARG PYTHON314_SHA256=3688a211455a084ae1c77e9a093417d4472906496e977fc2ce8adca5d5978893 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+ARG PYTHON314_VERSION=3.14.7
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-31085547140
+ARG PYTHON314_SHA256=2c401738fa6887d57426ba6d87a6ef5e1169a1348847b13c274cd3328c9e771c # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -226,9 +226,9 @@ EOF
 # Build Python 3.14 (free threaded)
 FROM base-builder AS python-3.14t
 
-ARG PYTHON314_VERSION=3.14.4
-ARG PYTHON314_TAG=${PYTHON314_VERSION}-24734614154
-ARG PYTHON314_SHA256=a575e5c7a74c86bff1110531fdd3592a07a910d8463c9aba982707a2ec06b824 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+ARG PYTHON314_VERSION=3.14.7
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-31085547140
+ARG PYTHON314_SHA256=c35be95694a0cab6d4c700e854b8975f3678b66888d16d1bec7365e70b2122be # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -323,8 +323,8 @@ ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64/bin:${PATH}
 # Download Go 1.25
 FROM base-builder AS go-1.25
 
-ARG GO125_VERSION=1.25.9
-ARG GO125_SHA256=2a630be8f854177c13e5fa75f7812c721369ecb9bd6e4c0fb1bd1c708d08b37c # https://dl.google.com/go/go1.25.9.linux-riscv64.tar.gz.sha256
+ARG GO125_VERSION=1.25.12
+ARG GO125_SHA256=26919d62d21b0bee9c5c67ad76ace462edd16c2c128a983d942cb45b0bf7693c # https://dl.google.com/go/go1.25.12.linux-riscv64.tar.gz.sha256
 RUN bash -eux -o pipefail <<'EOF'
     # Download Go 1.25
     curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO125_VERSION}.linux-riscv64.tar.gz \
@@ -439,8 +439,8 @@ EOF
 # Download Node.js 22
 FROM base-builder AS node-22
 
-ARG NODE22_VERSION=22.22.2
-ARG NODE22_SHA256=ffa6cd3702497badd03fc098df149d06d221ecd431acdda8c4a9d7c2cd05a783 # https://unofficial-builds.nodejs.org/download/release/v22.22.2/SHASUMS256.txt
+ARG NODE22_VERSION=22.23.2
+ARG NODE22_SHA256=d41ba9978e1d267ef7e90c9100f8e390b64fba8b91afb7b4f3bdb32264e00a35 # https://unofficial-builds.nodejs.org/download/release/v22.23.2/SHASUMS256.txt
 RUN bash -eux -o pipefail <<'EOF'
     # Download Node.js 22
     curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE22_VERSION}/node-v${NODE22_VERSION}-linux-riscv64.tar.xz" \
@@ -462,8 +462,8 @@ EOF
 # Download Node.js 24
 FROM base-builder AS node-24
 
-ARG NODE24_VERSION=24.14.1
-ARG NODE24_SHA256=b2527028055179c1e53db03803686f759b040409684273b72201fee0e6edd130 # https://unofficial-builds.nodejs.org/download/release/v24.14.1/SHASUMS256.txt
+ARG NODE24_VERSION=24.19.0
+ARG NODE24_SHA256=cd1f14af2812148002f58b58a5f9af512a50e3b8e8c148e0db44019dcb68edfd # https://unofficial-builds.nodejs.org/download/release/v24.19.0/SHASUMS256.txt
 RUN bash -eux -o pipefail <<'EOF'
     # Download Node.js 24
     curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/node-v${NODE24_VERSION}-linux-riscv64.tar.xz" \
@@ -485,8 +485,8 @@ EOF
 # Download Gradle
 FROM base-builder AS gradle
 
-ARG GRADLE_VERSION=9.4.1
-ARG GRADLE_SHA256=2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb # https://services.gradle.org/distributions/gradle-9.4.1-bin.zip.sha256
+ARG GRADLE_VERSION=9.7.0
+ARG GRADLE_SHA256=84fbba45c7f4c64abc77460e1c00f541e9f960e3c7ed2538f1ede19eacd873ae # https://services.gradle.org/distributions/gradle-9.7.0-bin.zip.sha256
 RUN bash -eux -o pipefail <<'EOF'
     # Download Gradle
     curl -fsSL --retry 12 --retry-all-errors https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip \
@@ -503,8 +503,8 @@ EOF
 # Download Apache Maven
 FROM base-builder AS maven
 
-ARG MAVEN_VERSION=3.9.14
-ARG MAVEN_SHA512=d50af8ab5e6005b46a07f0ce9d3719e67cfdf898da988a84871304cd59fb1af0fef2f99dea709e6e66f21f732f905979b5c2dce6b6860406f60a70e84d9cf0b8 # https://archive.apache.org/dist/maven/maven-3/3.9.14/binaries/apache-maven-3.9.14-bin.tar.gz.sha512
+ARG MAVEN_VERSION=3.9.16
+ARG MAVEN_SHA512=831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6 # https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz.sha512
 RUN bash -eux -o pipefail <<'EOF'
     # Download Apache Maven
     curl -fsSL --retry 12 --retry-all-errors https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
@@ -518,11 +518,11 @@ RUN bash -eux -o pipefail <<'EOF'
     rm apache-maven-${MAVEN_VERSION}-bin.tar.gz
 EOF
 
-# Download Rust 1.94.0
+# Download Rust
 FROM base-builder AS rust
 
 ARG RUSTUP_VERSION=1.29.0
-ARG RUSTTOOLCHAIN_VERSION=1.94.1
+ARG RUSTTOOLCHAIN_VERSION=1.97.1
 ENV RUSTUP_HOME=/build/rust/rustup
 ENV CARGO_HOME=/build/rust/cargo
 RUN bash -eux -o pipefail <<'EOF'
@@ -556,8 +556,8 @@ EOF
 # Download docker-buildx
 FROM base-builder AS docker-buildx
 
-ARG DOCKERBUILDX_VERSION=0.33.0
-ARG DOCKERBUILDX_SHA256=5003b19409f2dfb38fc5f00a8eac4b1d810f6087b88ae007c6983287b93095dd # https://github.com/docker/buildx/releases/v${DOCKERBUILDX_VERSION}
+ARG DOCKERBUILDX_VERSION=0.36.1
+ARG DOCKERBUILDX_SHA256=5e82f0ada635dabda74f1486dea604e0ea3a1214971ec8c52dcb4db6e08cce26 # https://github.com/docker/buildx/releases/v${DOCKERBUILDX_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
     # Download docker-buildx
     mkdir -p /usr/local/lib/docker/cli-plugins
@@ -576,7 +576,7 @@ FROM go-1.26 AS kubernetes
 
 WORKDIR /build
 
-ARG KUBECTL_VERSION=1.35.3
+ARG KUBECTL_VERSION=1.36.3
 RUN bash -eux -o pipefail <<'EOF'
     # Download kubernetes
     git clone --recurse-submodules --depth 1 https://github.com/kubernetes/kubernetes.git -b v${KUBECTL_VERSION}
@@ -861,10 +861,10 @@ ARG PYTHON311_VERSION=3.11.15
 COPY --link --from=python-3.11 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}
 ARG PYTHON312_VERSION=3.12.13
 COPY --link --from=python-3.12 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}
-ARG PYTHON313_VERSION=3.13.13
+ARG PYTHON313_VERSION=3.13.15
 COPY --link --from=python-3.13  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}
 COPY --link --from=python-3.13t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}
-ARG PYTHON314_VERSION=3.14.4
+ARG PYTHON314_VERSION=3.14.7
 COPY --link --from=python-3.14  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
 COPY --link --from=python-3.14t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
 
@@ -878,7 +878,7 @@ ENV GOROOT_1_23_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64
 ARG GO124_VERSION=1.24.13
 COPY --link --from=go-1.24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}
 ENV GOROOT_1_24_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64
-ARG GO125_VERSION=1.25.9
+ARG GO125_VERSION=1.25.12
 COPY --link --from=go-1.25 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}
 ENV GOROOT_1_25_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64
 
@@ -890,9 +890,9 @@ EOF
 # Install Node
 ARG NODE20_VERSION=20.20.2
 COPY --link --from=node-20 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}
-ARG NODE22_VERSION=22.22.2
+ARG NODE22_VERSION=22.23.2
 COPY --link --from=node-22 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}
-ARG NODE24_VERSION=24.14.1
+ARG NODE24_VERSION=24.19.0
 COPY --link --from=node-24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}
 
 # Install Java environment variables
@@ -909,7 +909,7 @@ ENV CARGO_HOME=/home/runner/.cargo
 ENV PATH=${RUSTUP_HOME}/bin:${CARGO_HOME}/bin:${PATH}
 
 # Install Gradle
-ARG GRADLE_VERSION=9.4.1
+ARG GRADLE_VERSION=9.7.0
 COPY --link --from=gradle --chmod=0777 /usr/share/gradle-${GRADLE_VERSION} /usr/share/gradle-${GRADLE_VERSION}
 ENV GRADLE_HOME=/usr/share/gradle-${GRADLE_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
@@ -917,7 +917,7 @@ RUN bash -eux -o pipefail <<'EOF'
 EOF
 
 # Install Apache Maven
-ARG MAVEN_VERSION=3.9.14
+ARG MAVEN_VERSION=3.9.16
 COPY --link --from=maven --chmod=0777 /usr/share/apache-maven-${MAVEN_VERSION} /usr/share/apache-maven-${MAVEN_VERSION}
 ENV MAVEN_HOME=/usr/share/apache-maven-${MAVEN_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
