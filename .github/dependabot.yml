@@ -2,18 +2,62 @@
 # Dependabot configuration. See:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 version: 2
+
+# Groups spanning several ecosystems own their own schedule. Members must set
+# `patterns`, and anything not matched gets no PR at all: for a multi-ecosystem
+# job the updater skips ungrouped updates entirely.
+multi-ecosystem-groups:
+  container:
+    schedule:
+      interval: "weekly"
+      day: "monday"
+  device-plugin:
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+
 updates:
+  # github-actions only supports directory "/", so every workflow bump lands
+  # here regardless of which component it belongs to.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "wednesday"
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: "gomod"
     directory: "/container"
-    schedule:
-      interval: "daily"
+    patterns: ["*"]
+    multi-ecosystem-group: "container"
+  - package-ecosystem: "npm"
+    directory: "/container"
+    patterns: ["*"]
+    multi-ecosystem-group: "container"
+  - package-ecosystem: "docker"
+    directory: "/container"
+    patterns: ["*"]
+    multi-ecosystem-group: "container"
 
+  # images/runner is left out: its only base image is FROM ubuntu:${OS_VERSION},
+  # and Dependabot cannot parse a tag coming from an ARG. The remaining versions
+  # there are ARGs maintained by update-images-versions-map.yml.
   - package-ecosystem: "gomod"
     directory: "/device-plugin"
+    patterns: ["*"]
+    multi-ecosystem-group: "device-plugin"
+  - package-ecosystem: "docker"
+    directory: "/device-plugin"
+    patterns: ["*"]
+    multi-ecosystem-group: "device-plugin"
+
+  - package-ecosystem: "bundler"
+    directory: "/website"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "thursday"
+    groups:
+      website:
+        patterns: ["*"]
