@@ -410,7 +410,7 @@ def ssh_connect(host, user, retries=30, delay=30):
                 host,
                 user=user,
                 connect_kwargs={
-                    "key_filename": "/Users/luhenry/.ssh/id_rivos",
+                    "key_filename": f"{os.environ['HOME']}/.ssh/id_scw",
                 },
             )
             conn.run("true", hide=True)
