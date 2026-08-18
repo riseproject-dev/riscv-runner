@@ -116,6 +116,13 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 		}
 	}
 
+	isRuyiAIScope := orgID == internal.RuyiAIOrgID
+	if isRuyiAIScope {
+		if len(labels) == 3 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") && slices.Contains(labels, "xlarge") {
+			return "spacemit-v100", cfg.ImageUbuntu24, true
+		}
+	}
+
 	if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
 		return "scw-em-rv1", cfg.ImageUbuntu24, true
 	}

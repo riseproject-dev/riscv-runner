@@ -24,6 +24,7 @@ const (
 	RiseprojectStagingOrgID int64 = 277861810 // github.com/riseproject-staging
 	PyTorchOrgID            int64 = 21003710  // github.com/pytorch
 	GGMLOrgID               int64 = 134263123 // github.com/ggml-org (for llama.cpp)
+	RuyiAIOrgID             int64 = 257673382 // github.com/RuyiAI-Stack
 	LuhenryUserID           int64 = 660779    // github.com/luhenry
 	MengZhuoUserID          int64 = 885662    // github.com/mengzhuo
 
