@@ -59,12 +59,12 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
           volumeMounts:
-            - name: device-tree
-              mountPath: /sys/firmware/devicetree/base
+            - name: sysfs
+              mountPath: /sys
               readOnly: true
           securityContext:
             privileged: true
       volumes:
-        - name: device-tree
+        - name: sysfs
           hostPath:
-            path: /sys/firmware/devicetree/base
+            path: /sys
