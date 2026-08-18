@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-module github.com/riseproject-dev/riscv-runner/device-plugin
+module github.com/riseproject-dev/riscv-runner/runner/device-plugin
 
 go 1.26.0
 

@@ -53,7 +53,7 @@ ssh root@$HOST cat /etc/kubernetes/kubeconfig-gh-deploy.conf \
 
 ## After provisioning
 
-The control plane bootstraps with [`device-plugin/k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/k8s-ds-device-plugin.yaml) and [`device-plugin/k8s-ds-node-labeller.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/k8s-ds-node-labeller.yaml) applied. Each newly-joined node is auto-labelled by the node labeller; the device plugin advertises `riseproject.com/runner: 1` so the scheduler can target it.
+The control plane bootstraps with [`runner/device-plugin/k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-device-plugin.yaml) and [`runner/device-plugin/k8s-ds-node-labeller.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-node-labeller.yaml) applied. Each newly-joined node is auto-labelled by the node labeller; the device plugin advertises `riseproject.com/runner: 1` so the scheduler can target it.
 
 To verify a node is ready to accept jobs:
 
@@ -83,6 +83,6 @@ The node labeller has its own ServiceAccount in `kube-system` with a ClusterRole
 When new RISC-V hardware enters the fleet:
 
 1. SSH into a node of the new board and read `/sys/firmware/devicetree/base/compatible`. Note the first NUL-separated entry.
-2. Add a row to `boardMap` in [`device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/pkg/soc/detect.go).
+2. Add a row to `boardMap` in [`runner/device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go).
 3. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels).
 4. Push and let the device-plugin deploy workflow roll out the new labeller.

@@ -9,15 +9,13 @@ on:
     branches:
       - main
     paths:
-      - 'images/**'
-      - 'device-plugin/**'
+      - 'runner/**'
       - '.github/workflows/deploy-runner.yml'
   pull_request:
     branches:
       - main
     paths:
-      - 'images/**'
-      - 'device-plugin/**'
+      - 'runner/**'
       - '.github/workflows/deploy-runner.yml'
   schedule:
     - cron: '0 6 * * *'
@@ -50,8 +48,7 @@ jobs:
             echo "docker-output-file=/tmp/image.tar" >> $GITHUB_OUTPUT
           fi
 
-
-  build-runner:
+  build-images:
     strategy:
       matrix:
         include:
@@ -68,7 +65,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: images
+          sparse-checkout: runner/images
 
       - name: Login to Container Registry
         if: ${{ needs.setup.outputs.docker-registry != '' }}
@@ -97,8 +94,8 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: 0 # No timestamps in layers
         with:
-          context: images/runner
-          file: images/runner/Dockerfile.${{ matrix.os }}
+          context: runner/images
+          file: runner/images/Dockerfile.${{ matrix.os }}
           platforms: linux/riscv64
           build-args: |
             OS_VERSION=${{ matrix.os-version }}
@@ -125,17 +122,17 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: device-plugin
+        working-directory: runner/device-plugin
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: device-plugin
+          sparse-checkout: runner/device-plugin
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: device-plugin/go.mod
-          cache-dependency-path: device-plugin/go.sum
+          go-version-file: runner/device-plugin/go.mod
+          cache-dependency-path: runner/device-plugin/go.sum
 
       - name: go vet
         run: go vet ./...
@@ -158,7 +155,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: device-plugin
+          sparse-checkout: runner/device-plugin
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -182,8 +179,8 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           platforms: linux/riscv64
-          context: device-plugin
-          file: device-plugin/Dockerfile
+          context: runner/device-plugin
+          file: runner/device-plugin/Dockerfile
           target: device-plugin
           tags: |
             ${{ needs.setup.outputs.docker-registry != '' && format('{0}/riscv-runner:device-plugin-sha-{1}', needs.setup.outputs.docker-registry, github.sha) || '' }}
@@ -199,8 +196,8 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           platforms: linux/riscv64
-          context: device-plugin
-          file: device-plugin/Dockerfile
+          context: runner/device-plugin
+          file: runner/device-plugin/Dockerfile
           target: node-labeller
           tags: |
             ${{ needs.setup.outputs.docker-registry != '' && format('{0}/riscv-runner:node-labeller-sha-{1}', needs.setup.outputs.docker-registry, github.sha) || '' }}
@@ -215,7 +212,7 @@ jobs:
   deploy-staging:
     if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
     name: "deploy to staging"
-    needs: [setup, build-runner, build-device-plugin]
+    needs: [setup, build-images, build-device-plugin]
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
@@ -264,12 +261,12 @@ jobs:
 
       - name: Apply device-plugin DaemonSet
         run: |
-          envsubst < device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
+          envsubst < runner/device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
           kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
 
       - name: Apply node-labeller DaemonSet
         run: |
-          envsubst < device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
+          envsubst < runner/device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
           kubectl rollout restart daemonset/rise-riscv-runner-node-labeller -n kube-system
 
       - name: Rollout Restart
@@ -284,7 +281,7 @@ jobs:
   deploy-prod:
     if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
     name: "deploy to prod"
-    needs: [setup, build-runner, deploy-staging]
+    needs: [setup, build-images, build-device-plugin, deploy-staging]
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
@@ -333,12 +330,12 @@ jobs:
 
       - name: Apply device-plugin DaemonSet
         run: |
-          envsubst < device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
+          envsubst < runner/device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
           kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
 
       - name: Apply node-labeller DaemonSet
         run: |
-          envsubst < device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
+          envsubst < runner/device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
           kubectl rollout restart daemonset/rise-riscv-runner-node-labeller -n kube-system
 
       - name: Rollout Restart

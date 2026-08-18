@@ -7,7 +7,7 @@ Two Go binaries that run as DaemonSets on every RISC-V worker node:
 
 For architecture, the gRPC registration flow, the full SoC→board map, and the cluster integration, see [Architecture — Kubernetes Infrastructure](https://riscv-runners.riseproject.dev/docs/architecture/kubernetes). For ops (provisioning new nodes, adding new boards), see [Operations — Cluster Provisioning](https://riscv-runners.riseproject.dev/docs/operations/cluster-provisioning).
 
-Go module: `github.com/riseproject-dev/riscv-runner/device-plugin`.
+Go module: `github.com/riseproject-dev/riscv-runner/runner/device-plugin`.
 
 ## Layout
 
@@ -29,7 +29,7 @@ External dependencies: `google.golang.org/grpc`, `k8s.io/kubelet/pkg/apis/device
 
 ## Develop
 
-From `device-plugin/`:
+From `runner/device-plugin/`:
 
 ```sh
 go vet ./...

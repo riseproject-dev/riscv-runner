@@ -134,10 +134,10 @@ For experimenting with the runner image without going through CI:
 ```sh
 docker buildx build \
   --platform linux/riscv64 \
-  --file images/runner/Dockerfile.ubuntu \
+  --file runner/images/Dockerfile.ubuntu \
   --build-arg OS_VERSION=24.04 \
   --tag riscv-runner:ubuntu-24.04-local \
-  images/runner
+  runner/images
 ```
 
 Best run on a RISC-V host so no emulation is involved. On x86_64, `binfmt_misc` with QEMU will let the build complete, slowly.

@@ -8,11 +8,11 @@ nav_order: 4
 
 Each runner pod uses a single unified container image: the GitHub Actions runner together with the full set of tools listed below. The image is built for `linux/riscv64` and stored in the Scaleway Container Registry.
 
-**Source:** the [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images) directory.
+**Source:** the [`runner/images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/images) directory.
 
 ## Runner image
 
-**Dockerfile:** [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/Dockerfile.ubuntu).
+**Dockerfile:** [`Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/images/Dockerfile.ubuntu).
 
 The runner image is a multi-stage build based on Ubuntu. `Dockerfile.ubuntu` is parameterised by `ARG OS_VERSION`. The build pipeline currently produces Ubuntu 24.04 images; the matrix entry for 26.04 is commented out and will be re-enabled when RVA23 hardware lands.
 
@@ -34,11 +34,11 @@ The [GitHub Actions Runner for RISC-V](https://github.com/Cloud-V-10xE/github-ru
 | **Packaging** | dpkg, rpm, fakeroot |
 | **Utilities** | jq, shellcheck, tree, rsync, sudo, parallel, sccache |
 
-The image aims to track the [official GitHub Actions Ubuntu runner images](https://github.com/actions/runner-images). Pinned versions live in [`images/versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/versions-map.json). If your workflow needs a package that is not in the image, [open an issue](https://github.com/riseproject-dev/riscv-runner/issues).
+The image aims to track the [official GitHub Actions Ubuntu runner images](https://github.com/actions/runner-images). Pinned versions live in [`runner/images/versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/images/versions-map.json). If your workflow needs a package that is not in the image, [open an issue](https://github.com/riseproject-dev/riscv-runner/issues).
 
 ### Entrypoint and runtime
 
-[`riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/riscv-runner-entrypoint.sh) is the PID-1 entrypoint, wrapped by `tini` (`docker-init`). It:
+[`riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/images/riscv-runner-entrypoint.sh) is the PID-1 entrypoint, wrapped by `tini` (`docker-init`). It:
 
 1. Verifies the container runs as the `runner` user in `/home/runner`.
 2. Detects iptables legacy vs nf_tables and adjusts PATH.
@@ -55,7 +55,7 @@ The image creates a non-root `runner` user with passwordless sudo. All workflow 
 
 A single `build-runner` matrix job builds the runner image. Currently only `ubuntu 24.04` is enabled.
 
-- **Trigger:** push or PR to `main` filtered to `images/**`, daily schedule at 06:00 UTC, or manual dispatch.
+- **Trigger:** push or PR to `main` filtered to `runner/**`, daily schedule at 06:00 UTC, or manual dispatch.
 - **Platform:** `linux/riscv64`, built natively on self-hosted `ubuntu-24.04-riscv` runners. No QEMU emulation in the build path.
 - **Caching:** GitHub Actions Cache (`type=gha`) for Docker layer reuse. A concurrency group ensures only one build runs per scope.
 - **Registry choice:** Scaleway for `riseproject-dev/main`, `ghcr.io` for other internal branches, a tar artifact for external PRs.
@@ -63,7 +63,7 @@ A single `build-runner` matrix job builds the runner image. Currently only `ubun
 
 ### Version sync
 
-[`scripts/update-versions.py`](https://github.com/riseproject-dev/riscv-runner/blob/main/scripts/update-versions.py) fetches the latest `actions/runner-images` release tagged `ubuntu24/*`, downloads its `internal.ubuntu24.json` manifest, walks `images/versions-map.json`, and updates the matching `ARG …_VERSION=` lines in the referenced Dockerfiles. It does not update SHA256/SHA512 hashes; those must be edited manually before merging.
+[`scripts/update-versions.py`](https://github.com/riseproject-dev/riscv-runner/blob/main/scripts/update-versions.py) fetches the latest `actions/runner-images` release tagged `ubuntu24/*`, downloads its `internal.ubuntu24.json` manifest, walks `runner/images/versions-map.json`, and updates the matching `ARG …_VERSION=` lines in the referenced Dockerfiles. It does not update SHA256/SHA512 hashes; those must be edited manually before merging.
 
 The weekly workflow [`update-images-versions-map.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/update-images-versions-map.yml) runs the script every Monday at 00:00 UTC and opens a draft PR if anything changes.
 
@@ -90,9 +90,9 @@ rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner
 
 | File | Role |
 |------|------|
-| [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/Dockerfile.ubuntu) | Runner image (multi-stage: tools, language runtimes, container tooling) |
-| [`runner/riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/riscv-runner-entrypoint.sh) | PID-1 entrypoint, exec's `run.sh --jitconfig "$RUNNER_JITCONFIG"` |
-| [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/versions-map.json) | Pinned versions for all bundled tools and runtimes |
+| [`Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/images/Dockerfile.ubuntu) | Runner image (multi-stage: tools, language runtimes, container tooling) |
+| [`riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/images/riscv-runner-entrypoint.sh) | PID-1 entrypoint, exec's `run.sh --jitconfig "$RUNNER_JITCONFIG"` |
+| [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/images/versions-map.json) | Pinned versions for all bundled tools and runtimes |
 | [`.github/workflows/deploy-runner.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/deploy-runner.yml) | Build, staging deploy, prod deploy |
 | [`.github/workflows/update-images-versions-map.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/update-images-versions-map.yml) | Weekly version sync |
 | [`scripts/update-versions.py`](https://github.com/riseproject-dev/riscv-runner/blob/main/scripts/update-versions.py) | Version sync script |

@@ -41,15 +41,15 @@ updates:
     patterns: ["*"]
     multi-ecosystem-group: "control-plane"
 
-  # images/runner is left out: its only base image is FROM ubuntu:${OS_VERSION},
+  # runner/images is left out: its only base image is FROM ubuntu:${OS_VERSION},
   # and Dependabot cannot parse a tag coming from an ARG. The remaining versions
   # there are ARGs maintained by update-images-versions-map.yml.
   - package-ecosystem: "gomod"
-    directory: "/device-plugin"
+    directory: "/runner/device-plugin"
     patterns: ["*"]
     multi-ecosystem-group: "device-plugin"
   - package-ecosystem: "docker"
-    directory: "/device-plugin"
+    directory: "/runner/device-plugin"
     patterns: ["*"]
     multi-ecosystem-group: "device-plugin"
 

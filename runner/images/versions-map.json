@@ -3,122 +3,122 @@
     "arg": "PYTHON310_VERSION",
     "json_tool": "Cached Tools/Python",
     "match_prefix": "3.10",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "PYTHON311_VERSION",
     "json_tool": "Cached Tools/Python",
     "match_prefix": "3.11",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "PYTHON312_VERSION",
     "json_tool": "Cached Tools/Python",
     "match_prefix": "3.12",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "PYTHON313_VERSION",
     "json_tool": "Cached Tools/Python",
     "match_prefix": "3.13",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "PYTHON314_VERSION",
     "json_tool": "Cached Tools/Python",
     "match_prefix": "3.14",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "GO122_VERSION",
     "json_tool": "Cached Tools/Go",
     "match_prefix": "1.22",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "GO123_VERSION",
     "json_tool": "Cached Tools/Go",
     "match_prefix": "1.23",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "GO124_VERSION",
     "json_tool": "Cached Tools/Go",
     "match_prefix": "1.24",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "GO125_VERSION",
     "json_tool": "Cached Tools/Go",
     "match_prefix": "1.25",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "NODE20_VERSION",
     "json_tool": "Cached Tools/Node.js",
     "match_prefix": "20",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "NODE22_VERSION",
     "json_tool": "Cached Tools/Node.js",
     "match_prefix": "22",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "NODE24_VERSION",
     "json_tool": "Cached Tools/Node.js",
     "match_prefix": "24",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "GRADLE_VERSION",
     "json_tool": "Project Management/Gradle",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "MAVEN_VERSION",
     "json_tool": "Project Management/Maven",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "RUSTTOOLCHAIN_VERSION",
     "json_tool": "Rust Tools/Rust",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "RUSTUP_VERSION",
     "json_tool": "Rust Tools/Rustup",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "DOCKERCOMPOSE_VERSION",
     "json_tool": "Tools/Docker Compose v2",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "DOCKERBUILDX_VERSION",
     "json_tool": "Tools/Docker-Buildx",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "GH_VERSION",
     "json_tool": "CLI Tools/GitHub CLI",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "KUBECTL_VERSION",
     "json_tool": "Tools/Kubectl",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "NINJA_VERSION",
     "json_tool": "Tools/Ninja",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
     "arg": "MOBY_VERSION",
     "json_tool": "Tools/Docker Server",
-    "dockerfile": "images/runner/Dockerfile.ubuntu"
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
   }
 ]

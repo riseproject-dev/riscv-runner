@@ -13,8 +13,8 @@ has_children: true
 | Directory | Language | Role |
 |-----------|----------|------|
 | [`control-plane/`](https://github.com/riseproject-dev/riscv-runner/tree/main/control-plane) | Go | Webhook handler (`ghfe`), scheduler, GitHub API integration |
-| [`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin) | Go | Kubernetes device plugin (1 pod/node), node labeller (SoC detection) |
-| [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images) | Dockerfile | Runner image (Ubuntu + tools) |
+| [`runner/device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/device-plugin) | Go | Kubernetes device plugin (1 pod/node), node labeller (SoC detection) |
+| [`runner/images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/images) | Dockerfile | Runner image (Ubuntu + tools) |
 
 A separate [`riscv-runner-sample`](https://github.com/riseproject-dev/riscv-runner-sample) repo holds example workflows for end users.
 
