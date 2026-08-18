@@ -4,8 +4,8 @@
   "keywords": [],
   "author": "",
   "devDependencies": {
-    "@aws-sdk/region-config-resolver": "^3.696.0",
-    "serverless": "3.40.0",
+    "@aws-sdk/region-config-resolver": "^3.972.47",
+    "serverless": "4.41.0",
     "serverless-scaleway-functions": "^0.5.1"
   },
   "description": ""
