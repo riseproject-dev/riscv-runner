@@ -17,7 +17,7 @@ images/
 Companion files outside `images/`:
 
 - [`../scripts/update-versions.py`](../scripts/update-versions.py) — refreshes `versions-map.json` and the matching `ARG …_VERSION=` lines from the latest `actions/runner-images` release.
-- [`../.github/workflows/deploy-images.yml`](../.github/workflows/deploy-images.yml) — build, staging deploy, prod deploy.
+- [`../.github/workflows/deploy-runner.yml`](../.github/workflows/deploy-runner.yml) — build, staging deploy, prod deploy.
 - [`../.github/workflows/update-images-versions-map.yml`](../.github/workflows/update-images-versions-map.yml) — weekly version sync.
 
 ## Build locally

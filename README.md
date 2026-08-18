@@ -28,7 +28,7 @@ This is a monorepo containing every component of the service.
 | Path | Component | Component README |
 |------|-----------|------------------|
 | [`website/`](website) | Jekyll documentation site, deployed to [riscv-runners.riseproject.dev](https://riscv-runners.riseproject.dev/) | [`website/CLAUDE.md`](website/CLAUDE.md) |
-| [`container/`](container) | GitHub App webhook handler (`ghfe`) and demand-matching scheduler (Go) | [`container/README.md`](container/README.md) |
+| [`control-plane/`](control-plane) | GitHub App webhook handler (`ghfe`) and demand-matching scheduler (Go) | [`control-plane/README.md`](control-plane/README.md) |
 | [`images/`](images) | Runner container image (Ubuntu + the standard CI tool set), built on `linux/riscv64` | [`images/README.md`](images/README.md) |
 | [`device-plugin/`](device-plugin) | Kubernetes device plugin and node labeller for RISC-V nodes (Go) | [`device-plugin/README.md`](device-plugin/README.md) |
 | [`scripts/`](scripts) | Operator scripts (Scaleway provisioning, runner health probe, install-trace CLI, version sync) | — |
@@ -44,14 +44,13 @@ Each component has its own workflow under `.github/workflows/`, scoped by `paths
 | Workflow | Triggers | What it does |
 |----------|----------|--------------|
 | [`deploy-website.yml`](.github/workflows/deploy-website.yml) | `website/**`, manual | Build and deploy the Jekyll site to GitHub Pages |
-| [`deploy-container.yml`](.github/workflows/deploy-container.yml) | `container/**`, manual | Test, build, push, deploy `ghfe`+`scheduler` to Scaleway (staging then prod with approval) |
-| [`deploy-images.yml`](.github/workflows/deploy-images.yml) | `images/**`, daily at 06:00 UTC, manual | Build the runner image on RISC-V hardware, push, retag for staging then prod |
+| [`deploy-control-plane.yml`](.github/workflows/deploy-control-plane.yml) | `control-plane/**`, manual | Test, build, push, deploy `ghfe`+`scheduler` to Scaleway (staging then prod with approval) |
+| [`deploy-runner.yml`](.github/workflows/deploy-runner.yml) | `images/**`, `device-plugin/**`, daily at 06:00 UTC, manual | Build the runner image on RISC-V hardware plus both DaemonSet images, push, retag for staging then prod, roll out across the cluster |
 | [`update-images-versions-map.yml`](.github/workflows/update-images-versions-map.yml) | weekly cron, manual | Run `scripts/update-versions.py` and open a draft PR if pinned versions changed |
-| [`deploy-device-plugin.yml`](.github/workflows/deploy-device-plugin.yml) | `device-plugin/**`, manual | Build both DaemonSet images, push, roll out across the cluster |
 
 ## Components in 30 seconds
 
-### `container/`
+### `control-plane/`
 
 Two Go binaries deployed together as Scaleway Container Functions: `ghfe` (webhook handler, no GitHub API or k8s calls, just signature validation, label routing, and PostgreSQL writes) and `scheduler` (5-phase reconciler under `LOCK TABLE workers`, demand-matching, pod provisioning, plus read-only HTML dashboards at `/usage`, `/history`, `/workers`). PostgreSQL is the state store, woken by `LISTEN/NOTIFY` to avoid polling.
 
@@ -73,7 +72,7 @@ Full reference: [Architecture — Kubernetes Infrastructure](https://riscv-runne
 
 ```
   ┌──────────────┐  workflow_job   ┌─────────────────┐
-  │ User repo on │ ──────────────▶ │ container/      │
+  │ User repo on │ ──────────────▶ │ control-plane/  │
   │ github.com   │   (webhook)     │   ghfe          │
   └──────────────┘                 │   scheduler     │
                                    └────────┬────────┘

@@ -49,7 +49,7 @@ ssh root@$HOST cat /etc/kubernetes/kubeconfig-gh-deploy.conf \
   | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner --env prod
 ```
 
-`gh-app` is the kubeconfig used at runtime by the `scheduler` container; it has `edit` access plus node list permission. `gh-deploy` is used by CI (the `K8S_KUBECONFIG` secret read by `deploy-images.yml` and `deploy-device-plugin.yml`); it has cluster-admin.
+`gh-app` is the kubeconfig used at runtime by the `scheduler` container; it has `edit` access plus node list permission. `gh-deploy` is used by CI (the `K8S_KUBECONFIG` secret read by `deploy-runner.yml`); it has cluster-admin.
 
 ## After provisioning
 
@@ -84,5 +84,5 @@ When new RISC-V hardware enters the fleet:
 
 1. SSH into a node of the new board and read `/sys/firmware/devicetree/base/compatible`. Note the first NUL-separated entry.
 2. Add a row to `boardMap` in [`device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/pkg/soc/detect.go).
-3. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`container/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels).
+3. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels).
 4. Push and let the device-plugin deploy workflow roll out the new labeller.

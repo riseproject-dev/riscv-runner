@@ -12,7 +12,7 @@ has_children: true
 
 | Directory | Language | Role |
 |-----------|----------|------|
-| [`container/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container) | Go | Webhook handler (`ghfe`), scheduler, GitHub API integration |
+| [`control-plane/`](https://github.com/riseproject-dev/riscv-runner/tree/main/control-plane) | Go | Webhook handler (`ghfe`), scheduler, GitHub API integration |
 | [`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin) | Go | Kubernetes device plugin (1 pod/node), node labeller (SoC detection) |
 | [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images) | Dockerfile | Runner image (Ubuntu + tools) |
 

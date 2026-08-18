@@ -51,7 +51,7 @@ The image creates a non-root `runner` user with passwordless sudo. All workflow 
 
 ## Build pipeline
 
-**Workflow:** [`.github/workflows/deploy-images.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/deploy-images.yml).
+**Workflow:** [`.github/workflows/deploy-runner.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/deploy-runner.yml).
 
 A single `build-runner` matrix job builds the runner image. Currently only `ubuntu 24.04` is enabled.
 
@@ -93,6 +93,6 @@ rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner
 | [`runner/Dockerfile.ubuntu`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/Dockerfile.ubuntu) | Runner image (multi-stage: tools, language runtimes, container tooling) |
 | [`runner/riscv-runner-entrypoint.sh`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/runner/riscv-runner-entrypoint.sh) | PID-1 entrypoint, exec's `run.sh --jitconfig "$RUNNER_JITCONFIG"` |
 | [`versions-map.json`](https://github.com/riseproject-dev/riscv-runner/blob/main/images/versions-map.json) | Pinned versions for all bundled tools and runtimes |
-| [`.github/workflows/deploy-images.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/deploy-images.yml) | Build, staging deploy, prod deploy |
+| [`.github/workflows/deploy-runner.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/deploy-runner.yml) | Build, staging deploy, prod deploy |
 | [`.github/workflows/update-images-versions-map.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/.github/workflows/update-images-versions-map.yml) | Weekly version sync |
 | [`scripts/update-versions.py`](https://github.com/riseproject-dev/riscv-runner/blob/main/scripts/update-versions.py) | Version sync script |

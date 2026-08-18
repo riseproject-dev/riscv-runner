@@ -8,7 +8,7 @@ nav_order: 1
 
 The webhook handler (`ghfe`, the "GitHub front-end") receives GitHub `workflow_job` events, validates them, and records job state in PostgreSQL. It is a Go HTTP service built on `net/http` and `pgx`, intentionally minimal: no GitHub API calls, no Kubernetes calls, just signature validation, label resolution, and a write to the database. Heavier work happens in the [scheduler](scheduler).
 
-**Source:** [`container/cmd/ghfe/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container/cmd/ghfe)
+**Source:** [`control-plane/cmd/ghfe/`](https://github.com/riseproject-dev/riscv-runner/tree/main/control-plane/cmd/ghfe)
 
 ## Request flow
 
@@ -52,7 +52,7 @@ Unhandled `X-GitHub-Event` headers are recorded with `outcome=unhandled_event` a
 
 ## Label matching
 
-`workflow_job.queued` invokes `matchLabelsToK8s(cfg, orgID, repoFullName, labels)` in [`container/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/payload.go). The current routing rules:
+`workflow_job.queued` invokes `matchLabelsToK8s(cfg, orgID, repoFullName, labels)` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go). The current routing rules:
 
 | Scope | Label | Pool | Image |
 |---|---|---|---|
@@ -109,13 +109,13 @@ On `workflow_job.in_progress`, the handler updates `status` to `running` and set
 
 ## Related files
 
-- [`container/cmd/ghfe/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/main.go): server setup and route registration.
-- [`container/cmd/ghfe/webhook.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/webhook.go): event dispatch and side-effect writes.
-- [`container/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/payload.go): `matchLabelsToK8s` and payload trimming.
-- [`container/cmd/ghfe/signature.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/signature.go): HMAC verification.
-- [`container/cmd/ghfe/staging_proxy.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/staging_proxy.go): prod-to-staging forwarder.
-- [`container/cmd/ghfe/setup.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/setup.go) and [`setup.gohtml`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/setup.gohtml): post-install landing pages.
-- [`container/cmd/ghfe/trace.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/trace.go): trace endpoint implementations.
-- [`container/internal/db.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/db.go): PostgreSQL operations.
-- [`container/internal/github.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/github.go): GitHub App auth and REST client.
-- [`container/internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/constants.go): config, entity ID constants, `EntityConfigs`.
+- [`control-plane/cmd/ghfe/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/main.go): server setup and route registration.
+- [`control-plane/cmd/ghfe/webhook.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/webhook.go): event dispatch and side-effect writes.
+- [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go): `matchLabelsToK8s` and payload trimming.
+- [`control-plane/cmd/ghfe/signature.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/signature.go): HMAC verification.
+- [`control-plane/cmd/ghfe/staging_proxy.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/staging_proxy.go): prod-to-staging forwarder.
+- [`control-plane/cmd/ghfe/setup.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/setup.go) and [`setup.gohtml`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/setup.gohtml): post-install landing pages.
+- [`control-plane/cmd/ghfe/trace.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/trace.go): trace endpoint implementations.
+- [`control-plane/internal/db.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/db.go): PostgreSQL operations.
+- [`control-plane/internal/github.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/github.go): GitHub App auth and REST client.
+- [`control-plane/internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/constants.go): config, entity ID constants, `EntityConfigs`.

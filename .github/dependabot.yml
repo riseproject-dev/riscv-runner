@@ -7,7 +7,7 @@ version: 2
 # `patterns`, and anything not matched gets no PR at all: for a multi-ecosystem
 # job the updater skips ungrouped updates entirely.
 multi-ecosystem-groups:
-  container:
+  control-plane:
     schedule:
       interval: "weekly"
       day: "monday"
@@ -29,17 +29,17 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "gomod"
-    directory: "/container"
+    directory: "/control-plane"
     patterns: ["*"]
-    multi-ecosystem-group: "container"
+    multi-ecosystem-group: "control-plane"
   - package-ecosystem: "npm"
-    directory: "/container"
+    directory: "/control-plane"
     patterns: ["*"]
-    multi-ecosystem-group: "container"
+    multi-ecosystem-group: "control-plane"
   - package-ecosystem: "docker"
-    directory: "/container"
+    directory: "/control-plane"
     patterns: ["*"]
-    multi-ecosystem-group: "container"
+    multi-ecosystem-group: "control-plane"
 
   # images/runner is left out: its only base image is FROM ubuntu:${OS_VERSION},
   # and Dependabot cannot parse a tag coming from an ARG. The remaining versions

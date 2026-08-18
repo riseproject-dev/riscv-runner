@@ -15,7 +15,7 @@ When a scheduler call to GitHub returns 404, the matching job is marked `failed`
 - **Every webhook delivery `ghfe` receives.** Includes `installation`, `installation_repositories`, `installation_target`, `workflow_job`, `ping`, plus a row for any unhandled `X-GitHub-Event` with `outcome=unhandled_event`.
 - **Every scheduler GitHub-auth failure.** `auth_attempt.404` (installation gone) or `auth_attempt.other_error` (everything else). Successful auths are not logged: the underlying `AuthenticateApp` is TTL-cached for 59 minutes, so success is the hot path and would drown the log.
 
-The `WebhookOutcome` type in [`container/internal/contract.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/contract.go) is the canonical list of `outcome` values. The column itself is `TEXT`, so new outcomes do not require schema migrations.
+The `WebhookOutcome` type in [`control-plane/internal/contract.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/contract.go) is the canonical list of `outcome` values. The column itself is `TEXT`, so new outcomes do not require schema migrations.
 
 `entity_id` is the GitHub `account.id`, which is stable across renames and reinstalls. Uninstalling and reinstalling the app produces a new `installation_id` but keeps the same `entity_id`.
 
@@ -74,4 +74,4 @@ TRACE_API_SECRET=... python3 scripts/trace_installation.py --entity-name risepro
 
 - The log table has no UNIQUE constraint on payload, so duplicate rows from redelivered webhooks are acceptable. Trace endpoints can dedupe by `delivery_id` from the JSONB payload when needed.
 - The webhook handler writes the `jobs` side-effect and the `installation_events` row in **separate transactions**, so a log-write failure does not lose the job state. See [Database schema § Transactional model](database#transactional-model).
-- The scheduler's `ghAuthenticate` wrapper ([`container/cmd/scheduler/gh_auth.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/gh_auth.go)) records failures only; the underlying `AuthenticateApp` is TTL-cached and would otherwise drown the log.
+- The scheduler's `ghAuthenticate` wrapper ([`control-plane/cmd/scheduler/gh_auth.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/gh_auth.go)) records failures only; the underlying `AuthenticateApp` is TTL-cached and would otherwise drown the log.

@@ -37,7 +37,7 @@ gofmt -l .              # exits 0 with no output if everything is formatted
 go test -race ./...
 ```
 
-CI mirrors this in [`../.github/workflows/deploy-device-plugin.yml`](../.github/workflows/deploy-device-plugin.yml) before building images.
+CI mirrors this in [`../.github/workflows/deploy-runner.yml`](../.github/workflows/deploy-runner.yml) before building images.
 
 ## Build a local image
 
@@ -77,7 +77,7 @@ kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
 kubectl rollout status  daemonset/rise-riscv-runner-device-plugin -n kube-system --watch
 ```
 
-`TAG=latest` deploys the prod tag. CI applies the same manifests automatically via [`../.github/workflows/deploy-device-plugin.yml`](../.github/workflows/deploy-device-plugin.yml).
+`TAG=latest` deploys the prod tag. CI applies the same manifests automatically via [`../.github/workflows/deploy-runner.yml`](../.github/workflows/deploy-runner.yml).
 
 ## Adding a new board
 
@@ -86,7 +86,7 @@ kubectl rollout status  daemonset/rise-riscv-runner-device-plugin -n kube-system
 3. Push the change; CI rebuilds the node-labeller image and rolls out the DaemonSet.
 4. New nodes auto-label on next labeller start; existing nodes pick up the new label when their labeller pod restarts.
 
-If the new board should be addressable by a new `runs-on:` label, also extend `matchLabelsToK8s` in [`../container/cmd/ghfe/payload.go`](../container/cmd/ghfe/payload.go) and update the [Runner Labels Reference](https://riscv-runners.riseproject.dev/docs/getting-started/labels).
+If the new board should be addressable by a new `runs-on:` label, also extend `matchLabelsToK8s` in [`../control-plane/cmd/ghfe/payload.go`](../control-plane/cmd/ghfe/payload.go) and update the [Runner Labels Reference](https://riscv-runners.riseproject.dev/docs/getting-started/labels).
 
 ## Resource and label semantics
 
@@ -100,4 +100,4 @@ nodeSelector:
   riseproject.dev/board: scw-em-rv1
 ```
 
-The combination guarantees exclusive node access (one runner pod per node) and lands the pod on the right hardware. The scheduler in `container/cmd/scheduler/` sets both fields when provisioning.
+The combination guarantees exclusive node access (one runner pod per node) and lands the pod on the right hardware. The scheduler in `control-plane/cmd/scheduler/` sets both fields when provisioning.

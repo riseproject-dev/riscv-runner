@@ -22,7 +22,7 @@ Production and staging each have their own Kubernetes cluster on Scaleway. Four 
 - `ghfe` + `scheduler` (production, deployed from `main`).
 - `ghfe` + `scheduler` (staging, deployed from `staging`).
 
-All four are defined by [`container/serverless.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/serverless.yml). The scheduler's `serverless.yml` pins `minScale=1 maxScale=1` so the `LOCK TABLE workers` invariant is trivially preserved.
+All four are defined by [`control-plane/serverless.yml`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/serverless.yml). The scheduler's `serverless.yml` pins `minScale=1 maxScale=1` so the `LOCK TABLE workers` invariant is trivially preserved.
 
 | Service | Product | Purpose |
 |---|---|---|

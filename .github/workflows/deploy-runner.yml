@@ -1,0 +1,351 @@
+# SPDX-License-Identifier: MIT
+name: Build and Deploy Runner
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'images/**'
+      - 'device-plugin/**'
+      - '.github/workflows/deploy-runner.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'images/**'
+      - 'device-plugin/**'
+      - '.github/workflows/deploy-runner.yml'
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      docker-registry: ${{ steps.variables.outputs.docker-registry }}
+      docker-output: ${{ steps.variables.outputs.docker-output }}
+      docker-output-file: ${{ steps.variables.outputs.docker-output-file }}
+    steps:
+      - name: Setup variables
+        id: variables
+        run: |
+          set -eux -o pipefail
+
+          # Which Docker registry to use
+          if ${{ github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch }}; then
+            echo "docker-registry=rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s" >> $GITHUB_OUTPUT
+          elif ${{ github.event_name != 'pull_request' || github.repository == github.event.pull_request.head.repo.full_name }}; then
+            echo "docker-registry=ghcr.io/${{ github.repository }}" >> $GITHUB_OUTPUT
+          elif ${{ github.actor == 'dependabot[bot]' }}; then
+            # we just want to make sure it builds and we don't export
+            echo "docker-registry=" >> $GITHUB_OUTPUT
+          else
+            # we do not push to registry if PR is coming from external repository
+            echo "docker-output=type=tar,dest=/tmp/image.tar" >> $GITHUB_OUTPUT
+            echo "docker-output-file=/tmp/image.tar" >> $GITHUB_OUTPUT
+          fi
+
+
+  build-runner:
+    strategy:
+      matrix:
+        include:
+        - os: ubuntu
+          os-version: 24.04
+        - os: ubuntu
+          os-version: 26.04
+      fail-fast: false
+    runs-on: ubuntu-latest
+    needs: [setup]
+    permissions:
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: images
+
+      - name: Login to Container Registry
+        if: ${{ needs.setup.outputs.docker-registry != '' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ needs.setup.outputs.docker-registry }}
+          username: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && 'nologin' || github.actor }}
+          password: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && secrets.SCW_SECRET_KEY || secrets.GITHUB_TOKEN }}
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # 4.2.0
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+
+      - name: Build ${{ matrix.os }}-${{ matrix.os-version }} runner image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          SOURCE_DATE_EPOCH: 0 # No timestamps in layers
+        with:
+          context: images/runner
+          file: images/runner/Dockerfile.${{ matrix.os }}
+          platforms: linux/riscv64
+          build-args: |
+            OS_VERSION=${{ matrix.os-version }}
+          tags: |
+            ${{ needs.setup.outputs.docker-registry != '' && format('{0}/riscv-runner:{1}-{2}-sha-{3}', needs.setup.outputs.docker-registry, matrix.os, matrix.os-version, github.sha) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            ${{ format('type=gha,scope=runner-{0}-{1}', matrix.os, matrix.os-version) }}
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && format('type=gha,scope=runner-{0}-{1},mode=max', matrix.os, matrix.os-version) || '' }}
+          push: ${{ needs.setup.outputs.docker-registry != '' }}
+          pull: ${{ github.ref_name == github.event.repository.default_branch }}
+          outputs: ${{ needs.setup.outputs.docker-output }}
+
+      - name: Upload ${{ matrix.os }}-${{ matrix.os-version }} runner image
+        if: ${{ needs.setup.outputs.docker-output != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.os }}-${{ matrix.os-version }}-runner-image
+          path: |
+            ${{ needs.setup.outputs.docker-output-file }}
+
+  test-device-plugin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: device-plugin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: device-plugin
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: device-plugin/go.mod
+          cache-dependency-path: device-plugin/go.sum
+
+      - name: go vet
+        run: go vet ./...
+      - name: gofmt check
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt diff:"
+            echo "$out"
+            exit 1
+          fi
+      - name: go test
+        run: go test -race ./...
+
+  build-device-plugin:
+    runs-on: ubuntu-latest
+    needs: [setup, test-device-plugin]
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: device-plugin
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Login to Container Registry
+        if: ${{ needs.setup.outputs.docker-registry != '' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ needs.setup.outputs.docker-registry }}
+          username: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && 'nologin' || github.actor }}
+          password: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && secrets.SCW_SECRET_KEY || secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+
+      - name: Build device-plugin image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          platforms: linux/riscv64
+          context: device-plugin
+          file: device-plugin/Dockerfile
+          target: device-plugin
+          tags: |
+            ${{ needs.setup.outputs.docker-registry != '' && format('{0}/riscv-runner:device-plugin-sha-{1}', needs.setup.outputs.docker-registry, github.sha) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
+          push: ${{ needs.setup.outputs.docker-registry != '' }}
+          pull: ${{ github.ref_name == github.event.repository.default_branch }}
+
+      - name: Build node-labeller image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          platforms: linux/riscv64
+          context: device-plugin
+          file: device-plugin/Dockerfile
+          target: node-labeller
+          tags: |
+            ${{ needs.setup.outputs.docker-registry != '' && format('{0}/riscv-runner:node-labeller-sha-{1}', needs.setup.outputs.docker-registry, github.sha) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
+          push: ${{ needs.setup.outputs.docker-registry != '' }}
+          pull: ${{ github.ref_name == github.event.repository.default_branch }}
+
+  deploy-staging:
+    if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
+    name: "deploy to staging"
+    needs: [setup, build-runner, build-device-plugin]
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: ${{ github.workflow_ref }}-deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Login to Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ needs.setup.outputs.docker-registry }}
+          username: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && 'nologin' || github.actor }}
+          password: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && secrets.SCW_SECRET_KEY || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Tag ubuntu-24.04 image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-staging \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-sha-${{ github.sha }}
+
+      - name: Tag ubuntu-26.04 image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-staging \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-sha-${{ github.sha }}
+
+      - name: Tag device-plugin image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-staging \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-sha-${{ github.sha }}
+
+      - name: Tag node-labeller image for staging
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-staging \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-sha-${{ github.sha }}
+
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.K8S_KUBECONFIG_GH_DEPLOY }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Apply device-plugin DaemonSet
+        run: |
+          envsubst < device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
+          kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
+
+      - name: Apply node-labeller DaemonSet
+        run: |
+          envsubst < device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
+          kubectl rollout restart daemonset/rise-riscv-runner-node-labeller -n kube-system
+
+      - name: Rollout Restart
+        run: |
+          while ! kubectl rollout status daemonset/rise-riscv-runner-device-plugin -n kube-system --timeout=5m 2>/dev/null; do
+            kubectl get pods -o wide -n kube-system \
+              -l app.kubernetes.io/name=riscv-runner-device-plugin \
+              -l app.kubernetes.io/component=device-plugin \
+              --sort-by=.spec.nodeName 2>/dev/null
+          done
+
+  deploy-prod:
+    if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
+    name: "deploy to prod"
+    needs: [setup, build-runner, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: ${{ github.workflow_ref }}-deploy-prod
+      cancel-in-progress: false
+    steps:
+      - name: Login to Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ needs.setup.outputs.docker-registry }}
+          username: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && 'nologin' || github.actor }}
+          password: ${{ startsWith(needs.setup.outputs.docker-registry, 'rg.fr-par.scw.cloud') && secrets.SCW_SECRET_KEY || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Tag ubuntu-24.04 image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-latest \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-sha-${{ github.sha }}
+
+      - name: Tag ubuntu-26.04 image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-latest \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-sha-${{ github.sha }}
+
+      - name: Tag device-plugin image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-latest \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-sha-${{ github.sha }}
+
+      - name: Tag node-labeller image for prod
+        run: >-
+          docker buildx imagetools create \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-latest \
+            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-sha-${{ github.sha }}
+
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.K8S_KUBECONFIG_GH_DEPLOY }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Apply device-plugin DaemonSet
+        run: |
+          envsubst < device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
+          kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
+
+      - name: Apply node-labeller DaemonSet
+        run: |
+          envsubst < device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
+          kubectl rollout restart daemonset/rise-riscv-runner-node-labeller -n kube-system
+
+      - name: Rollout Restart
+        run: |
+          while ! kubectl rollout status daemonset/rise-riscv-runner-device-plugin -n kube-system --timeout=5m 2>/dev/null; do
+            kubectl get pods -o wide -n kube-system \
+              -l app.kubernetes.io/name=riscv-runner-device-plugin \
+              -l app.kubernetes.io/component=device-plugin \
+              --sort-by=.spec.nodeName 2>/dev/null
+          done
