@@ -6,13 +6,13 @@ _site/
 .bundle/
 vendor/
 
-# Node (container/)
+# Node (control-plane/)
 node_modules
 
-# Serverless (container/)
+# Serverless (control-plane/)
 .serverless
 
-# Python (scripts/, container/)
+# Python (scripts/, control-plane/)
 __pycache__/
 package/
 **/.venv*/

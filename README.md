@@ -28,9 +28,9 @@ This is a monorepo containing every component of the service.
 | Path | Component | Component README |
 |------|-----------|------------------|
 | [`website/`](website) | Jekyll documentation site, deployed to [riscv-runners.riseproject.dev](https://riscv-runners.riseproject.dev/) | [`website/CLAUDE.md`](website/CLAUDE.md) |
-| [`container/`](container) | GitHub App webhook handler (`ghfe`) and demand-matching scheduler (Go) | [`container/README.md`](container/README.md) |
-| [`images/`](images) | Runner container image (Ubuntu + the standard CI tool set), built on `linux/riscv64` | [`images/README.md`](images/README.md) |
-| [`device-plugin/`](device-plugin) | Kubernetes device plugin and node labeller for RISC-V nodes (Go) | [`device-plugin/README.md`](device-plugin/README.md) |
+| [`control-plane/`](control-plane) | GitHub App webhook handler (`ghfe`) and demand-matching scheduler (Go) | [`control-plane/README.md`](control-plane/README.md) |
+| [`runner/images/`](runner/images) | Runner container image (Ubuntu + the standard CI tool set), built on `linux/riscv64` | [`runner/images/README.md`](runner/images/README.md) |
+| [`runner/device-plugin/`](runner/device-plugin) | Kubernetes device plugin: node labelling and exclusive-access scheduling for RISC-V nodes (Go) | [`runner/device-plugin/README.md`](runner/device-plugin/README.md) |
 | [`scripts/`](scripts) | Operator scripts (Scaleway provisioning, runner health probe, install-trace CLI, version sync) | — |
 | [`.github/`](.github) | Workflows, dependabot config | — |
 | [`LICENSE`](LICENSE) | MIT | — |
@@ -44,14 +44,13 @@ Each component has its own workflow under `.github/workflows/`, scoped by `paths
 | Workflow | Triggers | What it does |
 |----------|----------|--------------|
 | [`deploy-website.yml`](.github/workflows/deploy-website.yml) | `website/**`, manual | Build and deploy the Jekyll site to GitHub Pages |
-| [`deploy-container.yml`](.github/workflows/deploy-container.yml) | `container/**`, manual | Test, build, push, deploy `ghfe`+`scheduler` to Scaleway (staging then prod with approval) |
-| [`deploy-images.yml`](.github/workflows/deploy-images.yml) | `images/**`, daily at 06:00 UTC, manual | Build the runner image on RISC-V hardware, push, retag for staging then prod |
+| [`deploy-control-plane.yml`](.github/workflows/deploy-control-plane.yml) | `control-plane/**`, manual | Test, build, push, deploy `ghfe`+`scheduler` to Scaleway (staging then prod with approval) |
+| [`deploy-runner.yml`](.github/workflows/deploy-runner.yml) | `runner/**`, daily at 06:00 UTC, manual | Build the runner image on RISC-V hardware plus both DaemonSet images, push, retag for staging then prod, roll out across the cluster |
 | [`update-images-versions-map.yml`](.github/workflows/update-images-versions-map.yml) | weekly cron, manual | Run `scripts/update-versions.py` and open a draft PR if pinned versions changed |
-| [`deploy-device-plugin.yml`](.github/workflows/deploy-device-plugin.yml) | `device-plugin/**`, manual | Build both DaemonSet images, push, roll out across the cluster |
 
 ## Components in 30 seconds
 
-### `container/`
+### `control-plane/`
 
 Two Go binaries deployed together as Scaleway Container Functions: `ghfe` (webhook handler, no GitHub API or k8s calls, just signature validation, label routing, and PostgreSQL writes) and `scheduler` (5-phase reconciler under `LOCK TABLE workers`, demand-matching, pod provisioning, plus read-only HTML dashboards at `/usage`, `/history`, `/workers`). PostgreSQL is the state store, woken by `LISTEN/NOTIFY` to avoid polling.
 
@@ -59,13 +58,13 @@ Full reference: [Architecture — Webhook Handler](https://riscv-runners.risepro
 
 ### `images/`
 
-Single unified runner image based on Ubuntu, built for `linux/riscv64`. Includes the [GitHub Actions Runner for RISC-V](https://github.com/Cloud-V-10xE/github-runner-riscv) (.NET 8), the standard set of language runtimes and CI tools, and a Docker-in-Docker daemon. Pinned tool versions live in [`images/versions-map.json`](images/versions-map.json) and are weekly-refreshed against [`actions/runner-images`](https://github.com/actions/runner-images).
+Single unified runner image based on Ubuntu, built for `linux/riscv64`. Includes the [GitHub Actions Runner for RISC-V](https://github.com/Cloud-V-10xE/github-runner-riscv) (.NET 8), the standard set of language runtimes and CI tools, and a Docker-in-Docker daemon. Pinned tool versions live in [`runner/images/versions-map.json`](runner/images/versions-map.json) and are weekly-refreshed against [`actions/runner-images`](https://github.com/actions/runner-images).
 
 Full reference: [Architecture — Container Images](https://riscv-runners.riseproject.dev/docs/architecture/images).
 
-### `device-plugin/`
+### `runner/device-plugin/`
 
-Two Go binaries that run as DaemonSets on every RISC-V worker node: `k8s-device-plugin` registers a single `riseproject.com/runner` resource per node so the Kubernetes scheduler enforces one runner pod per node, and `k8s-node-labeller` reads the SoC from `/sys/firmware/devicetree/base/compatible` and applies a `riseproject.dev/board=<board>` label for hardware-specific scheduling.
+A single Go binary that runs as a DaemonSet on every RISC-V worker node. It labels the node with `riseproject.dev/board=<board>` at startup (reading the SoC from `/sys/firmware/devicetree/base/compatible`), then registers a single `riseproject.com/runner` resource so the Kubernetes scheduler enforces one runner pod per node.
 
 Full reference: [Architecture — Kubernetes Infrastructure](https://riscv-runners.riseproject.dev/docs/architecture/kubernetes).
 
@@ -73,7 +72,7 @@ Full reference: [Architecture — Kubernetes Infrastructure](https://riscv-runne
 
 ```
   ┌──────────────┐  workflow_job   ┌─────────────────┐
-  │ User repo on │ ──────────────▶ │ container/      │
+  │ User repo on │ ──────────────▶ │ control-plane/  │
   │ github.com   │   (webhook)     │   ghfe          │
   └──────────────┘                 │   scheduler     │
                                    └────────┬────────┘
@@ -83,8 +82,7 @@ Full reference: [Architecture — Kubernetes Infrastructure](https://riscv-runne
                             │ Kubernetes cluster on RISC-V      │
                             │                                   │
                             │  device-plugin   (DaemonSet)      │
-                            │  node-labeller   (DaemonSet)      │
-                            │  runner pod      (images/runner)  │
+                            │  runner pod      (runner/images)  │
                             └───────────────────────────────────┘
 ```
 

@@ -49,9 +49,9 @@ See the full [Runner Labels Reference](docs/getting-started/labels) for hardware
 
 The whole service lives in [`riseproject-dev/riscv-runner`](https://github.com/riseproject-dev/riscv-runner):
 
-- **[`container/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container)**: GitHub App webhook handler and scheduler
-- **[`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin)**: Kubernetes device plugin and node labeller
-- **[`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images)**: Runner container image (Ubuntu + tools)
+- **[`control-plane/`](https://github.com/riseproject-dev/riscv-runner/tree/main/control-plane)**: GitHub App webhook handler and scheduler
+- **[`runner/device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/device-plugin)**: Kubernetes device plugin (node labelling + exclusive scheduling)
+- **[`runner/images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/images)**: Runner container image (Ubuntu + tools)
 
 A separate [`riscv-runner-sample`](https://github.com/riseproject-dev/riscv-runner-sample) repo demonstrates how to wire up workflows to the runners.
 

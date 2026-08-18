@@ -118,14 +118,14 @@ Both apps share `GHAPP_WEBHOOK_SECRET`. Each app has its own RSA private key (`G
 
 | Secret | Used by | Purpose |
 |---|---|---|
-| `SCW_SECRET_KEY` | `deploy-container.yml`, `deploy-images.yml`, `deploy-device-plugin.yml` | Scaleway API key for registry login and `serverless deploy` |
+| `SCW_SECRET_KEY` | `deploy-control-plane.yml`, `deploy-runner.yml` | Scaleway API key for registry login and `serverless deploy` |
 | `GHAPP_WEBHOOK_SECRET` | `ghfe` runtime | HMAC secret shared by both GitHub Apps |
 | `GHAPP_ORG_PRIVATE_KEY` | `ghfe`, `scheduler` runtime | RSA private key for the org App (PEM) |
 | `GHAPP_PERSONAL_PRIVATE_KEY` | `ghfe`, `scheduler` runtime | RSA private key for the personal App (PEM) |
 | `K8S_KUBECONFIG` | `scheduler` runtime, image and device-plugin deploys | Kubeconfig with `edit` (scheduler) or cluster-admin (deploys) access |
 | `POSTGRES_URL` | `ghfe`, `scheduler` runtime | DSN, e.g. `postgresql://user:pass@host:5432/db?sslmode=require` |
 | `TRACE_API_SECRET` | `ghfe`, `trace_installation.py` | Bearer token for `/trace/*` endpoints |
-| `RISCV_RUNNER_SAMPLE_ACCESS_TOKEN` | `deploy-container.yml` | PAT for triggering the sample workflow on staging deploy |
+| `RISCV_RUNNER_SAMPLE_ACCESS_TOKEN` | `deploy-control-plane.yml` | PAT for triggering the sample workflow on staging deploy |
 
 ## Build a runner image locally
 
@@ -134,10 +134,10 @@ For experimenting with the runner image without going through CI:
 ```sh
 docker buildx build \
   --platform linux/riscv64 \
-  --file images/runner/Dockerfile.ubuntu \
+  --file runner/images/Dockerfile.ubuntu \
   --build-arg OS_VERSION=24.04 \
   --tag riscv-runner:ubuntu-24.04-local \
-  images/runner
+  runner/images
 ```
 
 Best run on a RISC-V host so no emulation is involved. On x86_64, `binfmt_misc` with QEMU will let the build complete, slowly.

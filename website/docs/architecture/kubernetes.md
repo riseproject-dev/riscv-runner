@@ -6,9 +6,9 @@ nav_order: 3
 
 # Kubernetes Infrastructure
 
-Two components run as DaemonSets on every RISC-V node in the cluster: the **device plugin** and the **node labeller**. Together, they enable board-specific scheduling with exclusive node access.
+The device plugin runs as a DaemonSet on every RISC-V node. At startup it labels the node with the detected SoC board name, then registers with the kubelet to advertise a scheduling resource. Together, the label and the resource enable board-specific scheduling with exclusive node access.
 
-**Source:** the [`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin) directory
+**Source:** the [`runner/device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/device-plugin) directory
 
 ## How it fits together
 
@@ -61,17 +61,9 @@ Since only one unit exists per node, the Kubernetes scheduler will never place t
 3. `Allocate()` returns an empty response. No actual device allocation is needed; only the scheduling constraint matters
 4. A file watcher monitors the kubelet socket directory and re-registers if kubelet restarts
 
-### DaemonSet configuration
+## Node labelling
 
-- **Namespace:** `kube-system`
-- **Node selector:** `kubernetes.io/arch: riscv64`
-- **Priority:** `system-node-critical`
-- **Volume mount:** `/var/lib/kubelet/device-plugins` (host path)
-- **Image:** `rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:device-plugin-latest`
-
-## Node labeller
-
-The node labeller detects the SoC on each RISC-V node and applies a `riseproject.dev/board` label. Runner pods use this label in their `nodeSelector` to land on the correct hardware.
+The device plugin detects the SoC on each RISC-V node at startup and applies a `riseproject.dev/board` label. Runner pods use this label in their `nodeSelector` to land on the correct hardware.
 
 ### SoC detection
 
@@ -90,20 +82,19 @@ The node labeller detects the SoC on each RISC-V node and applies a `riseproject
 
 - **Namespace:** `kube-system`
 - **Node selector:** `kubernetes.io/arch: riscv64`
+- **Priority:** `system-node-critical`
 - **RBAC:** ServiceAccount with ClusterRole granting `get` and `patch` on nodes
 - **Environment:** `NODE_NAME` from downward API (`spec.nodeName`)
-- **Volume mount:** `/sys/firmware/devicetree/base` (read-only)
+- **Volume mounts:** `/var/lib/kubelet/device-plugins` (host path), `/sys` (read-only host path)
 - **Privileged:** Yes (required for device tree access)
-- **Image:** `rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:node-labeller-latest`
+- **Image:** `rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:device-plugin-latest`
 
 ## Source files
 
 | File | Role |
 |------|------|
-| [`cmd/k8s-device-plugin/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/cmd/k8s-device-plugin/main.go) | Device plugin entry point |
-| [`pkg/plugin/plugin.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/pkg/plugin/plugin.go) | gRPC server, kubelet registration, watchdog |
-| [`cmd/k8s-node-labeller/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/cmd/k8s-node-labeller/main.go) | Node labeller entry point |
-| [`pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/pkg/soc/detect.go) | Device tree parsing and SoC → board mapping |
-| [`pkg/labeler/labeler.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/pkg/labeler/labeler.go) | Kubernetes API node label patching |
-| [`k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/k8s-ds-device-plugin.yaml) | Device plugin DaemonSet manifest |
-| [`k8s-ds-node-labeller.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/k8s-ds-node-labeller.yaml) | Node labeller DaemonSet + RBAC manifest |
+| [`cmd/k8s-device-plugin/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/cmd/k8s-device-plugin/main.go) | Entry point: label node, then start device plugin |
+| [`pkg/plugin/plugin.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/plugin/plugin.go) | gRPC server, kubelet registration, watchdog |
+| [`pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go) | Device tree parsing and SoC → board mapping |
+| [`pkg/labeler/labeler.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/labeler/labeler.go) | Kubernetes API node label patching |
+| [`k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-device-plugin.yaml) | DaemonSet + RBAC manifest |

@@ -21,6 +21,6 @@ If you cannot say it in a couple of lines, rename or restructure instead.
 
 ## Style
 
-- Run `go vet ./...`, `gofmt -l .`, `go test -race ./...` in any module you touch (`container/`, `device-plugin/`) before considering work done.
+- Run `go vet ./...`, `gofmt -l .`, `go test -race ./...` in any module you touch (`control-plane/`, `device-plugin/`) before considering work done.
 - No em dashes anywhere (rewrite naturally with periods, colons, commas, or parentheses).
 - Component-specific docs live in each subdirectory's `README.md`. The exhaustive reference is on the [website](https://riscv-runners.riseproject.dev/); writing style guide for the site is in [`website/CLAUDE.md`](website/CLAUDE.md).

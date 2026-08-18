@@ -8,7 +8,7 @@ nav_order: 2
 
 The scheduler is a background Go service that runs a reconciliation loop. It matches pending job demand to available RISC-V node capacity, provisions runner pods, syncs worker state with Kubernetes and GitHub, and cleans up terminated pods. It also serves read-only HTML dashboards for jobs and workers.
 
-**Source:** [`container/cmd/scheduler/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container/cmd/scheduler)
+**Source:** [`control-plane/cmd/scheduler/`](https://github.com/riseproject-dev/riscv-runner/tree/main/control-plane/cmd/scheduler)
 
 ## Reconciliation loop
 
@@ -70,7 +70,7 @@ deficit = demand - supply
 For each pending job, processed FIFO by `created_at`:
 
 1. **Demand check.** Skip if `supply >= demand`.
-2. **Max-workers cap.** Skip if the entity (organization or personal account) has reached its configured limit across all pools. The default is `DefaultMaxWorkers = 20`; per-entity overrides live in `EntityConfigs` in [`internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/constants.go).
+2. **Max-workers cap.** Skip if the entity (organization or personal account) has reached its configured limit across all pools. The default is `DefaultMaxWorkers = 20`; per-entity overrides live in `EntityConfigs` in [`internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/constants.go).
 3. **Capacity check.** Query Kubernetes for available `riseproject.com/runner` slots on nodes matching the pool's `riseproject.dev/board` selector. Skip if no slots are free.
 4. **Provision.** All checks pass:
    - `DB.AddWorker` reserves a unique runner name (retries on `ErrDuplicatePodName`).
@@ -155,9 +155,9 @@ AddWorker            pod transitions               pod terminates
 
 | Setting | Value | Source |
 |---|---|---|
-| Poll interval | 15 s | [`internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/constants.go) (`PollInterval`) |
-| Max workers per entity | Per-entity in `EntityConfigs`, else 20 | [`internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/constants.go) (`DefaultMaxWorkers`) |
-| Pod active deadline | 525,600 s (~6 days) | [`internal/k8s.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/k8s.go) |
+| Poll interval | 15 s | [`internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/constants.go) (`PollInterval`) |
+| Max workers per entity | Per-entity in `EntityConfigs`, else 20 | [`internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/constants.go) (`DefaultMaxWorkers`) |
+| Pod active deadline | 525,600 s (~6 days) | [`internal/k8s.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/k8s.go) |
 | Pod delete grace | 6 h | `PodDeleteGrace` |
 | Runner registration timeout | 120 s | `RunnerRegistrationTimeout` |
 | Runner pending timeout | 600 s | `RunnerPendingTimeout` |
@@ -181,14 +181,14 @@ The scheduler exposes read-only HTML dashboards on the same port (`8080`). Each 
 
 ## Related files
 
-- [`container/cmd/scheduler/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/main.go): server, loop, `WithWorkerLock` wrapper.
-- [`container/cmd/scheduler/handlers.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/handlers.go): HTTP routes.
-- [`container/cmd/scheduler/sync_jobs.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/sync_jobs.go): GH reconcile, stuck-queued detection.
-- [`container/cmd/scheduler/sync_workers.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/sync_workers.go): 5-phase pipeline and `classifyWorker`.
-- [`container/cmd/scheduler/demand_match.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/demand_match.go): demand matching and provisioning.
-- [`container/cmd/scheduler/gh_auth.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/gh_auth.go): `ghAuthenticate` wrapper and `auth_attempt.*` logging.
-- [`container/cmd/scheduler/templates.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/scheduler/templates.go): HTML rendering for dashboards.
-- [`container/internal/k8s.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/k8s.go): pod provisioning, capacity checks, `CollectPodFailureInfo`.
-- [`container/internal/github.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/github.go): GitHub App auth, JIT config, runner group / runner CRUD.
-- [`container/internal/db.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/db.go): jobs / workers / events DB operations, `WithWorkerLock`.
-- [`container/internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/internal/constants.go): all configuration and `EntityConfigs`.
+- [`control-plane/cmd/scheduler/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/main.go): server, loop, `WithWorkerLock` wrapper.
+- [`control-plane/cmd/scheduler/handlers.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/handlers.go): HTTP routes.
+- [`control-plane/cmd/scheduler/sync_jobs.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/sync_jobs.go): GH reconcile, stuck-queued detection.
+- [`control-plane/cmd/scheduler/sync_workers.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/sync_workers.go): 5-phase pipeline and `classifyWorker`.
+- [`control-plane/cmd/scheduler/demand_match.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/demand_match.go): demand matching and provisioning.
+- [`control-plane/cmd/scheduler/gh_auth.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/gh_auth.go): `ghAuthenticate` wrapper and `auth_attempt.*` logging.
+- [`control-plane/cmd/scheduler/templates.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/scheduler/templates.go): HTML rendering for dashboards.
+- [`control-plane/internal/k8s.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/k8s.go): pod provisioning, capacity checks, `CollectPodFailureInfo`.
+- [`control-plane/internal/github.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/github.go): GitHub App auth, JIT config, runner group / runner CRUD.
+- [`control-plane/internal/db.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/db.go): jobs / workers / events DB operations, `WithWorkerLock`.
+- [`control-plane/internal/constants.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/internal/constants.go): all configuration and `EntityConfigs`.

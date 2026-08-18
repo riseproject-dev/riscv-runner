@@ -43,9 +43,9 @@ Automatic on push to `main` via `.github/workflows/deploy-website.yml`. No manua
 
 ## Related directories in the monorepo
 
-- [`container/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container): GitHub App webhook handler and scheduler
-- [`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin): Kubernetes device plugin and node labeller
-- [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images): Runner container images
+- [`control-plane/`](https://github.com/riseproject-dev/riscv-runner/tree/main/control-plane): GitHub App webhook handler and scheduler
+- [`runner/device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/device-plugin): Kubernetes device plugin (node labelling + exclusive scheduling)
+- [`runner/images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/images): Runner container images
 
 Architecture pages reference source files in these directories. A separate [`riscv-runner-sample`](https://github.com/riseproject-dev/riscv-runner-sample) repo demonstrates user-facing usage and is not part of this monorepo.
 

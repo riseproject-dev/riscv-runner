@@ -6,7 +6,7 @@ extract package versions from its internal.ubuntu24.json manifest,
 and update the corresponding ARG lines in the Dockerfiles.
 
 Mapping between JSON fields and Dockerfile ARGs is defined in
-images/versions-map.json.
+runner/images/versions-map.json.
 """
 
 import json

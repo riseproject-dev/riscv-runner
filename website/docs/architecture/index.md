@@ -12,9 +12,9 @@ has_children: true
 
 | Directory | Language | Role |
 |-----------|----------|------|
-| [`container/`](https://github.com/riseproject-dev/riscv-runner/tree/main/container) | Go | Webhook handler (`ghfe`), scheduler, GitHub API integration |
-| [`device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/device-plugin) | Go | Kubernetes device plugin (1 pod/node), node labeller (SoC detection) |
-| [`images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/images) | Dockerfile | Runner image (Ubuntu + tools) |
+| [`control-plane/`](https://github.com/riseproject-dev/riscv-runner/tree/main/control-plane) | Go | Webhook handler (`ghfe`), scheduler, GitHub API integration |
+| [`runner/device-plugin/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/device-plugin) | Go | Kubernetes device plugin (node labelling + exclusive scheduling) |
+| [`runner/images/`](https://github.com/riseproject-dev/riscv-runner/tree/main/runner/images) | Dockerfile | Runner image (Ubuntu + tools) |
 
 A separate [`riscv-runner-sample`](https://github.com/riseproject-dev/riscv-runner-sample) repo holds example workflows for end users.
 
@@ -69,13 +69,13 @@ sequenceDiagram
 
 **Two GitHub Apps.** Organizations and personal accounts use separate GitHub Apps. The org app uses organization-level runner registration (requires Self-hosted runners permission). The personal app uses repository-level runner registration (requires Administration permission). The worker selects the correct app and API path based on entity type.
 
-**Board-based scheduling.** The node labeller reads the device tree on each RISC-V node, detects the SoC, and applies a `riseproject.dev/board` label. Runner pods use a `nodeSelector` to land on the correct hardware for each label.
+**Board-based scheduling.** The device plugin reads the device tree on each RISC-V node at startup, detects the SoC, and applies a `riseproject.dev/board` label. Runner pods use a `nodeSelector` to land on the correct hardware for each label.
 
 ## Components
 
 - [Webhook Handler](ghfe): request validation, label matching, PostgreSQL writes.
 - [Scheduler](scheduler): reconciliation loop, demand matching, pod lifecycle, dashboards.
-- [Kubernetes Infrastructure](kubernetes): device plugin, node labeller, scheduling.
+- [Kubernetes Infrastructure](kubernetes): device plugin, board labelling, scheduling.
 - [Container Images](images): runner image and build pipeline.
 - [Database Schema](database): jobs, workers, installation events.
 - [Installation Event Log](installation-events): audit trail and trace endpoints.

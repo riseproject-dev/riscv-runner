@@ -49,11 +49,11 @@ ssh root@$HOST cat /etc/kubernetes/kubeconfig-gh-deploy.conf \
   | gh secret set K8S_KUBECONFIG --repo riseproject-dev/riscv-runner --env prod
 ```
 
-`gh-app` is the kubeconfig used at runtime by the `scheduler` container; it has `edit` access plus node list permission. `gh-deploy` is used by CI (the `K8S_KUBECONFIG` secret read by `deploy-images.yml` and `deploy-device-plugin.yml`); it has cluster-admin.
+`gh-app` is the kubeconfig used at runtime by the `scheduler` container; it has `edit` access plus node list permission. `gh-deploy` is used by CI (the `K8S_KUBECONFIG` secret read by `deploy-runner.yml`); it has cluster-admin.
 
 ## After provisioning
 
-The control plane bootstraps with [`device-plugin/k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/k8s-ds-device-plugin.yaml) and [`device-plugin/k8s-ds-node-labeller.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/k8s-ds-node-labeller.yaml) applied. Each newly-joined node is auto-labelled by the node labeller; the device plugin advertises `riseproject.com/runner: 1` so the scheduler can target it.
+The control plane bootstraps with [`runner/device-plugin/k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-device-plugin.yaml) applied. Each newly-joined node is auto-labelled by the device plugin; it also advertises `riseproject.com/runner: 1` so the scheduler can target it.
 
 To verify a node is ready to accept jobs:
 
@@ -76,13 +76,13 @@ RBAC is configured automatically by `scw.py control-plane create`. Two user iden
 - **`gh-app`** — used by the scheduler container. `edit` access plus `nodes: list` for capacity checks.
 - **`gh-deploy`** — used by CI. `cluster-admin`. Stored in GitHub Secrets as `K8S_KUBECONFIG`.
 
-The node labeller has its own ServiceAccount in `kube-system` with a ClusterRole granting `nodes: get, patch`. The device plugin needs no RBAC (it talks to the local kubelet via a Unix socket).
+The device plugin has a ServiceAccount in `kube-system` with a ClusterRole granting `nodes: get, patch` (for labelling) and talks to the local kubelet via a Unix socket (no additional RBAC needed for device plugin registration).
 
 ## Adding a new board
 
 When new RISC-V hardware enters the fleet:
 
 1. SSH into a node of the new board and read `/sys/firmware/devicetree/base/compatible`. Note the first NUL-separated entry.
-2. Add a row to `boardMap` in [`device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/device-plugin/pkg/soc/detect.go).
-3. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`container/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/container/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels).
+2. Add a row to `boardMap` in [`runner/device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go).
+3. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels).
 4. Push and let the device-plugin deploy workflow roll out the new labeller.
