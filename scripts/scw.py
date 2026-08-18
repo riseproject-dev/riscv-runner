@@ -2212,9 +2212,8 @@ runcmd:
     # Apply cluster roles
     kubectl apply -f /etc/kubernetes/clusterroles.yml
 
-    # Apply device plugin DaemonSets
+    # Apply device plugin DaemonSet
     curl -fsSL https://raw.githubusercontent.com/riseproject-dev/riscv-runner/refs/heads/main/runner/device-plugin/k8s-ds-device-plugin.yaml | env TAG="@@TAG@@" envsubst | kubectl apply -f -
-    curl -fsSL https://raw.githubusercontent.com/riseproject-dev/riscv-runner/refs/heads/main/runner/device-plugin/k8s-ds-node-labeller.yaml | env TAG="@@TAG@@" envsubst | kubectl apply -f -
 """
 
 

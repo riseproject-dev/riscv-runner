@@ -53,7 +53,7 @@ ssh root@$HOST cat /etc/kubernetes/kubeconfig-gh-deploy.conf \
 
 ## After provisioning
 
-The control plane bootstraps with [`runner/device-plugin/k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-device-plugin.yaml) and [`runner/device-plugin/k8s-ds-node-labeller.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-node-labeller.yaml) applied. Each newly-joined node is auto-labelled by the node labeller; the device plugin advertises `riseproject.com/runner: 1` so the scheduler can target it.
+The control plane bootstraps with [`runner/device-plugin/k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-device-plugin.yaml) applied. Each newly-joined node is auto-labelled by the device plugin; it also advertises `riseproject.com/runner: 1` so the scheduler can target it.
 
 To verify a node is ready to accept jobs:
 
@@ -76,7 +76,7 @@ RBAC is configured automatically by `scw.py control-plane create`. Two user iden
 - **`gh-app`** — used by the scheduler container. `edit` access plus `nodes: list` for capacity checks.
 - **`gh-deploy`** — used by CI. `cluster-admin`. Stored in GitHub Secrets as `K8S_KUBECONFIG`.
 
-The node labeller has its own ServiceAccount in `kube-system` with a ClusterRole granting `nodes: get, patch`. The device plugin needs no RBAC (it talks to the local kubelet via a Unix socket).
+The device plugin has a ServiceAccount in `kube-system` with a ClusterRole granting `nodes: get, patch` (for labelling) and talks to the local kubelet via a Unix socket (no additional RBAC needed for device plugin registration).
 
 ## Adding a new board
 

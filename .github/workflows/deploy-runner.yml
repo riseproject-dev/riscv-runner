@@ -181,26 +181,8 @@ jobs:
           platforms: linux/riscv64
           context: runner/device-plugin
           file: runner/device-plugin/Dockerfile
-          target: device-plugin
           tags: |
             ${{ needs.setup.outputs.docker-registry != '' && format('{0}/riscv-runner:device-plugin-sha-{1}', needs.setup.outputs.docker-registry, github.sha) || '' }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=gha,scope=docker
-          cache-to: |
-            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
-          push: ${{ needs.setup.outputs.docker-registry != '' }}
-          pull: ${{ github.ref_name == github.event.repository.default_branch }}
-
-      - name: Build node-labeller image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          platforms: linux/riscv64
-          context: runner/device-plugin
-          file: runner/device-plugin/Dockerfile
-          target: node-labeller
-          tags: |
-            ${{ needs.setup.outputs.docker-registry != '' && format('{0}/riscv-runner:node-labeller-sha-{1}', needs.setup.outputs.docker-registry, github.sha) || '' }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
             type=gha,scope=docker
@@ -247,12 +229,6 @@ jobs:
             -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-staging \
             ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-sha-${{ github.sha }}
 
-      - name: Tag node-labeller image for staging
-        run: >-
-          docker buildx imagetools create \
-            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-staging \
-            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-sha-${{ github.sha }}
-
       - name: Set up kubeconfig
         run: |
           mkdir -p ~/.kube
@@ -263,11 +239,6 @@ jobs:
         run: |
           envsubst < runner/device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
           kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
-
-      - name: Apply node-labeller DaemonSet
-        run: |
-          envsubst < runner/device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
-          kubectl rollout restart daemonset/rise-riscv-runner-node-labeller -n kube-system
 
       - name: Rollout Restart
         run: |
@@ -316,12 +287,6 @@ jobs:
             -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-latest \
             ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-sha-${{ github.sha }}
 
-      - name: Tag node-labeller image for prod
-        run: >-
-          docker buildx imagetools create \
-            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-latest \
-            ${{ needs.setup.outputs.docker-registry }}/riscv-runner:node-labeller-sha-${{ github.sha }}
-
       - name: Set up kubeconfig
         run: |
           mkdir -p ~/.kube
@@ -332,11 +297,6 @@ jobs:
         run: |
           envsubst < runner/device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
           kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system
-
-      - name: Apply node-labeller DaemonSet
-        run: |
-          envsubst < runner/device-plugin/k8s-ds-node-labeller.yaml | kubectl apply -f -
-          kubectl rollout restart daemonset/rise-riscv-runner-node-labeller -n kube-system
 
       - name: Rollout Restart
         run: |
