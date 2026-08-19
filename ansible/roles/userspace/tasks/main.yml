@@ -21,13 +21,29 @@
       - unzip
     state: present
 
-- name: Configure containerd
-  ansible.builtin.template:
-    src: containerd-config.toml.j2
-    dest: /etc/containerd/config.toml
+- name: Create containerd config directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
     owner: root
     group: root
-    mode: '0644'
+    mode: '0755'
+
+- name: Check if containerd config is valid
+  ansible.builtin.command: grep -q "plugins.\"io.containerd.grpc.v1.cri.containerd.runtimes.runc\"" /etc/containerd/config.toml
+  register: containerd_config_valid
+  failed_when: false
+  changed_when: false
+
+- name: Generate default containerd config
+  ansible.builtin.shell: |
+    containerd config default > /etc/containerd/config.toml
+  when: containerd_config_valid.rc != 0
+
+- name: Configure containerd sandbox_image and SystemdCgroup
+  ansible.builtin.shell: |
+    sed -i 's|sandbox_image = ".*"|sandbox_image = "cloudv10x/pause:3.10"|' /etc/containerd/config.toml
+    sed -i 's|SystemdCgroup = false|SystemdCgroup = true|' /etc/containerd/config.toml
   notify: Restart containerd
 
 - name: Install node_exporter
@@ -159,6 +175,14 @@
     group: root
     mode: '0644'
   notify: Reload systemd
+
+- name: Create kubelet.service.d directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/kubelet.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
 
 - name: Install kubelet 10-kubeadm.conf
   ansible.builtin.template:

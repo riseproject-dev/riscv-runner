@@ -16,6 +16,7 @@
 - name: Set gcc-14 as default gcc
   ansible.builtin.alternatives:
     name: gcc
+    link: /usr/bin/gcc
     path: /usr/bin/gcc-14
     priority: 100
 

@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import yaml
+import subprocess
 
 import logging
 # logging.basicConfig(level=logging.INFO)
@@ -63,6 +64,7 @@ SSH_KEY_IDS = [
 # --- Scaleway SDK clients ---
 
 scw_client = Client.from_config_file_and_env()
+scw_client.default_region = ZONE.rsplit("-", 1)[0]
 scw_client.default_zone = ZONE
 scw_client.default_project_id = PROJECT_ID
 instance_api = InstanceUtilsV1API(scw_client)
@@ -1855,7 +1857,10 @@ def cmd_runner_reinstall(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner(ssh, runner, pn)
+        if args.ansible:
+            setup_runner_ansible(ip)
+        else:
+            setup_runner(ssh, runner, pn)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
@@ -1866,6 +1871,22 @@ def cmd_runner_reinstall(args):
         print(f"Server {runner} provisioned")
 
     return _run_parallel(args.runners, _do_runner_reinstall, jobs=args.jobs, delay=args.delay)
+
+
+def setup_runner_ansible(runner_ip, tags=None):
+    cmd = [
+        ".venv/bin/ansible-playbook",
+        "-i", f"{runner_ip},",
+        "-u", "ubuntu",
+        "--private-key", os.path.expanduser("~/.ssh/id_scw"),
+        "ansible/site.yml",
+    ]
+    if tags:
+        cmd.extend(["--tags", tags])
+
+    env = os.environ.copy()
+    env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
+    subprocess.run(cmd, check=True, env=env)
 
 
 def cmd_runner_setup(args):
@@ -1930,13 +1951,33 @@ def cmd_runner_setup(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner(ssh, runner, pn)
-        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        ssh.run("sudo reboot now", **_tagged_streams())
-        time.sleep(15)
+        if args.ansible:
+            tags = None
+            if args.kernelspace_only:
+                tags = "kernelspace"
+            elif args.userspace_only:
+                tags = "userspace"
+            setup_runner_ansible(ip, tags=tags)
+            if not args.kernelspace_only:
+                setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+                ssh.run("sudo reboot now", **_tagged_streams())
+                time.sleep(15)
+                print(f"Waiting for node {runner} to be ready on k8s")
+                wait_k8s_node(runner, k8s)
+        else:
+            if args.kernelspace_only:
+                setup_runner_kernelspace(ssh, runner, pn)
+            else:
+                if args.userspace_only:
+                    setup_runner_userspace(ssh, runner, pn)
+                else:
+                    setup_runner(ssh, runner, pn)
+                setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+                ssh.run("sudo reboot now", **_tagged_streams())
+                time.sleep(15)
 
-        print(f"Waiting for node {runner} to be ready on k8s")
-        wait_k8s_node(runner, k8s)
+                print(f"Waiting for node {runner} to be ready on k8s")
+                wait_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
@@ -2321,12 +2362,17 @@ def main():
 
     runner_reinstall = runner_subparsers.add_parser("reinstall", help="Reinstall OS on existing runners")
     runner_reinstall.add_argument("--to-control-plane", type=str, help="Name of the control plane instance to switch the runner to")
+    runner_reinstall.add_argument("--ansible", action="store_true", help="Use Ansible playbooks for runner setup instead of embedded bash scripts")
     runner_reinstall.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
     _add_parallel_args(runner_reinstall)
     runner_reinstall.set_defaults(func=cmd_runner_reinstall)
 
     runner_setup = runner_subparsers.add_parser("setup", help="Setup existing runners")
     runner_setup.add_argument("--to-control-plane", type=str, help="Name of the control plane instance to switch the runner to")
+    runner_setup.add_argument("--ansible", action="store_true", help="Use Ansible playbooks for runner setup instead of embedded bash scripts")
+    runner_setup_group = runner_setup.add_mutually_exclusive_group()
+    runner_setup_group.add_argument("--kernelspace-only", action="store_true", help="Only run kernelspace setup (kernel modules, sysctl)")
+    runner_setup_group.add_argument("--userspace-only", action="store_true", help="Only run userspace setup (containerd, kubelet, watchdogs)")
     runner_setup.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
     _add_parallel_args(runner_setup)
     runner_setup.set_defaults(func=cmd_runner_setup)
