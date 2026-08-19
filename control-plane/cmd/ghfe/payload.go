@@ -3,8 +3,9 @@
 package main
 
 import (
-	"github.com/riseproject-dev/riscv-runner/control-plane/internal"
 	"slices"
+
+	"github.com/riseproject-dev/riscv-runner/control-plane/internal"
 )
 
 // senderDropKeys / repoDropKeys / repoOwnerDropKeys / orgDropKeys /
@@ -104,7 +105,7 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 			(repoFullName == "riseproject-dev/llama.cpp" || repoFullName == "riseproject-dev/llama.cpp-validation"))
 	if isGGMLScope {
 		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
-			return "cloudv10x-jupiter", cfg.ImageUbuntu24, true
+			return "spacemit-k1", cfg.ImageUbuntu24, true
 		}
 		return "", "", false
 	}
@@ -112,7 +113,7 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 	isMengZhuoScope := orgID == internal.MengZhuoUserID
 	if isMengZhuoScope {
 		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
-			return "cloudv10x-jupiter", cfg.ImageUbuntu24, true
+			return "spacemit-k1", cfg.ImageUbuntu24, true
 		}
 	}
 
@@ -124,13 +125,13 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 	}
 
 	if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
-		return "scw-em-rv1", cfg.ImageUbuntu24, true
+		return "scaleway-em-rv1", cfg.ImageUbuntu24, true
 	}
 	if len(labels) == 2 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") {
-		return "spacemit-k3-pico-itx", cfg.ImageUbuntu24, true
+		return "spacemit-k3", cfg.ImageUbuntu24, true
 	}
 	if len(labels) == 1 && labels[0] == "ubuntu-26.04-riscv" {
-		return "spacemit-k3-pico-itx", cfg.ImageUbuntu26, true
+		return "spacemit-k3", cfg.ImageUbuntu26, true
 	}
 	return "", "", false
 }

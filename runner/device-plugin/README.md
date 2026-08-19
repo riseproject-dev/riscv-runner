@@ -81,7 +81,7 @@ resources:
   limits:
     riseproject.com/runner: "1"
 nodeSelector:
-  riseproject.dev/board: scw-em-rv1
+  riseproject.dev/board: scaleway-em-rv1
 ```
 
 The combination guarantees exclusive node access (one runner pod per node) and lands the pod on the right hardware. The scheduler in `control-plane/cmd/scheduler/` sets both fields when provisioning.

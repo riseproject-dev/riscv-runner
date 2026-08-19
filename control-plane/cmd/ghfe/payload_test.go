@@ -82,14 +82,14 @@ func TestMatchLabelsToK8s(t *testing.T) {
 		wantImage string
 		wantOK    bool
 	}{
-		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, "scw-em-rv1", cfg.ImageUbuntu24, true},
-		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, "spacemit-k3-pico-itx", cfg.ImageUbuntu26, true},
+		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, "scaleway-em-rv1", cfg.ImageUbuntu24, true},
+		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, "spacemit-k3", cfg.ImageUbuntu26, true},
 		{"general no labels", 999, "x/y", []string{}, "", "", false},
 		{"general other", 999, "x/y", []string{"ubuntu-98.04-riscv"}, "", "", false},
 
-		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv"}, "cloudv10x-jupiter", cfg.ImageUbuntu24, true},
+		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv"}, "spacemit-k1", cfg.ImageUbuntu24, true},
 		{"ggml with extra label", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv", "extra"}, "", "", false},
-		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{"ubuntu-24.04-riscv"}, "cloudv10x-jupiter", cfg.ImageUbuntu24, true},
+		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{"ubuntu-24.04-riscv"}, "spacemit-k1", cfg.ImageUbuntu24, true},
 	}
 
 	for _, tc := range tests {

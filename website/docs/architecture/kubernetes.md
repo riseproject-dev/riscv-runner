@@ -15,29 +15,27 @@ The device plugin runs as a DaemonSet on every RISC-V node. At startup it labels
 ```mermaid
 flowchart TD
     subgraph Node["RISC-V Node"]
-        DT["/sys/firmware/devicetree/base/compatible"]
-        NL["Node Labeller Pod"]
+        HWP["riscv_hwprobe syscall"]
+        DT["/sys/firmware/devicetree/base/compatible<br/>(Scaleway fallback)"]
         DP["Device Plugin Pod"]
         KL["Kubelet"]
+        RP["Runner Pod"]
     end
 
     subgraph Cluster["Kubernetes Cluster"]
-        API["API Server"]
         SCHED["Scheduler"]
     end
 
-    RP["Runner Pod"]
 
-    DT -->|read device tree| NL
-    NL -->|patch node label| API
-    API -->|"riseproject.dev/board=scw-em-rv1"| Node
+    HWP <-->|"mvendorid, marchid, mimpid"| DP
+    DT <-->|"probe failed: read compatible"| DP
+    DP -->|"patch node label riseproject.dev/board=spacemit-k3"| SCHED
 
-    DP -->|"gRPC: advertise riseproject.com/runner: 1"| KL
-    KL -->|report allocatable resources| API
+    DP -->|"advertise riseproject.com/runner=1"| KL
+    KL -->|report allocatable resources| SCHED
 
-    RP -->|"nodeSelector: riseproject.dev/board"| SCHED
-    RP -->|"limits: riseproject.com/runner: 1"| SCHED
-    SCHED -->|schedule| Node
+    KL -->|schedule| RP
+    SCHED -->|"nodeSelector: riseproject.dev/board\nlimits: riseproject.com/runner=1"| KL
 ```
 
 ## Device plugin
@@ -67,16 +65,20 @@ The device plugin detects the SoC on each RISC-V node at startup and applies a `
 
 ### SoC detection
 
-1. Read `/sys/firmware/devicetree/base/compatible` (null-separated entries)
-2. Match each entry against a built-in board map:
+The primary key is the `riscv_hwprobe(2)` syscall, which returns the hardware identity triple (`mvendorid`, `marchid`, `mimpid`) read from the CPU CSRs.
 
-| Device tree compatible string | Board label |
-|-------------------------------|-------------|
-| `scaleway,em-rv1-c4m16s128-a` | `scw-em-rv1` |
-| `sophgo,mango` | `cloudv10x-pioneer` |
-| `spacemit,k1-x` | `cloudv10x-jupiter` |
+1. Call `riscv_hwprobe` for the three ID keys and log the triple as hex.
+2. Match the triple against a hand-maintained list of known SoCs:
 
-3. If no known mapping exists, sanitize the first compatible entry (replace commas/spaces with hyphens, lowercase) and use that as the label. If the compatible file is missing or empty, the label is set to `<unknown>`.
+| `mvendorid` | `marchid` | `mimpid` | Board label |
+|-------------|-----------|----------|-------------|
+| `0x710` | `0x8000000058000001` | `0x1000000049772200` | `spacemit-k1` |
+| `0x710` | `0x8000000058000002` | `0x33d8a600` | `spacemit-k3` |
+| `0x710` | `0x8000000058000002` | `0x4c4d900` | `spacemit-v100` |
+
+3. If the triple matches no entry, `Detect` returns an error and the plugin exits. An unrecognized node fails loudly rather than mislabelling itself. To add the board, read the logged triple and append an entry to the list.
+
+The Scaleway EM-RV1 is a special case: its kernel predates `riscv_hwprobe`, so the syscall fails. Only on that failure does detection fall back to reading `/sys/firmware/devicetree/base/compatible`; a `scaleway,em-rv1` prefix yields the `scaleway-em-rv1` label. Any other board on a kernel without the syscall is treated as the original probe failure.
 
 ### DaemonSet configuration
 
@@ -86,7 +88,7 @@ The device plugin detects the SoC on each RISC-V node at startup and applies a `
 - **RBAC:** ServiceAccount with ClusterRole granting `get` and `patch` on nodes
 - **Environment:** `NODE_NAME` from downward API (`spec.nodeName`)
 - **Volume mounts:** `/var/lib/kubelet/device-plugins` (host path), `/sys` (read-only host path)
-- **Privileged:** Yes (required for device tree access)
+- **Privileged:** Yes (device tree access for the Scaleway fallback)
 - **Image:** `rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:device-plugin-prod`
 
 ## Source files
@@ -95,6 +97,6 @@ The device plugin detects the SoC on each RISC-V node at startup and applies a `
 |------|------|
 | [`cmd/k8s-device-plugin/main.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/cmd/k8s-device-plugin/main.go) | Entry point: label node, then start device plugin |
 | [`pkg/plugin/plugin.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/plugin/plugin.go) | gRPC server, kubelet registration, watchdog |
-| [`pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go) | Device tree parsing and SoC → board mapping |
+| [`pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go) | `riscv_hwprobe` triple matching, Scaleway device tree fallback, SoC → board mapping |
 | [`pkg/labeler/labeler.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/labeler/labeler.go) | Kubernetes API node label patching |
 | [`k8s-ds-device-plugin.yaml`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/k8s-ds-device-plugin.yaml) | DaemonSet + RBAC manifest |

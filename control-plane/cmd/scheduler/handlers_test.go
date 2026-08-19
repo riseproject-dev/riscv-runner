@@ -180,7 +180,7 @@ func TestUsage_DBError(t *testing.T) {
 // TestHistory_RendersJobs covers /history HTML + the no-jobs branch.
 func TestHistory_RendersJobs(t *testing.T) {
 	app, db, _, _ := schedTestApp()
-	db.Jobs = []internal.Job{{JobID: 7, Status: "completed", EntityName: "acme", RepoFullName: "acme/r", K8sPool: "scw-em-rv1"}}
+	db.Jobs = []internal.Job{{JobID: 7, Status: "completed", EntityName: "acme", RepoFullName: "acme/r", K8sPool: "scaleway-em-rv1"}}
 
 	r := httptest.NewRequest("GET", "/history", nil)
 	w := httptest.NewRecorder()
