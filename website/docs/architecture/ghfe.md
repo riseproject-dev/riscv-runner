@@ -56,8 +56,8 @@ Unhandled `X-GitHub-Event` headers are recorded with `outcome=unhandled_event` a
 
 | Scope | Label | Pool | Image |
 |---|---|---|---|
-| Default | `ubuntu-24.04-riscv` | `scw-em-rv1` | `riscv-runner:ubuntu-24.04-prod` (or `-staging`) |
-| GGML scope: `ggml-org/*`, `riseproject-dev/llama.cpp`, `riseproject-dev/llama.cpp-validation` | `ubuntu-24.04-riscv` | `cloudv10x-jupiter` | `riscv-runner:ubuntu-24.04-prod` (or `-staging`) |
+| Default | `ubuntu-24.04-riscv` | `scaleway-em-rv1` | `riscv-runner:ubuntu-24.04-prod` (or `-staging`) |
+| GGML scope: `ggml-org/*`, `riseproject-dev/llama.cpp`, `riseproject-dev/llama.cpp-validation` | `ubuntu-24.04-riscv` | `spacemit-k1` | `riscv-runner:ubuntu-24.04-prod` (or `-staging`) |
 
 The handler only matches single-label arrays containing `ubuntu-24.04-riscv` today. Anything else returns `(_, _, false)` and is ignored with `outcome=IGNORED_NO_LABEL`. New labels are added by extending `matchLabelsToK8s`.
 

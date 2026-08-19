@@ -40,7 +40,7 @@ func anyN(n int) []any {
 func jobScanRow() []any {
 	return []any{
 		int64(1), "pending", []byte(`{}`), "github", int64(99), "acme",
-		"Organization", "acme/r", int64(7), []byte(`["x"]`), "scw-em-rv1",
+		"Organization", "acme/r", int64(7), []byte(`["x"]`), "scaleway-em-rv1",
 		"img", nil, nil, time.Now(), time.Now(),
 		nil, nil, nil, nil, nil,
 	}
@@ -49,7 +49,7 @@ func jobScanRow() []any {
 func workerScanRow(name string, status string) []any {
 	return []any{
 		name, "github", int64(99), "acme", "Organization", int64(7), nil,
-		[]byte(`["x"]`), "scw-em-rv1", "img", nil, status, nil,
+		[]byte(`["x"]`), "scaleway-em-rv1", "img", nil, status, nil,
 		time.Now(), nil, nil, time.Now(),
 	}
 }
@@ -77,7 +77,7 @@ func TestAddJob_InsertedAndNotifies(t *testing.T) {
 
 	got, err := db.AddJob(context.Background(), GHJob{ID: 1},
 		Entity{Type: EntityOrganization, Name: "acme", ID: 99},
-		"github", "acme/r", 7, "scw-em-rv1", "img", "", []string{"x"})
+		"github", "acme/r", 7, "scaleway-em-rv1", "img", "", []string{"x"})
 	if err != nil || !got {
 		t.Fatalf("AddJob: got=%v err=%v", got, err)
 	}

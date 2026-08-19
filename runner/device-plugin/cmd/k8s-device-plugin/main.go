@@ -24,14 +24,18 @@ func main() {
 		klog.Fatal("NODE_NAME environment variable is required")
 	}
 
-	board := soc.DetectBoard()
-	klog.Infof("Detected board: %s", board)
+	detected, err := soc.Detect()
+	if err != nil {
+		klog.Fatalf("Failed to detect SoC: %v", err)
+	}
+	klog.Infof("Detected board: %s (mvendorid=%#x marchid=%#x mimpid=%#x)",
+		detected.Name, detected.ID.MVendorID, detected.ID.MArchID, detected.ID.MImpID)
 
-	if err := labeler.LabelNode(nodeName, board); err != nil {
+	if err := labeler.LabelNode(nodeName, detected.Name); err != nil {
 		klog.Fatalf("Failed to label node: %v", err)
 	}
 
-	p := plugin.New()
+	p := plugin.New(detected)
 	if err := p.Start(); err != nil {
 		klog.Fatalf("Failed to start device plugin: %v", err)
 	}
