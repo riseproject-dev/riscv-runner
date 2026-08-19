@@ -1,0 +1,203 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install userspace dependencies
+  ansible.builtin.apt:
+    name:
+      - containerd
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
+      - jq
+      - socat
+      - conntrack
+      - ebtables
+      - ipset
+      - python3
+      - unzip
+    state: present
+
+- name: Configure containerd
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart containerd
+
+- name: Install node_exporter
+  ansible.builtin.unarchive:
+    src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+      - "node_exporter-{{ node_exporter_version }}.linux-{{ ansible_facts['architecture'] }}/node_exporter"
+    creates: /usr/local/bin/node_exporter
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create node_exporter user
+  ansible.builtin.user:
+    name: node_exporter
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Create node_exporter directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: node_exporter
+    group: node_exporter
+    mode: '0755'
+  loop:
+    - /var/lib/node_exporter
+    - /var/lib/node_exporter/textfile_collector
+
+- name: Install node_exporter systemd service
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart node_exporter
+
+- name: Install prometheus (agent mode)
+  ansible.builtin.unarchive:
+    src: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+      - "prometheus-{{ prometheus_version }}.linux-{{ ansible_facts['architecture'] }}/prometheus"
+    creates: /usr/local/bin/prometheus
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create prometheus user
+  ansible.builtin.user:
+    name: prometheus
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Create prometheus directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0750'
+  loop:
+    - /etc/prometheus
+    - /var/lib/prometheus
+
+- name: Install prometheus agent config
+  ansible.builtin.template:
+    src: prometheus-agent.yml.j2
+    dest: /etc/prometheus/agent.yml
+    owner: prometheus
+    group: prometheus
+    mode: '0640'
+  notify: Restart prometheus-agent
+
+- name: Install prometheus-agent systemd service
+  ansible.builtin.template:
+    src: prometheus-agent.service.j2
+    dest: /etc/systemd/system/prometheus-agent.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart prometheus-agent
+
+- name: Check if Kubernetes binaries are already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/kubelet
+  register: kubelet_bin
+
+- name: Install RISC-V Kubernetes binaries (kubeadm, kubelet, kubectl)
+  when: not kubelet_bin.stat.exists
+  block:
+    - name: Download Kubernetes RISC-V artifacts
+      ansible.builtin.get_url:
+        url: "{{ kubernetes_gitlab_artifacts_url }}"
+        dest: /tmp/k8s_artifacts.zip
+        headers:
+          User-Agent: "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+          Accept: "*/*"
+          Referer: "https://gitlab.com/"
+        mode: '0644'
+
+    - name: Unzip Kubernetes RISC-V binaries
+      ansible.builtin.shell: |
+        set -e
+        mkdir -p /tmp/k8s_artifacts
+        unzip -q /tmp/k8s_artifacts.zip '_output/*' -d /tmp/k8s_artifacts
+        sudo mv /tmp/k8s_artifacts/_output/local/go/bin/kube* /usr/local/bin/
+        sudo chown root:root /usr/local/bin/kube*
+        sudo chmod 0755 /usr/local/bin/kube*
+        rm -rf /tmp/k8s_artifacts /tmp/k8s_artifacts.zip
+
+- name: Install kubelet systemd service
+  ansible.builtin.template:
+    src: kubelet.service.j2
+    dest: /etc/systemd/system/kubelet.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Install kubelet 10-kubeadm.conf
+  ansible.builtin.template:
+    src: kubelet-10-kubeadm.conf.j2
+    dest: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Install kubelet-watchdog script
+  ansible.builtin.template:
+    src: kubelet-watchdog.sh.j2
+    dest: /usr/local/bin/kubelet-watchdog.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install kubelet-watchdog service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - { src: 'kubelet-watchdog.service.j2', dest: 'kubelet-watchdog.service' }
+    - { src: 'kubelet-watchdog.timer.j2', dest: 'kubelet-watchdog.timer' }
+  notify:
+    - Reload systemd
+    - Enable kubelet-watchdog timer
+
+- name: Ensure services are enabled
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+  loop:
+    - containerd
+    - node_exporter
+    - prometheus-agent
+    - kubelet
+    - kubelet-watchdog.timer

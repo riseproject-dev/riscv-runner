@@ -1,0 +1,46 @@
+---
+# Software Versions & URLs
+node_exporter_version: "1.11.1"
+prometheus_version: "3.11.3"
+crictl_version: "v1.32.0"
+kubernetes_version: "1.35.0"
+kubernetes_gitlab_artifacts_url: "https://gitlab.com/riseproject/risc-v-runner/kubernetes/-/jobs/13257210986/artifacts/download"
+
+# Kernel & Module Configuration
+kernel_version_suffix: "-scw1"
+modules_to_build:
+  - net/netfilter/ipset
+  - fs/erofs
+  - drivers/md
+
+modules_to_load_k8s:
+  - overlay
+  - br_netfilter
+  - nf_conntrack
+  - tun
+
+modules_to_load_users:
+  - ip_set
+  - ip_set_bitmap_ip
+  - ip_set_bitmap_ipmac
+  - ip_set_bitmap_port
+  - ip_set_hash_ip
+  - ip_set_hash_ipmac
+  - ip_set_hash_ipmark
+  - ip_set_hash_ipport
+  - ip_set_hash_ipportip
+  - ip_set_hash_ipportnet
+  - ip_set_hash_mac
+  - ip_set_hash_net
+  - ip_set_hash_netiface
+  - ip_set_hash_netnet
+  - ip_set_hash_netport
+  - ip_set_hash_netportnet
+  - ip_set_list_set
+  - erofs
+  - dm_verity
+
+# Cockpit & Probe Configuration
+cockpit_metrics_push_url: ""
+cockpit_metrics_token: ""
+github_probe_token: ""

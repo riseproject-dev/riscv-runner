@@ -1,0 +1,16 @@
+---
+- name: Configure RISC-V Baremetal Runner
+  hosts: all
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: kernelspace
+      tags:
+        - kernelspace
+        - kernel
+
+    - role: userspace
+      tags:
+        - userspace
+        - user

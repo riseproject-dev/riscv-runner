@@ -1,0 +1,154 @@
+---
+- name: Install kernel build dependencies
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - libelf-dev
+      - libssl-dev
+      - bc
+      - bison
+      - flex
+      - gcc-14
+      - ipset
+    state: present
+    update_cache: true
+
+- name: Set gcc-14 as default gcc
+  ansible.builtin.alternatives:
+    name: gcc
+    path: /usr/bin/gcc-14
+    priority: 100
+
+- name: Check if kernel modules are already built and verified
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ ansible_facts['kernel'] }}/kernel/net/netfilter/ipset/ip_set.ko"
+  register: ip_set_ko
+
+- name: Build and install kernel modules
+  when: not ip_set_ko.stat.exists
+  block:
+    - name: Seed kernel config from /proc/config.gz
+      ansible.builtin.shell: |
+        zcat /proc/config.gz > .config
+      args:
+        chdir: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source"
+        creates: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source/.config"
+
+    - name: Configure kernel options for ipset, erofs, and dm_verity
+      ansible.builtin.shell: |
+        sudo scripts/config -m IP_SET_HASH_NET
+        sudo scripts/config -m IP_SET_HASH_IPPORT
+        sudo scripts/config -m IP_SET_HASH_IPPORTIP
+        sudo scripts/config -m IP_SET_HASH_IPPORTNET
+        sudo scripts/config -m IP_SET_HASH_NETPORT
+        sudo scripts/config -m IP_SET_HASH_NETIFACE
+        sudo scripts/config -m IP_SET_HASH_NETNET
+        sudo scripts/config -m IP_SET_HASH_NETPORTNET
+        sudo scripts/config -m IP_SET_HASH_IPMARK
+        sudo scripts/config -m IP_SET_HASH_IPMAC
+        sudo scripts/config -m IP_SET_HASH_MAC
+        sudo scripts/config -m IP_SET_BITMAP_IP
+        sudo scripts/config -m IP_SET_BITMAP_IPMAC
+        sudo scripts/config -m IP_SET_BITMAP_PORT
+        sudo scripts/config -m IP_SET_LIST_SET
+        sudo scripts/config -m EROFS_FS
+        sudo scripts/config -e EROFS_FS_ZIP
+        sudo scripts/config -e EROFS_FS_ZIP_LZMA
+        sudo scripts/config -e EROFS_FS_ZIP_DEFLATE
+        sudo scripts/config -e EROFS_FS_POSIX_ACL
+        sudo scripts/config -e EROFS_FS_XATTR
+        sudo scripts/config -m DM_VERITY
+        sudo scripts/config -e DM_VERITY_VERIFY_ROOTHASH_SIG
+        sudo scripts/config -e BLK_DEV_DM
+        sudo scripts/config -e MD
+        sudo scripts/config -m CRYPTO_SHA256
+        sudo scripts/config --set-str LOCALVERSION "{{ kernel_version_suffix }}"
+        sudo scripts/config -d LOCALVERSION_AUTO
+      args:
+        chdir: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source"
+
+    - name: Prepare kernel build tree
+      ansible.builtin.shell: |
+        sudo make ARCH=riscv olddefconfig
+        sudo make ARCH=riscv prepare
+        sudo make ARCH=riscv modules_prepare
+        sudo cp /lib/modules/{{ ansible_facts['kernel'] }}/build/Module.symvers .
+      args:
+        chdir: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source"
+
+    - name: Build kernel modules
+      ansible.builtin.shell: |
+        sudo make ARCH=riscv \
+             KCFLAGS="-mno-relax -fno-asynchronous-unwind-tables -fno-unwind-tables -g0" \
+             KAFLAGS="-mno-relax" \
+             M="{{ item }}" modules -j$(nproc)
+      args:
+        chdir: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source"
+      loop: "{{ modules_to_build }}"
+
+    - name: Verify and install kernel modules
+      ansible.builtin.shell: |
+        set -e
+        for m in {{ modules_to_build | join(' ') }}; do
+            sudo mkdir -p /lib/modules/{{ ansible_facts['kernel'] }}/kernel/${m}
+            for ko in ${m}/*.ko; do
+                modinfo "$ko" | grep '^vermagic:' | grep -q "{{ ansible_facts['kernel'] }} SMP preempt mod_unload riscv" || {
+                    echo "FAIL vermagic mismatch: $ko" >&2
+                    exit 1
+                }
+                if riscv64-linux-gnu-readelf -r "$ko" | awk '{print $3}' | sort -u | grep -qE '(R_RISCV_ALIGN|R_RISCV_32_PCREL)'; then
+                    echo "FAIL forbidden relocations: $ko" >&2
+                    exit 1
+                fi
+                sudo cp -v "$ko" /lib/modules/{{ ansible_facts['kernel'] }}/kernel/${m}/
+            done
+        done
+        sudo depmod -a
+      args:
+        chdir: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source"
+
+- name: Configure k8s modules to load at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      {{ modules_to_load_k8s | join('\n') }}
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Configure user modules to load at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/users.conf
+    content: |
+      {{ modules_to_load_users | join('\n') }}
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Load required k8s kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ modules_to_load_k8s }}"
+
+- name: Configure modprobe blacklist for algif_aead
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/blacklist-copyfail.conf
+    content: |
+      blacklist algif_aead
+      install algif_aead /bin/true
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Configure sysctl for Kubernetes networking
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/k8s.conf
+    state: present
+    reload: true
+  loop:
+    - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { key: 'net.ipv4.ip_forward', value: '1' }

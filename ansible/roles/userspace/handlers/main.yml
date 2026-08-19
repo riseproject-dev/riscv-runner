@@ -1,0 +1,25 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+
+- name: Restart node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: restarted
+
+- name: Restart prometheus-agent
+  ansible.builtin.systemd:
+    name: prometheus-agent
+    state: restarted
+
+- name: Enable kubelet-watchdog timer
+  ansible.builtin.systemd:
+    name: kubelet-watchdog.timer
+    state: started
+    enabled: true
