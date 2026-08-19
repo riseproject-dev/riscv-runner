@@ -56,8 +56,8 @@ Unhandled `X-GitHub-Event` headers are recorded with `outcome=unhandled_event` a
 
 | Scope | Label | Pool | Image |
 |---|---|---|---|
-| Default | `ubuntu-24.04-riscv` | `scw-em-rv1` | `riscv-runner:ubuntu-24.04-latest` (or `-staging`) |
-| GGML scope: `ggml-org/*`, `riseproject-dev/llama.cpp`, `riseproject-dev/llama.cpp-validation` | `ubuntu-24.04-riscv` | `cloudv10x-jupiter` | `riscv-runner:ubuntu-24.04-latest` (or `-staging`) |
+| Default | `ubuntu-24.04-riscv` | `scw-em-rv1` | `riscv-runner:ubuntu-24.04-prod` (or `-staging`) |
+| GGML scope: `ggml-org/*`, `riseproject-dev/llama.cpp`, `riseproject-dev/llama.cpp-validation` | `ubuntu-24.04-riscv` | `cloudv10x-jupiter` | `riscv-runner:ubuntu-24.04-prod` (or `-staging`) |
 
 The handler only matches single-label arrays containing `ubuntu-24.04-riscv` today. Anything else returns `(_, _, false)` and is ignored with `outcome=IGNORED_NO_LABEL`. New labels are added by extending `matchLabelsToK8s`.
 
@@ -99,7 +99,7 @@ On `workflow_job.in_progress`, the handler updates `status` to `running` and set
 
 | Variable | Purpose |
 |---|---|
-| `PROD` | `true` to use the `prod` schema and `*-latest` image tags, otherwise `staging` schema and `*-staging` tags |
+| `PROD` | `true` to use the `prod` schema and `*-prod` image tags, otherwise `staging` schema and `*-staging` tags |
 | `PROD_URL`, `STAGING_URL` | URL of the prod/staging ghfe; used by the staging proxy |
 | `POSTGRES_URL` | PostgreSQL connection string |
 | `GHAPP_WEBHOOK_SECRET` | Shared HMAC secret used by both apps |

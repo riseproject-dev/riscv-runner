@@ -87,7 +87,7 @@ The device plugin detects the SoC on each RISC-V node at startup and applies a `
 - **Environment:** `NODE_NAME` from downward API (`spec.nodeName`)
 - **Volume mounts:** `/var/lib/kubelet/device-plugins` (host path), `/sys` (read-only host path)
 - **Privileged:** Yes (required for device tree access)
-- **Image:** `rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:device-plugin-latest`
+- **Image:** `rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:device-plugin-prod`
 
 ## Source files
 
