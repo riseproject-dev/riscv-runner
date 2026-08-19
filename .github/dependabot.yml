@@ -36,6 +36,10 @@ updates:
     directory: "/control-plane"
     patterns: ["*"]
     multi-ecosystem-group: "control-plane"
+    # serverless v4 switched to a paid license requiring authentication; stay on v3.
+    ignore:
+      - dependency-name: "serverless"
+        versions: [">=4"]
   - package-ecosystem: "docker"
     directory: "/control-plane"
     patterns: ["*"]
