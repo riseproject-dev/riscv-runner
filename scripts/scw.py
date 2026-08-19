@@ -2048,6 +2048,10 @@ CONTROL_PLANE_SERVER_TYPE = "POP2-2C-8G"
 BLOCK_STORAGE_SIZE = 50 * 1_000_000_000
 
 CLOUD_INIT = r"""#cloud-config
+ssh_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMAe9cz1jHSoBkKg8Rpchr/BRAMkYBcbf6sTD8KO3J66 luhenry"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPgHMVi/V29QNE/S/+tXWOZoyjq1vgVG1Bl4aXIJxVTI puneetha"
+
 write_files:
   - path: /etc/modules-load.d/k8s.conf
     owner: root:root
@@ -2083,6 +2087,19 @@ write_files:
         - apiGroup: rbac.authorization.k8s.io
           kind: User
           name: luhenry
+      # puneetha
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: puneetha-cluster-admin-binding
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: User
+          name: puneetha
       # gh-app
       - apiVersion: rbac.authorization.k8s.io/v1
         kind: ClusterRoleBinding
@@ -2206,6 +2223,7 @@ runcmd:
     # Create user kubeconfigs (these will use the private IP as server address;
     # the script replaces it with the public IP when printing)
     kubeadm kubeconfig user --client-name=luhenry   > /etc/kubernetes/kubeconfig-luhenry.conf
+    kubeadm kubeconfig user --client-name=puneetha  > /etc/kubernetes/kubeconfig-puneetha.conf
     kubeadm kubeconfig user --client-name=gh-deploy > /etc/kubernetes/kubeconfig-gh-deploy.conf
     kubeadm kubeconfig user --client-name=gh-app    > /etc/kubernetes/kubeconfig-gh-app.conf
 
@@ -2269,6 +2287,12 @@ def cmd_control_plane_create(args):
     print("Kubeconfig for luhenry:")
     print(f"{'='*60}")
     result = ssh.run("cat /etc/kubernetes/kubeconfig-luhenry.conf", hide=True)
+    print(result.stdout)
+
+    print(f"\n{'='*60}")
+    print("Kubeconfig for puneetha:")
+    print(f"{'='*60}")
+    result = ssh.run("cat /etc/kubernetes/kubeconfig-puneetha.conf", hide=True)
     print(result.stdout)
 
 
