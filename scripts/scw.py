@@ -64,6 +64,7 @@ SSH_KEY_IDS = [
 
 scw_client = Client.from_config_file_and_env()
 scw_client.default_zone = ZONE
+scw_client.default_region = ZONE.rsplit("-", 1)[0]
 scw_client.default_project_id = PROJECT_ID
 instance_api = InstanceUtilsV1API(scw_client)
 baremetal_api = BaremetalV1API(scw_client)
@@ -634,11 +635,11 @@ RUNNER_SERVER_TYPE = "EM-RV1-C4M16S128-A"
 
 RETRY_DELAY = 60
 
-SETUP_SCRIPT = r"""
+SETUP_KERNELSPACE_SCRIPT = r"""
 # Redirect stdout and stderr to /var/log/riscv-runner-setup.log
 exec > >(sudo tee -a /var/log/riscv-runner-setup.log) 2>&1
 
-echo "Setup @ $(date)"
+echo "Setup (kernelspace) @ $(date)"
 
 set -eux -o pipefail
 
@@ -807,42 +808,18 @@ EOF
 # Apply the changes
 sudo sysctl --system
 
-###############################################################################
-## Configure private network VLAN interface
+"""
 
-# cat <<'EOF' | sudo tee -a /etc/systemd/network/05-end0.network
-# [Match]
-# Name=end0
-# [Network]
-# DHCP=yes
-# VLAN=end0.@@PN_VLAN_ID@@
-# EOF
+SETUP_USERSPACE_SCRIPT = r"""
+# Redirect stdout and stderr to /var/log/riscv-runner-setup.log
+exec > >(sudo tee -a /var/log/riscv-runner-setup.log) 2>&1
 
-# cat <<'EOF' | sudo tee /etc/systemd/network/10-end0.@@PN_VLAN_ID@@.netdev
-# [NetDev]
-# Name=end0.@@PN_VLAN_ID@@
-# Kind=vlan
-# [VLAN]
-# Id=@@PN_VLAN_ID@@
-# EOF
+echo "Setup (userspace) @ $(date)"
 
-# cat <<'EOF' | sudo tee /etc/systemd/network/11-end0.@@PN_VLAN_ID@@.network
-# [Match]
-# Name=end0.@@PN_VLAN_ID@@
-# [Network]
-# Address=@@PN_IP@@
-# EOF
+set -eux -o pipefail
 
-# sudo networkctl reload
-
-# Check that it succeeded
-# sudo apt-get install -y --no-install-recommends retry
-# retry --delay=2 --times=5 -- ip addr show end0.@@PN_VLAN_ID@@
-
-# # Configure private network VLAN interface
-# sudo ip link add link end0 name end0.@@PN_VLAN_ID@@ type vlan id @@PN_VLAN_ID@@
-# sudo ip link set end0.@@PN_VLAN_ID@@ up
-# sudo ip addr add @@PN_IP@@ dev end0.@@PN_VLAN_ID@@
+# Fresh packages
+sudo apt-get update -qq
 
 ###############################################################################
 ## Install node_exporter
@@ -1596,17 +1573,23 @@ def get_github_probe_token() -> str:
     return os.environ.get("GITHUB_PROBE_TOKEN", "")
 
 
-def setup_runner(ssh, runner, pn):
+def setup_runner_kernelspace(ssh, runner, pn):
+    ssh.run(SETUP_KERNELSPACE_SCRIPT, **_tagged_streams())
+
+
+def setup_runner_userspace(ssh, runner, pn):
     cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
     cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner}-metrics-token")
     github_probe_token = get_github_probe_token()
-    script = SETUP_SCRIPT.replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
-                         .replace("@@COCKPIT_METRICS_TOKEN@@", cockpit_metrics_token.secret_key) \
-                         .replace("@@GITHUB_PROBE_TOKEN@@", github_probe_token) \
-                         #FIXME(pn): enable private address again
-                         # .replace("@@PN_IP@@", pn.ip)
-                         # .replace("@@PN_VLAN_ID@@", pn.vlan_id)
+    script = SETUP_USERSPACE_SCRIPT.replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
+                                   .replace("@@COCKPIT_METRICS_TOKEN@@", cockpit_metrics_token.secret_key) \
+                                   .replace("@@GITHUB_PROBE_TOKEN@@", github_probe_token)
     ssh.run(script, **_tagged_streams())
+
+
+def setup_runner(ssh, runner, pn):
+    setup_runner_kernelspace(ssh, runner, pn)
+    setup_runner_userspace(ssh, runner, pn)
 
 
 def setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip):
@@ -1868,6 +1851,7 @@ def cmd_runner_reinstall(args):
     return _run_parallel(args.runners, _do_runner_reinstall, jobs=args.jobs, delay=args.delay)
 
 
+
 def cmd_runner_setup(args):
     def _do_runner_setup(runner):
         print(f"\n{'='*60}")
@@ -1930,8 +1914,15 @@ def cmd_runner_setup(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner(ssh, runner, pn)
-        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+        if args.kernelspace_only:
+            setup_runner_kernelspace(ssh, runner, pn)
+        else:
+            if args.userspace_only:
+                setup_runner_userspace(ssh, runner, pn)
+            else:
+                setup_runner(ssh, runner, pn)
+            setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
@@ -2327,6 +2318,9 @@ def main():
 
     runner_setup = runner_subparsers.add_parser("setup", help="Setup existing runners")
     runner_setup.add_argument("--to-control-plane", type=str, help="Name of the control plane instance to switch the runner to")
+    setup_group = runner_setup.add_mutually_exclusive_group()
+    setup_group.add_argument("--kernelspace-only", action="store_true", help="Only run kernelspace setup (kernel modules, sysctl, etc.)")
+    setup_group.add_argument("--userspace-only", action="store_true", help="Only run userspace setup (node_exporter, containerd, kubelet, etc.)")
     runner_setup.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
     _add_parallel_args(runner_setup)
     runner_setup.set_defaults(func=cmd_runner_setup)
