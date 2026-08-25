@@ -12,6 +12,7 @@
       - ipset
     state: present
     update_cache: true
+    cache_valid_time: 3600
 
 - name: Set gcc-14 as default gcc
   ansible.builtin.alternatives:
@@ -82,10 +83,9 @@
         sudo make ARCH=riscv \
              KCFLAGS="-mno-relax -fno-asynchronous-unwind-tables -fno-unwind-tables -g0" \
              KAFLAGS="-mno-relax" \
-             M="{{ item }}" modules -j$(nproc)
+             M="{{ modules_to_build | join(' ') }}" modules -j$(nproc)
       args:
         chdir: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source"
-      loop: "{{ modules_to_build }}"
 
     - name: Verify and install kernel modules
       ansible.builtin.shell: |

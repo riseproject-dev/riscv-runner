@@ -999,6 +999,14 @@ def cmd_runner_reinstall(args):
     return _run_parallel(args.runners, _do_runner_reinstall, jobs=args.jobs, delay=args.delay)
 
 
+def wait_ssh_up(ip):
+    print(f"Waiting for {ip} to be reachable via SSH...")
+    time.sleep(15)
+    ssh = ssh_connect(host=ip, user="ubuntu")
+    ssh.close()
+    print(f"SSH is up on {ip}")
+
+
 def setup_runner_ansible(runner_name, runner_ip, tags=None):
     cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
     cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner_name}-metrics-token")
@@ -1007,15 +1015,27 @@ def setup_runner_ansible(runner_name, runner_ip, tags=None):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ansible_bin = os.path.join(repo_root, ".venv", "bin", "ansible-playbook")
     playbook_path = os.path.join(repo_root, "runner", "ansible", "site.yml")
+    ssh_key_path = os.environ.get("SCW_SSH_KEY_PATH", os.path.expanduser("~/.ssh/id_scw"))
+
+    extra_vars = {
+        "cockpit_metrics_push_url": cockpit_metrics_ds.url,
+        "cockpit_metrics_token": cockpit_metrics_token.secret_key,
+        "github_probe_token": github_probe_token,
+    }
+
+    # Write extra-vars to temporary file with 0600 permissions to avoid exposing secrets in process table (/proc/<pid>/cmdline)
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+        json.dump(extra_vars, tf)
+        extra_vars_file = tf.name
+
+    os.chmod(extra_vars_file, 0o600)
 
     cmd = [
         ansible_bin,
         "-i", f"{runner_ip},",
         "-u", "ubuntu",
-        "--private-key", os.path.expanduser("~/.ssh/id_scw"),
-        "-e", f"cockpit_metrics_push_url={cockpit_metrics_ds.url}",
-        "-e", f"cockpit_metrics_token={cockpit_metrics_token.secret_key}",
-        "-e", f"github_probe_token={github_probe_token}",
+        "--private-key", ssh_key_path,
+        "-e", f"@{extra_vars_file}",
         playbook_path,
     ]
     if tags:
@@ -1023,7 +1043,11 @@ def setup_runner_ansible(runner_name, runner_ip, tags=None):
 
     env = os.environ.copy()
     env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
-    subprocess.run(cmd, check=True, env=env)
+    try:
+        subprocess.run(cmd, check=True, env=env)
+    finally:
+        if os.path.exists(extra_vars_file):
+            os.remove(extra_vars_file)
 
 
 def cmd_runner_setup(args):
@@ -1099,10 +1123,12 @@ def cmd_runner_setup(args):
             setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
 
         ssh.run("sudo reboot now", **_tagged_streams())
-        time.sleep(15)
-
-        print(f"Waiting for node {runner} to be ready on k8s")
-        wait_k8s_node(runner, k8s)
+        if args.kernelspace_only:
+            wait_ssh_up(ip)
+        else:
+            time.sleep(15)
+            print(f"Waiting for node {runner} to be ready on k8s")
+            wait_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
