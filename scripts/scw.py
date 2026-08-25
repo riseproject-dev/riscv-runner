@@ -789,8 +789,13 @@ def cordon_k8s_node(hostname, k8s):
 
     # The node is already cordoned, so no new pods will land here. Yield our
     # active-parallelism slot while we wait so another runner can make progress.
+    start_time = time.time()
+    max_drain_timeout = 300
     with yield_concurrency_slot():
         while remaining:
+            if time.time() - start_time > max_drain_timeout:
+                print(f"  WARNING: Drain timeout reached ({max_drain_timeout}s) for {len(remaining)} pod(s) on node {hostname}. Proceeding...")
+                break
             print(f"  waiting for {len(remaining)} pod(s) to finish on node {hostname}")
             time.sleep(15)
             remaining = _remaining()
@@ -889,30 +894,38 @@ def cmd_runner_create(args):
         tags = [f"control-plane:{control_plane}"]
         print(f"Provisioning {runner}")
         server = create_server(runner, os_id, tags=tags)
-        server.wait_for_server()
-        print(f"Server created: {server.id}")
+        try:
+            server.wait_for_server()
+            print(f"Server created: {server.id}")
 
-        #FIXME(pn): Disable private network for now, it doesn't work reliably enough
-        # pn = server.attach_private_network()
-        # print(f"Private network enabled (VLAN {pn.vlan_id}, IP {pn.ip})")
-        pn = None
+            #FIXME(pn): Disable private network for now, it doesn't work reliably enough
+            # pn = server.attach_private_network()
+            # print(f"Private network enabled (VLAN {pn.vlan_id}, IP {pn.ip})")
+            pn = None
 
-        print(f"Starting {runner}...")
-        server.start()
-        server.wait_for_server()
-        ip = server.get_public_ip()
-        print(f"Server IP: {ip}")
+            print(f"Starting {runner}...")
+            server.start()
+            server.wait_for_server()
+            ip = server.get_public_ip()
+            print(f"Server IP: {ip}")
 
-        ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner_ansible(runner, ip)
-        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-        ssh.run("sudo reboot now", **_tagged_streams())
-        time.sleep(15)
+            ssh = ssh_connect(host=ip, user="ubuntu")
+            setup_runner_ansible(runner, ip)
+            setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+            ssh.run("sudo reboot now", **_tagged_streams())
+            time.sleep(15)
 
-        print(f"Waiting for node {runner} to be ready in k8s")
-        wait_k8s_node(runner, k8s)
+            print(f"Waiting for node {runner} to be ready in k8s")
+            wait_k8s_node(runner, k8s)
 
-        print(f"Server {runner} provisioned")
+            print(f"Server {runner} provisioned")
+        except Exception as e:
+            print(f"ERROR: Setup failed for {runner}: {e}. Deleting partially provisioned server {server.id}...")
+            try:
+                server.delete()
+            except Exception as del_err:
+                print(f"Failed to delete server {server.id} during cleanup: {del_err}")
+            raise
 
     return _run_parallel(runners, _do_runner_create, jobs=args.jobs, delay=args.delay)
 
@@ -1160,9 +1173,8 @@ def cmd_runner_reboot(args):
         ssh_cp = ssh_connect(host=cp_public_ip, user="root")
         k8s = setup_k8s_client(ssh_cp)
 
-        print(f"Draining and removing {runner} from k8s")
+        print(f"Cordoning node {runner} on k8s")
         cordon_k8s_node(runner, k8s)
-        delete_k8s_node(runner, k8s)
 
         server = BareMetal(server.id)
 
@@ -1212,18 +1224,29 @@ def cmd_runner_delete(args):
         server = find_server_by_name(runner)
         print(f"Found server: {server.id}")
 
-        control_plane = next(tag[14:] for tag in server.tags if tag.startswith("control-plane:"))
-        if not control_plane:
-            raise ProvisioningException(f"missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
+        try:
+            control_plane = next((tag[14:] for tag in server.tags if tag.startswith("control-plane:")), None)
+            if control_plane:
+                cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
+                print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
+                ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+                k8s = setup_k8s_client(ssh_cp)
 
-        cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
-        print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
-        ssh_cp = ssh_connect(host=cp_public_ip, user="root")
-        k8s = setup_k8s_client(ssh_cp)
+                print(f"Draining and removing {runner} from k8s")
+                cordon_k8s_node(runner, k8s)
+                delete_k8s_node(runner, k8s)
+        except Exception as e:
+            print(f"WARNING: Could not connect to Control Plane or drain k8s node for {runner}: {e}. Proceeding with baremetal deletion...")
 
-        print(f"Draining and removing {runner} from k8s")
-        cordon_k8s_node(runner, k8s)
-        delete_k8s_node(runner, k8s)
+        # Delete Cockpit metrics push token if present
+        try:
+            tokens_resp = cockpit_api.list_tokens()
+            for token in tokens_resp.tokens:
+                if token.name == f"{runner}-metrics-token":
+                    print(f"Deleting Cockpit metrics token: {token.id}")
+                    cockpit_api.delete_token(token_id=token.id)
+        except Exception as token_err:
+            print(f"WARNING: Could not delete Cockpit metrics token for {runner}: {token_err}")
 
         server = BareMetal(server.id)
         server.delete()
