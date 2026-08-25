@@ -1877,7 +1877,7 @@ def setup_runner_ansible(runner_ip, tags=None):
         "-i", f"{runner_ip},",
         "-u", "ubuntu",
         "--private-key", os.path.expanduser("~/.ssh/id_scw"),
-        "ansible/site.yml",
+        "runner/ansible/site.yml",
     ]
     if tags:
         cmd.extend(["--tags", tags])
