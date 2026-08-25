@@ -1599,19 +1599,6 @@ def get_github_probe_token() -> str:
     return os.environ.get("GITHUB_PROBE_TOKEN", "")
 
 
-def setup_runner(ssh, runner, pn):
-    cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
-    cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner}-metrics-token")
-    github_probe_token = get_github_probe_token()
-    script = SETUP_SCRIPT.replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
-                         .replace("@@COCKPIT_METRICS_TOKEN@@", cockpit_metrics_token.secret_key) \
-                         .replace("@@GITHUB_PROBE_TOKEN@@", github_probe_token) \
-                         #FIXME(pn): enable private address again
-                         # .replace("@@PN_IP@@", pn.ip)
-                         # .replace("@@PN_VLAN_ID@@", pn.vlan_id)
-    ssh.run(script, **_tagged_streams())
-
-
 def setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip):
     join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
     script = KUBEADM_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd)
@@ -1776,7 +1763,7 @@ def cmd_runner_create(args):
         print(f"Server IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner(ssh, runner, pn)
+        setup_runner_ansible(runner, ip)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
@@ -1858,7 +1845,7 @@ def cmd_runner_reinstall(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner_ansible(ip)
+        setup_runner_ansible(runner, ip)
         setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
@@ -1871,13 +1858,24 @@ def cmd_runner_reinstall(args):
     return _run_parallel(args.runners, _do_runner_reinstall, jobs=args.jobs, delay=args.delay)
 
 
-def setup_runner_ansible(runner_ip, tags=None):
+def setup_runner_ansible(runner_name, runner_ip, tags=None):
+    cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
+    cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner_name}-metrics-token")
+    github_probe_token = get_github_probe_token()
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ansible_bin = os.path.join(repo_root, ".venv", "bin", "ansible-playbook")
+    playbook_path = os.path.join(repo_root, "runner", "ansible", "site.yml")
+
     cmd = [
-        ".venv/bin/ansible-playbook",
+        ansible_bin,
         "-i", f"{runner_ip},",
         "-u", "ubuntu",
         "--private-key", os.path.expanduser("~/.ssh/id_scw"),
-        "runner/ansible/site.yml",
+        "-e", f"cockpit_metrics_push_url={cockpit_metrics_ds.url}",
+        "-e", f"cockpit_metrics_token={cockpit_metrics_token.secret_key}",
+        "-e", f"github_probe_token={github_probe_token}",
+        playbook_path,
     ]
     if tags:
         cmd.extend(["--tags", tags])
@@ -1955,7 +1953,7 @@ def cmd_runner_setup(args):
         elif args.userspace_only:
             tags = "userspace"
 
-        setup_runner_ansible(ip, tags=tags)
+        setup_runner_ansible(runner, ip, tags=tags)
         if not args.kernelspace_only:
             setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
 

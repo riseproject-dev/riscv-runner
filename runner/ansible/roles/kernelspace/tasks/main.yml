@@ -97,7 +97,8 @@
                     echo "FAIL vermagic mismatch: $ko" >&2
                     exit 1
                 }
-                if riscv64-linux-gnu-readelf -r "$ko" | awk '{print $3}' | sort -u | grep -qE '(R_RISCV_ALIGN|R_RISCV_32_PCREL)'; then
+                READELF="$(command -v riscv64-linux-gnu-readelf || command -v readelf)"
+                if "$READELF" -r "$ko" | awk '{print $3}' | sort -u | grep -qE '(R_RISCV_ALIGN|R_RISCV_32_PCREL)'; then
                     echo "FAIL forbidden relocations: $ko" >&2
                     exit 1
                 fi
