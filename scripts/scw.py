@@ -742,10 +742,14 @@ def get_github_probe_token() -> str:
     return os.environ.get("GITHUB_PROBE_TOKEN", "")
 
 
-def setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip):
-    join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
-    script = KUBEADM_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd)
-    ssh.run(script, **_tagged_streams())
+def setup_runner_kubeadm(ssh, cp_public_ip):
+    ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+    try:
+        join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
+        script = KUBEADM_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd)
+        ssh.run(script, **_tagged_streams())
+    finally:
+        ssh_cp.close()
 
 
 def find_server_by_name(hostname):
@@ -913,7 +917,7 @@ def cmd_runner_create(args):
 
             ssh = ssh_connect(host=ip, user="ubuntu")
             setup_runner_ansible(runner, ip)
-            setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+            setup_runner_kubeadm(ssh, cp_public_ip)
             ssh.run("sudo reboot now", **_tagged_streams())
             time.sleep(15)
 
@@ -1002,7 +1006,7 @@ def cmd_runner_reinstall(args):
 
         ssh = ssh_connect(host=ip, user="ubuntu")
         setup_runner_ansible(runner, ip)
-        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+        setup_runner_kubeadm(ssh, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
@@ -1135,7 +1139,7 @@ def cmd_runner_setup(args):
 
         setup_runner_ansible(runner, ip, tags=tags)
         if not args.kernelspace_only:
-            setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+            setup_runner_kubeadm(ssh, cp_public_ip)
 
         ssh.run("sudo reboot now", **_tagged_streams())
         if args.kernelspace_only:
