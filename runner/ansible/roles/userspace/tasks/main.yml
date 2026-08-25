@@ -38,9 +38,16 @@
     mode: '0644'
   notify: Restart containerd
 
-- name: Install node_exporter
+- name: Download node_exporter archive with SHA256 verification
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+    checksum: "{{ node_exporter_checksum }}"
+    mode: '0644'
+
+- name: Install node_exporter binary
   ansible.builtin.unarchive:
-    src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
     dest: /usr/local/bin
     remote_src: true
     extra_opts:
@@ -80,9 +87,16 @@
     - Reload systemd
     - Restart node_exporter
 
-- name: Install prometheus (agent mode)
+- name: Download prometheus archive with SHA256 verification
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
+    dest: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
+    checksum: "{{ prometheus_checksum }}"
+    mode: '0644'
+
+- name: Install prometheus binary (agent mode)
   ansible.builtin.unarchive:
-    src: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
+    src: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
     dest: /usr/local/bin
     remote_src: true
     extra_opts:
