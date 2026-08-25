@@ -100,8 +100,11 @@ func dropKeys(m map[string]any, drop map[string]struct{}) map[string]any {
 // matchLabelsToK8s maps a job's labels to (pool, image). Returns
 // ("", "", false) when no rule matches — caller emits IGNORED_NO_LABEL.
 func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, labels []string) (pool, image string, ok bool) {
+	isRiseprojectDevScope := orgID == internal.RiseprojectDevOrgID
+	isLuhenryScope := orgID == internal.LuhenryUserID
+
 	isGGMLScope := orgID == internal.GGMLOrgID ||
-		(orgID == internal.RiseprojectDevOrgID &&
+		(isRiseprojectDevScope &&
 			(repoFullName == "riseproject-dev/llama.cpp" || repoFullName == "riseproject-dev/llama.cpp-validation"))
 	if isGGMLScope {
 		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
@@ -118,7 +121,7 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 	}
 
 	isRuyiAIScope := orgID == internal.RuyiAIOrgID
-	if isRuyiAIScope {
+	if isRuyiAIScope || isLuhenryScope {
 		if len(labels) == 3 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") && slices.Contains(labels, "xlarge") {
 			return "spacemit-v100", cfg.ImageUbuntu24, true
 		}
