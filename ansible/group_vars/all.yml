@@ -1,7 +1,9 @@
 ---
 # Software Versions & URLs
 node_exporter_version: "1.11.1"
+node_exporter_checksum: "sha256:8d73447c47488a94f7eba467838c815ea7dceb449c75b1b8e91fa6dc3e0e364e"
 prometheus_version: "3.11.3"
+prometheus_checksum: "sha256:bd6978937d64f4afa82919e0c4b3b83ace50808b953ab6174e480ca7dda2ba9a"
 crictl_version: "v1.32.0"
 kubernetes_version: "1.35.0"
 kubernetes_gitlab_artifacts_url: "https://gitlab.com/riseproject/risc-v-runner/kubernetes/-/jobs/13257210986/artifacts/download"

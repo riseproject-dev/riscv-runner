@@ -29,21 +29,13 @@
     group: root
     mode: '0755'
 
-- name: Check if containerd config is valid
-  ansible.builtin.command: grep -q "plugins.\"io.containerd.grpc.v1.cri.containerd.runtimes.runc\"" /etc/containerd/config.toml
-  register: containerd_config_valid
-  failed_when: false
-  changed_when: false
-
-- name: Generate default containerd config
-  ansible.builtin.shell: |
-    containerd config default > /etc/containerd/config.toml
-  when: containerd_config_valid.rc != 0
-
-- name: Configure containerd sandbox_image and SystemdCgroup
-  ansible.builtin.shell: |
-    sed -i 's|sandbox_image = ".*"|sandbox_image = "cloudv10x/pause:3.10"|' /etc/containerd/config.toml
-    sed -i 's|SystemdCgroup = false|SystemdCgroup = true|' /etc/containerd/config.toml
+- name: Configure containerd
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
   notify: Restart containerd
 
 - name: Install node_exporter
@@ -51,6 +43,7 @@
     src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
     dest: /usr/local/bin
     remote_src: true
+    checksum: "{{ node_exporter_checksum }}"
     extra_opts:
       - --strip-components=1
       - "node_exporter-{{ node_exporter_version }}.linux-{{ ansible_facts['architecture'] }}/node_exporter"
@@ -93,6 +86,7 @@
     src: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-{{ ansible_facts['architecture'] }}.tar.gz"
     dest: /usr/local/bin
     remote_src: true
+    checksum: "{{ prometheus_checksum }}"
     extra_opts:
       - --strip-components=1
       - "prometheus-{{ prometheus_version }}.linux-{{ ansible_facts['architecture'] }}/prometheus"
