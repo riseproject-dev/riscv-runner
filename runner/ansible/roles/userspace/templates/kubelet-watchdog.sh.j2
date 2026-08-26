@@ -1,0 +1,42 @@
+#!/bin/bash
+# Exit 0 = healthy or rate-limited (no restart). Exit 1 = restart needed.
+set -u
+STATE=/run/kubelet-watchdog.fails
+HISTORY=/run/kubelet-watchdog.restarts
+THRESHOLD=3
+MIN_INTERVAL=900
+HOUR_LIMIT=4
+
+if curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:10248/healthz; then
+  echo 0 > "$STATE"
+  exit 0
+fi
+
+FAILS=$(cat "$STATE" 2>/dev/null || echo 0)
+FAILS=$((FAILS + 1))
+echo "$FAILS" > "$STATE"
+
+if [ "$FAILS" -lt "$THRESHOLD" ]; then
+  logger -t kubelet-watchdog "healthz probe failed ($FAILS/$THRESHOLD)"
+  exit 0
+fi
+
+NOW=$(date +%s)
+touch "$HISTORY"
+awk -v now="$NOW" '$1 > now-3600' "$HISTORY" > "$HISTORY.tmp" && mv "$HISTORY.tmp" "$HISTORY"
+LAST=$(tail -1 "$HISTORY" 2>/dev/null | cut -d' ' -f1)
+COUNT=$(wc -l < "$HISTORY")
+
+if [ -n "$LAST" ] && [ $((NOW - LAST)) -lt "$MIN_INTERVAL" ]; then
+  logger -t kubelet-watchdog "rate-limited: last restart $((NOW - LAST))s ago, need ${MIN_INTERVAL}s"
+  exit 0
+fi
+if [ "$COUNT" -ge "$HOUR_LIMIT" ]; then
+  logger -t kubelet-watchdog "rate-limited: $COUNT restarts in last hour, limit $HOUR_LIMIT"
+  exit 0
+fi
+
+logger -t kubelet-watchdog "requesting restart (healthz probe failed $FAILS times in a row)"
+echo "$NOW" >> "$HISTORY"
+echo 0 > "$STATE"
+exit 1

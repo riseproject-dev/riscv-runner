@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 5m
+  external_labels:
+    node: {{ ansible_facts['hostname'] }}
+scrape_configs:
+- job_name: node_exporter_base
+  scrape_interval: 5m
+  static_configs:
+  - targets: ['127.0.0.1:9100']
+  metric_relabel_configs:
+    - source_labels: [__name__]
+      regex: 'node_cpu_seconds_total|node_load(1|5|15)|node_uname_info|node_boot_time_seconds|node_time_seconds|node_memory_(MemTotal|MemAvailable|MemFree|Cached|Buffers|SwapTotal|SwapFree)_bytes|node_vmstat_(oom_kill|pgmajfault|pswpin|pswpout)|node_filesystem_(avail|size|files|files_free)_bytes|node_filesystem_readonly|node_filesystem_device_error|node_disk_(read|written)_bytes_total|node_disk_io_time_seconds_total|node_disk_io_now|node_filefd_(allocated|maximum)|node_processes_(state|threads|max_threads|pids|max_processes)|node_timex_(sync_status|offset_seconds|maxerror_seconds)|node_entropy_available_bits|node_textfile_(mtime_seconds|scrape_error)|raw_github_probe_.*|runner_dns_.*|node_network_(receive|transmit)_(bytes|packets|drop|errs)_total|node_netstat_.*|node_sockstat_TCP_.*|node_nf_conntrack_entries|node_softnet_(processed|dropped|times_squeezed)_total|node_softirqs_functions_total'
+      action: keep
+{% if cockpit_metrics_push_url != "" %}
+remote_write:
+- url: '{{ cockpit_metrics_push_url }}/api/v1/push'
+  headers:
+    X-TOKEN: '{{ cockpit_metrics_token }}'
+  write_relabel_configs:
+    - source_labels: [__name__]
+      regex: '(go_|process_|promhttp_).*'
+      action: drop
+{% endif %}

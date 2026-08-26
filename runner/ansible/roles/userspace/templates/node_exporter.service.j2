@@ -1,0 +1,50 @@
+[Unit]
+Description=Prometheus node_exporter
+Documentation=https://github.com/prometheus/node_exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/node_exporter \
+  --collector.disable-defaults \
+  --collector.uname \
+  --collector.cpu \
+  --collector.stat \
+  --collector.vmstat \
+  --collector.loadavg \
+  --collector.meminfo \
+  --collector.filesystem \
+  --collector.filesystem.fs-types-exclude='^(tmpfs|devtmpfs|overlay|squashfs|nsfs|proc|sysfs|cgroup.*|fuse.*|autofs|binfmt_misc|debugfs|tracefs|configfs|hugetlbfs|mqueue|pstore|bpf)$' \
+  --collector.filesystem.mount-points-exclude='^/(sys|proc|dev|run|var/lib/(docker|containerd|kubelet))($|/)' \
+  --collector.diskstats \
+  --collector.diskstats.device-exclude='^(loop|ram|dm-|sr|zram).*$' \
+  --collector.filefd \
+  --collector.timex \
+  --collector.processes \
+  --collector.entropy \
+  --collector.softirqs \
+  --collector.softnet \
+  --collector.netdev \
+  --collector.netdev.device-include='^end0$' \
+  --collector.netstat \
+  --collector.netstat.fields='^(Tcp_(InSegs|OutSegs|RetransSegs)|TcpExt_(TCPTimeouts|TCPLostRetransmit|TCPSpuriousRTOs|TCPFastRetrans|TCPSlowStartRetrans|TCPSackRecovery|TCPSACKReorder|TCPRcvCollapsed|ListenOverflows))$' \
+  --collector.sockstat \
+  --collector.conntrack \
+  --collector.textfile \
+  --collector.textfile.directory=/var/lib/node_exporter/textfile_collector \
+  --web.listen-address=127.0.0.1:9100
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/node_exporter
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

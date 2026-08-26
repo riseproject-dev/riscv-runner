@@ -13,6 +13,9 @@ import sys
 import threading
 import time
 import yaml
+import subprocess
+import tempfile
+import json
 
 import logging
 # logging.basicConfig(level=logging.INFO)
@@ -63,6 +66,8 @@ SSH_KEY_IDS = [
 # --- Scaleway SDK clients ---
 
 scw_client = Client.from_config_file_and_env()
+# IPAM API is a regional service requiring default_region to be explicitly set (e.g. fr-par)
+scw_client.default_region = ZONE.rsplit("-", 1)[0]
 scw_client.default_zone = ZONE
 scw_client.default_region = ZONE.rsplit("-", 1)[0]
 scw_client.default_project_id = PROJECT_ID
@@ -635,846 +640,11 @@ RUNNER_SERVER_TYPE = "EM-RV1-C4M16S128-A"
 
 RETRY_DELAY = 60
 
-SETUP_KERNELSPACE_SCRIPT = r"""
-# Redirect stdout and stderr to /var/log/riscv-runner-setup.log
-exec > >(sudo tee -a /var/log/riscv-runner-setup.log) 2>&1
-
-echo "Setup (kernelspace) @ $(date)"
-
-set -eux -o pipefail
-
-# Fresh packages
-sudo apt-get update -qq
-sudo apt-get upgrade -qq -y
-
-###############################################################################
-## Build necessary kernel modules
-
-pushd /usr/lib/modules/$(uname -r)/source
-
-## Install toolchains
-sudo apt-get install -y --no-install-recommends \
-    build-essential libelf-dev libssl-dev bc bison flex gcc-14 ipset
-sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-
-## Build
-
-MODULES=(
-    net/netfilter/ipset
-    fs/erofs
-    drivers/md
-)
-
-# 1. Seed config from the running kernel's /proc
-zcat /proc/config.gz | sudo tee .config >/dev/null
-
-# 2.a Enable missing ipset module
-sudo scripts/config -m IP_SET_HASH_NET
-sudo scripts/config -m IP_SET_HASH_IPPORT
-sudo scripts/config -m IP_SET_HASH_IPPORTIP
-sudo scripts/config -m IP_SET_HASH_IPPORTNET
-sudo scripts/config -m IP_SET_HASH_NETPORT
-sudo scripts/config -m IP_SET_HASH_NETIFACE
-sudo scripts/config -m IP_SET_HASH_NETNET
-sudo scripts/config -m IP_SET_HASH_NETPORTNET
-sudo scripts/config -m IP_SET_HASH_IPMARK
-sudo scripts/config -m IP_SET_HASH_IPMAC
-sudo scripts/config -m IP_SET_HASH_MAC
-sudo scripts/config -m IP_SET_BITMAP_IP
-sudo scripts/config -m IP_SET_BITMAP_IPMAC
-sudo scripts/config -m IP_SET_BITMAP_PORT
-sudo scripts/config -m IP_SET_LIST_SET
-
-# 2.b Enable missing erofs module
-sudo scripts/config -m EROFS_FS
-sudo scripts/config -e EROFS_FS_ZIP
-sudo scripts/config -e EROFS_FS_ZIP_LZMA
-sudo scripts/config -e EROFS_FS_ZIP_DEFLATE
-sudo scripts/config -e EROFS_FS_POSIX_ACL
-sudo scripts/config -e EROFS_FS_XATTR
-
-# 2.c Enable missing dm_verity module
-sudo scripts/config -m DM_VERITY
-sudo scripts/config -e DM_VERITY_VERIFY_ROOTHASH_SIG
-# sudo scripts/config -e DM_VERITY_FEC # pulls in CONFIG_REED_SOLOMON which doesn't work
-sudo scripts/config -e BLK_DEV_DM
-sudo scripts/config -e MD
-sudo scripts/config -m CRYPTO_SHA256
-
-# 3. Pin the version suffix so vermagic matches the running kernel
-sudo scripts/config --set-str LOCALVERSION "-scw1"
-sudo scripts/config -d LOCALVERSION_AUTO
-
-# 4. Resolve config and prepare the tree
-sudo make ARCH=riscv olddefconfig
-sudo make ARCH=riscv prepare
-sudo make ARCH=riscv modules_prepare
-
-# 5. Use the running kernel's symvers (must come AFTER modules_prepare)
-sudo cp /lib/modules/$(uname -r)/build/Module.symvers .
-
-# 6. Sanity-check the version string before building
-cat include/config/kernel.release | grep "5.10.113-scw1"   # must print: 5.10.113-scw1
-
-# 7. Build only the ipset modules
-for m in ${MODULES[*]}; do
-    sudo make ARCH=riscv \
-         KCFLAGS="-mno-relax -fno-asynchronous-unwind-tables -fno-unwind-tables -g0" \
-         KAFLAGS="-mno-relax" \
-         M="${m}" modules -j$(nproc)
-done
-
-## Verify before installing
-for m in ${MODULES[*]}; do
-    sudo mkdir -p /lib/modules/$(uname -r)/kernel/${m}
-    for ko in ${m}/*.ko; do
-        # vermagic must match the running kernel
-        modinfo "$ko" | grep '^vermagic:' | grep -q "5.10.113-scw1 SMP preempt mod_unload riscv" || {
-            echo "FAIL vermagic mismatch: $ko" >&2
-            modinfo "$ko" | grep '^vermagic:' >&2
-            exit 1
-        }
-
-        # must NOT contain relocations the 5.10 RISC-V module loader can't handle
-        if riscv64-linux-gnu-readelf -r "$ko" \
-             | awk '{print $3}' | sort -u \
-             | grep -qE '(R_RISCV_ALIGN|R_RISCV_32_PCREL)'; then
-            echo "FAIL forbidden relocations: $ko" >&2
-            exit 1
-        fi
-
-        sudo cp -v "$ko" /lib/modules/$(uname -r)/kernel/${m}/
-    done
-done
-
-sudo depmod -a
-
-popd
-
-###############################################################################
-## Setup kernel modules
-
-# Load modules required for kubernetes
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
-overlay
-br_netfilter
-nf_conntrack
-tun
-EOF
-
-# Load modules needed for customers' workloads
-cat <<EOF | sudo tee /etc/modules-load.d/users.conf
-ip_set
-ip_set_bitmap_ip
-ip_set_bitmap_ipmac
-ip_set_bitmap_port
-ip_set_hash_ip
-ip_set_hash_ipmac
-ip_set_hash_ipmark
-ip_set_hash_ipport
-ip_set_hash_ipportip
-ip_set_hash_ipportnet
-ip_set_hash_mac
-ip_set_hash_net
-ip_set_hash_netiface
-ip_set_hash_netnet
-ip_set_hash_netport
-ip_set_hash_netportnet
-ip_set_list_set
-erofs
-dm_verity
-EOF
-
-sudo modprobe overlay
-sudo modprobe br_netfilter
-sudo modprobe nf_conntrack
-sudo modprobe tun
-
-# Blacklist some modules
-cat <<EOF | sudo tee /etc/modprobe.d/blacklist-copyfail.conf
-blacklist algif_aead
-install algif_aead /bin/true
-EOF
-
-###############################################################################
-## Configure sysctl params for Kubernetes networking
-
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-EOF
-
-# Apply the changes
-sudo sysctl --system
-
-"""
-
-SETUP_USERSPACE_SCRIPT = r"""
-# Redirect stdout and stderr to /var/log/riscv-runner-setup.log
-exec > >(sudo tee -a /var/log/riscv-runner-setup.log) 2>&1
-
-echo "Setup (userspace) @ $(date)"
-
-set -eux -o pipefail
-
-# Fresh packages
-sudo apt-get update -qq
-
-###############################################################################
-## Install node_exporter
-
-NODE_EXPORTER_VERSION=1.11.1
-curl  -fsSL \
-  --retry 5 \
-  --retry-delay 5 \
-  --retry-all-errors \
-  https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/node_exporter-${NODE_EXPORTER_VERSION}.linux-$(uname -m).tar.gz | \
-    sudo tar -xvzf - -C /usr/local/bin --strip-components 1 node_exporter-${NODE_EXPORTER_VERSION}.linux-$(uname -m)/node_exporter
-
-sudo chown root:root /usr/local/bin/node_exporter
-sudo chmod 0755 /usr/local/bin/node_exporter
-
-id -u node_exporter >/dev/null 2>&1 || \
-  sudo useradd --system --no-create-home --shell /usr/sbin/nologin node_exporter
-
-sudo install -d -o node_exporter -g node_exporter -m 0755 \
-  /var/lib/node_exporter \
-  /var/lib/node_exporter/textfile_collector
-
-# Setup node_exporter systemd service
-cat <<'EOF' | sudo tee /etc/systemd/system/node_exporter.service
-[Unit]
-Description=Prometheus node_exporter
-Documentation=https://github.com/prometheus/node_exporter
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=simple
-User=node_exporter
-Group=node_exporter
-ExecStart=/usr/local/bin/node_exporter \
-  --collector.disable-defaults \
-  --collector.uname \
-  --collector.cpu \
-  --collector.stat \
-  --collector.vmstat \
-  --collector.loadavg \
-  --collector.meminfo \
-  --collector.filesystem \
-  --collector.filesystem.fs-types-exclude='^(tmpfs|devtmpfs|overlay|squashfs|nsfs|proc|sysfs|cgroup.*|fuse.*|autofs|binfmt_misc|debugfs|tracefs|configfs|hugetlbfs|mqueue|pstore|bpf)$' \
-  --collector.filesystem.mount-points-exclude='^/(sys|proc|dev|run|var/lib/(docker|containerd|kubelet))($|/)' \
-  --collector.diskstats \
-  --collector.diskstats.device-exclude='^(loop|ram|dm-|sr|zram).*$' \
-  --collector.filefd \
-  --collector.timex \
-  --collector.processes \
-  --collector.entropy \
-  --collector.softirqs \
-  --collector.softnet \
-  --collector.netdev \
-  --collector.netdev.device-include='^end0$' \
-  --collector.netstat \
-  --collector.netstat.fields='^(Tcp_(InSegs|OutSegs|RetransSegs)|TcpExt_(TCPTimeouts|TCPLostRetransmit|TCPSpuriousRTOs|TCPFastRetrans|TCPSlowStartRetrans|TCPSackRecovery|TCPSACKReorder|TCPRcvCollapsed|ListenOverflows))$' \
-  --collector.sockstat \
-  --collector.conntrack \
-  --collector.textfile \
-  --collector.textfile.directory=/var/lib/node_exporter/textfile_collector \
-  --web.listen-address=127.0.0.1:9100
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/lib/node_exporter
-AmbientCapabilities=CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_ADMIN
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable node_exporter
-
-###############################################################################
-## Install prometheus
-
-# Install Prometheus in agent mode to ship node_exporter metrics to
-# Scaleway Cockpit. Agent mode keeps only a short WAL on disk and uses
-# remote_write — no local TSDB, no query API.
-PROMETHEUS_VERSION="3.11.3"
-curl -fsSL \
-  --retry 5 \
-  --retry-delay 5 \
-  --retry-all-errors \
-  https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-$(uname -m).tar.gz | \
-    sudo tar -C /usr/local/bin -xvzf - --strip-components=1 prometheus-${PROMETHEUS_VERSION}.linux-$(uname -m)/prometheus
-
-sudo chown root:root /usr/local/bin/prometheus
-sudo chmod 0755 /usr/local/bin/prometheus
-
-id -u prometheus >/dev/null 2>&1 || \
-  sudo useradd --system --no-create-home --shell /usr/sbin/nologin prometheus
-
-sudo install -d -o prometheus -g prometheus -m 0750 \
-  /etc/prometheus \
-  /var/lib/prometheus
-
-cat <<EOF | sudo tee /etc/prometheus/agent.yml >/dev/null
-global:
-  scrape_interval: 5m
-  external_labels:
-    node: $(hostname)
-scrape_configs:
-- job_name: node_exporter_base
-  scrape_interval: 5m
-  static_configs:
-  - targets: ['127.0.0.1:9100']
-  metric_relabel_configs:
-    - source_labels: [__name__]
-      regex: 'node_cpu_seconds_total|node_load(1|5|15)|node_uname_info|node_boot_time_seconds|node_time_seconds|node_memory_(MemTotal|MemAvailable|MemFree|Cached|Buffers|SwapTotal|SwapFree)_bytes|node_vmstat_(oom_kill|pgmajfault|pswpin|pswpout)|node_filesystem_(avail|size|files|files_free)_bytes|node_filesystem_readonly|node_filesystem_device_error|node_disk_(read|written)_bytes_total|node_disk_io_time_seconds_total|node_disk_io_now|node_filefd_(allocated|maximum)|node_processes_(state|threads|max_threads|pids|max_processes)|node_timex_(sync_status|offset_seconds|maxerror_seconds)|node_entropy_available_bits|node_textfile_(mtime_seconds|scrape_error)|raw_github_probe_.*|runner_dns_.*|node_network_(receive|transmit)_(bytes|packets|drop|errs)_total|node_netstat_.*|node_sockstat_TCP_.*|node_nf_conntrack_entries|node_softnet_(processed|dropped|times_squeezed)_total|node_softirqs_functions_total'
-      action: keep
-remote_write:
-- url: '@@COCKPIT_METRICS_PUSH_URL@@/api/v1/push'
-  headers:
-    X-TOKEN: '@@COCKPIT_METRICS_TOKEN@@'
-  write_relabel_configs:
-    - source_labels: [__name__]
-      regex: '(go_|process_|promhttp_).*'
-      action: drop
-EOF
-
-sudo chown prometheus:prometheus /etc/prometheus/agent.yml
-sudo chmod 0640 /etc/prometheus/agent.yml
-
-cat <<'EOF' | sudo tee /etc/systemd/system/prometheus-agent.service
-[Unit]
-Description=Prometheus (agent mode) shipping to Scaleway Cockpit
-Documentation=https://prometheus.io/docs/prometheus/latest/feature_flags/#prometheus-agent
-After=network-online.target node_exporter.service
-Wants=network-online.target
-[Service]
-Type=simple
-User=prometheus
-Group=prometheus
-ExecStart=/usr/local/bin/prometheus \
-  --config.file=/etc/prometheus/agent.yml \
-  --agent \
-  --storage.agent.path=/var/lib/prometheus \
-  --web.listen-address=127.0.0.1:9090
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/lib/prometheus
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable prometheus-agent
-
-###############################################################################
-## Install probe scripts (textfile collector)
-
-# Sources live in scripts/probes/; substituted in by run_setup().
-
-# GitHub PAT used by the authenticated raw.githubusercontent.com probe variant.
-# Empty when unset → probe falls back to running only the unauthenticated variants.
-sudo install -d -m 0755 -o root -g root /etc/raw-github-probe
-cat <<'EOF' | sudo tee /etc/raw-github-probe/token >/dev/null
-@@GITHUB_PROBE_TOKEN@@
-EOF
-sudo chown root:node_exporter /etc/raw-github-probe/token
-sudo chmod 0440 /etc/raw-github-probe/token
-
-cat <<'EOF' | sudo tee /usr/local/bin/raw-github-probe.py >/dev/null
-#!/usr/bin/env python3
-
-# Probe raw.githubusercontent.com download speed for the node_exporter
-# textfile collector.
-#
-# Three variants:
-#   target=raw.githubusercontent.com, auth=none   — current behaviour
-#   target=raw.githubusercontent.com, auth=token  — same URL with PAT in
-#     Authorization header. Disambiguates whether the steady ~131 kB/s
-#     ceiling is a per-IP rate limit (auth lifts it) or a per-request
-#     bandwidth throttle (auth doesn't).
-#   target=cloudflare-control, auth=none          — non-Fastly comparison.
-#
-# curl is shelled out so we get %{remote_ip} reflecting the IP libcurl
-# actually connected to.
-#
-# Token is loaded from /etc/raw-github-probe/token (root:node_exporter, 0440).
-# Empty or missing → authed variant is skipped silently.
-
-import os
-import subprocess
-import tempfile
-from pathlib import Path
-
-OUT = Path("/var/lib/node_exporter/textfile_collector/raw_github_probe.prom")
-TOKEN_FILE = Path("/etc/raw-github-probe/token")
-
-# Both are ~5MB
-URL_RAW_GITHUB = "https://raw.githubusercontent.com/usnistgov/ACVP-Server/15c0f3deeefbfa8cb6cd32a99e1ca3b738c66bf0/gen-val/json-files/ML-DSA-sigGen-FIPS204/prompt.json"
-URL_CLOUDFLARE = "https://speed.cloudflare.com/__down?bytes=5242880"
-
-CURL_FORMAT = "%{time_total} %{speed_download} %{remote_ip} %{exitcode}\n"
-
-HEADER  = "# HELP raw_github_probe_seconds Wallclock to download a fixed test artefact.\n"
-HEADER += "# TYPE raw_github_probe_seconds gauge\n"
-HEADER += "# HELP raw_github_probe_bytes_per_second Average download throughput in bytes/sec.\n"
-HEADER += "# TYPE raw_github_probe_bytes_per_second gauge\n"
-HEADER += "# HELP raw_github_probe_curl_exit_code Curl exit code; 0 on success.\n"
-HEADER += "# TYPE raw_github_probe_curl_exit_code gauge\n"
-
-
-def load_token() -> str:
-    try:
-        return TOKEN_FILE.read_text().strip()
-    except (FileNotFoundError, PermissionError, OSError):
-        return ""
-
-
-def targets(token):
-    out = [
-        ({"target": "raw.githubusercontent.com", "auth": "none"}, URL_RAW_GITHUB, None),
-        ({"target": "cloudflare-control",        "auth": "none"}, URL_CLOUDFLARE, None),
-    ]
-    if token:
-        out.append(
-            ({"target": "raw.githubusercontent.com", "auth": "token"},
-             URL_RAW_GITHUB, f"Authorization: Bearer {token}")
-        )
-    return out
-
-
-def fmt_labels(labels):
-    return ",".join(f'{k}="{v}"' for k, v in labels.items())
-
-
-def probe(labels, url, auth_header):
-    # Headers piped via `curl -K -` so the token never lands in argv / ps.
-    config = f'header = "{auth_header}"\n' if auth_header else None
-    args = ["curl", "-o", "/dev/null", "-s", "--max-time", "30", "-w", CURL_FORMAT]
-    if config:
-        args += ["-K", "-"]
-    args.append(url)
-    try:
-        result = subprocess.run(
-            args, input=config, capture_output=True, text=True, timeout=35,
-        )
-        fields = (result.stdout.strip() or "0 0 unknown 99").split()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        fields = ["0", "0", "unknown", "99"]
-    seconds, bps, ip, code = (fields + ["0", "0", "unknown", "99"])[:4]
-    base = fmt_labels(labels)
-    return (
-        f'raw_github_probe_seconds{{{base},remote_ip="{ip}"}} {seconds}\n'
-        f'raw_github_probe_bytes_per_second{{{base}}} {bps}\n'
-        f'raw_github_probe_curl_exit_code{{{base}}} {code}\n'
-    )
-
-
-def write_atomic(path: Path, content: str) -> None:
-    # Write content via tempfile + os.replace so node_exporter never sees a half-written file.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="." + path.name + ".")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(content)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
-def main() -> None:
-    write_atomic(OUT, HEADER + "".join(probe(labels, url, auth) for labels, url, auth in targets(load_token())))
-
-
-if __name__ == "__main__":
-    main()
-EOF
-
-sudo chmod 0755 /usr/local/bin/raw-github-probe.py
-sudo chown root:root /usr/local/bin/raw-github-probe.py
-
-cat <<'EOF' | sudo tee /usr/local/bin/dns-probe.py >/dev/null
-#!/usr/bin/env python3
-
-# Snapshot which IPs raw.githubusercontent.com currently resolves to, for
-# the node_exporter textfile collector.
-#
-# Resolves via socket.getaddrinfo (the libc resolver curl uses), so the IPs
-# we record match the customer's real traffic path. Used to correlate slow
-# windows with Fastly cache-region or POP flips (H1).
-
-import os
-import socket
-import tempfile
-from pathlib import Path
-
-OUT = Path("/var/lib/node_exporter/textfile_collector/dns_probe.prom")
-HOST = "raw.githubusercontent.com"
-
-HEADER  = "# HELP runner_dns_resolved_ip Info metric: 1 per IP currently resolved for HOST.\n"
-HEADER += "# TYPE runner_dns_resolved_ip gauge\n"
-HEADER += "# HELP runner_dns_resolved_ip_count Number of IPs returned for HOST.\n"
-HEADER += "# TYPE runner_dns_resolved_ip_count gauge\n"
-
-def resolve(host: str) -> list[str]:
-    ips: set[str] = set()
-    for family in (socket.AF_INET, socket.AF_INET6):
-        try:
-            ips.update(info[4][0] for info in socket.getaddrinfo(host, None, family, socket.SOCK_STREAM))
-        except socket.gaierror:
-            pass
-    return sorted(ips)
-
-
-def write_atomic(path: Path, content: str) -> None:
-    # Write content via tempfile + os.replace so node_exporter never sees a half-written file.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="." + path.name + ".")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(content)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
-def main() -> None:
-    ips = resolve(HOST)
-    body = HEADER + "".join(
-        f'runner_dns_resolved_ip{{host="{HOST}",ip="{ip}"}} 1\n' for ip in ips
-    ) + f'runner_dns_resolved_ip_count{{host="{HOST}"}} {len(ips)}\n'
-    write_atomic(OUT, body)
-
-
-if __name__ == "__main__":
-    main()
-EOF
-sudo chmod 0755 /usr/local/bin/dns-probe.py
-sudo chown root:root /usr/local/bin/dns-probe.py
-
-# Systemd timers running each probe as the node_exporter user.
-cat <<'EOF' | sudo tee /etc/systemd/system/raw-github-probe.service
-[Unit]
-Description=Synthetic probe of raw.githubusercontent.com and a comparison target
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=oneshot
-User=node_exporter
-Group=node_exporter
-ExecStart=/usr/local/bin/raw-github-probe.py
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/lib/node_exporter
-ReadOnlyPaths=/etc/raw-github-probe
-EOF
-
-cat <<'EOF' | sudo tee /etc/systemd/system/raw-github-probe.timer
-[Unit]
-Description=Run raw-github-probe every 5 minutes
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec=5min
-Unit=raw-github-probe.service
-[Install]
-WantedBy=timers.target
-EOF
-
-cat <<'EOF' | sudo tee /etc/systemd/system/dns-probe.service
-[Unit]
-Description=DNS resolution snapshot for raw.githubusercontent.com
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=oneshot
-User=node_exporter
-Group=node_exporter
-ExecStart=/usr/local/bin/dns-probe.py
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/lib/node_exporter
-EOF
-
-cat <<'EOF' | sudo tee /etc/systemd/system/dns-probe.timer
-[Unit]
-Description=Run dns-probe every 60 seconds
-[Timer]
-OnBootSec=30s
-OnUnitActiveSec=60s
-Unit=dns-probe.service
-[Install]
-WantedBy=timers.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable raw-github-probe.timer
-sudo systemctl enable dns-probe.timer
-
-
-###############################################################################
-## Install containerd
-
-sudo apt-get install -y --no-install-recommends containerd
-sudo mkdir -p /etc/containerd
-containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
-
-## Enable SystemdCgroup driver
-sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
-
-## Set the multi-arch (amd64/riscv64) compatible pause image
-## This ensures that both architectures can pull a valid sandbox image
-sudo sed -i 's|sandbox_image = ".*"|sandbox_image = "cloudv10x/pause:3.10"|' /etc/containerd/config.toml
-
-## Restart the service
-sudo systemctl restart containerd
-
-###############################################################################
-## containerd liveness watchdog
-## Restarts containerd+kubelet when the CRI socket stops responding,
-## since systemd cannot detect this on its own.
-
-cat <<'EOF' | sudo tee /usr/local/bin/containerd-watchdog.sh
-#!/bin/bash
-# Exit 0 = healthy or rate-limited (no restart). Exit 1 = restart needed.
-set -u
-STATE=/run/containerd-watchdog.fails
-HISTORY=/run/containerd-watchdog.restarts
-THRESHOLD=3
-MIN_INTERVAL=900
-HOUR_LIMIT=4
-
-if /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock --timeout 5s version >/dev/null 2>&1; then
-  echo 0 > "$STATE"
-  exit 0
-fi
-
-FAILS=$(cat "$STATE" 2>/dev/null || echo 0)
-FAILS=$((FAILS + 1))
-echo "$FAILS" > "$STATE"
-
-if [ "$FAILS" -lt "$THRESHOLD" ]; then
-  logger -t containerd-watchdog "CRI probe failed ($FAILS/$THRESHOLD)"
-  exit 0
-fi
-
-NOW=$(date +%s)
-touch "$HISTORY"
-awk -v now="$NOW" '$1 > now-3600' "$HISTORY" > "$HISTORY.tmp" && mv "$HISTORY.tmp" "$HISTORY"
-LAST=$(tail -1 "$HISTORY" 2>/dev/null | cut -d' ' -f1)
-COUNT=$(wc -l < "$HISTORY")
-
-if [ -n "$LAST" ] && [ $((NOW - LAST)) -lt "$MIN_INTERVAL" ]; then
-  logger -t containerd-watchdog "rate-limited: last restart $((NOW - LAST))s ago, need ${MIN_INTERVAL}s"
-  exit 0
-fi
-if [ "$COUNT" -ge "$HOUR_LIMIT" ]; then
-  logger -t containerd-watchdog "rate-limited: $COUNT restarts in last hour, limit $HOUR_LIMIT"
-  exit 0
-fi
-
-logger -t containerd-watchdog "requesting restart (CRI probe failed $FAILS times in a row)"
-echo "$NOW" >> "$HISTORY"
-echo 0 > "$STATE"
-exit 1
-EOF
-sudo chmod 0755 /usr/local/bin/containerd-watchdog.sh
-sudo chown root:root /usr/local/bin/containerd-watchdog.sh
-
-cat <<'EOF' | sudo tee /etc/systemd/system/containerd-watchdog.service
-[Unit]
-Description=Probe containerd CRI; restart if unresponsive
-After=containerd.service
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/containerd-watchdog.sh
-SuccessExitStatus=0 1
-ExecStopPost=/bin/sh -c '[ "$EXIT_STATUS" = "0" ] || systemctl restart containerd.service'
-EOF
-
-cat <<'EOF' | sudo tee /etc/systemd/system/containerd-watchdog.timer
-[Unit]
-Description=Run containerd-watchdog every 30 seconds
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=30s
-Unit=containerd-watchdog.service
-[Install]
-WantedBy=timers.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable containerd-watchdog.timer
-
-###############################################################################
-## Install crictl
-
-CRICTL_VERSION="v1.35.0" # https://github.com/kubernetes-sigs/cri-tools/releases/tag/v1.35.0
-curl -fsSL \
-  --retry 5 \
-  --retry-delay 5 \
-  --retry-all-errors \
-  https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-$(uname -m).tar.gz | \
-    sudo tar -C /usr/local/bin -xvzf -
-
-###############################################################################
-## Install CNI plugins
-
-sudo mkdir -p /opt/cni/bin
-curl -fsSL \
-  --retry 5 \
-  --retry-delay 5 \
-  --retry-all-errors \
-  https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-riscv64-v1.4.0.tgz | \
-    sudo tar -C /opt/cni/bin -xvzf -
-
-###############################################################################
-## Install kubernetes cli tools: kubeadm, kubelet, kubectl
-
-sudo apt-get install -y --no-install-recommends curl unzip
-curl -fsSL \
-  --retry 5 \
-  --retry-delay 5 \
-  --retry-all-errors \
-  -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0" \
-  -H "Accept: */*" \
-  -H "Referer: https://gitlab.com/" \
-  -o artifacts.zip \
-  https://gitlab.com/riseproject/risc-v-runner/kubernetes/-/jobs/13257210986/artifacts/download
-unzip artifacts.zip '_output/*' -d artifacts
-sudo mv artifacts/_output/local/go/bin/kube* /usr/local/bin/
-rm -rf artifacts artifacts.zip
-sudo chown root:root /usr/local/bin/kube*
-sudo chmod +x /usr/local/bin/kube*
-
-# Setup kubelet systemd service
-cat <<'EOF' | sudo tee /etc/systemd/system/kubelet.service
-[Unit]
-Description=kubelet: The Kubernetes Node Agent
-Documentation=https://kubernetes.io/docs/
-Wants=network-online.target
-After=network-online.target
-[Service]
-ExecStart=/usr/local/bin/kubelet
-Restart=always
-StartLimitInterval=0
-RestartSec=10
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo mkdir -p /etc/systemd/system/kubelet.service.d
-
-cat <<'EOF' | sudo tee /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
-[Service]
-Environment="KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf"
-Environment="KUBELET_CONFIG_ARGS=--config=/var/lib/kubelet/config.yaml"
-EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
-EnvironmentFile=-/etc/default/kubelet
-ExecStart=
-ExecStart=/usr/local/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now kubelet
-
-###############################################################################
-## kubelet liveness watchdog
-## Restarts kubelet when /healthz stops responding, since the process can
-## stay "active (running)" while internally deadlocked.
-
-cat <<'EOF' | sudo tee /usr/local/bin/kubelet-watchdog.sh
-#!/bin/bash
-# Exit 0 = healthy or rate-limited (no restart). Exit 1 = restart needed.
-set -u
-STATE=/run/kubelet-watchdog.fails
-HISTORY=/run/kubelet-watchdog.restarts
-THRESHOLD=3
-MIN_INTERVAL=900
-HOUR_LIMIT=4
-
-if curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:10248/healthz; then
-  echo 0 > "$STATE"
-  exit 0
-fi
-
-FAILS=$(cat "$STATE" 2>/dev/null || echo 0)
-FAILS=$((FAILS + 1))
-echo "$FAILS" > "$STATE"
-
-if [ "$FAILS" -lt "$THRESHOLD" ]; then
-  logger -t kubelet-watchdog "healthz probe failed ($FAILS/$THRESHOLD)"
-  exit 0
-fi
-
-NOW=$(date +%s)
-touch "$HISTORY"
-awk -v now="$NOW" '$1 > now-3600' "$HISTORY" > "$HISTORY.tmp" && mv "$HISTORY.tmp" "$HISTORY"
-LAST=$(tail -1 "$HISTORY" 2>/dev/null | cut -d' ' -f1)
-COUNT=$(wc -l < "$HISTORY")
-
-if [ -n "$LAST" ] && [ $((NOW - LAST)) -lt "$MIN_INTERVAL" ]; then
-  logger -t kubelet-watchdog "rate-limited: last restart $((NOW - LAST))s ago, need ${MIN_INTERVAL}s"
-  exit 0
-fi
-if [ "$COUNT" -ge "$HOUR_LIMIT" ]; then
-  logger -t kubelet-watchdog "rate-limited: $COUNT restarts in last hour, limit $HOUR_LIMIT"
-  exit 0
-fi
-
-logger -t kubelet-watchdog "requesting restart (healthz probe failed $FAILS times in a row)"
-echo "$NOW" >> "$HISTORY"
-echo 0 > "$STATE"
-exit 1
-EOF
-sudo chmod 0755 /usr/local/bin/kubelet-watchdog.sh
-sudo chown root:root /usr/local/bin/kubelet-watchdog.sh
-
-cat <<'EOF' | sudo tee /etc/systemd/system/kubelet-watchdog.service
-[Unit]
-Description=Probe kubelet /healthz; restart if unresponsive
-After=kubelet.service
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/kubelet-watchdog.sh
-SuccessExitStatus=0 1
-ExecStopPost=/bin/sh -c '[ "$EXIT_STATUS" = "0" ] || systemctl restart kubelet.service'
-EOF
-
-cat <<'EOF' | sudo tee /etc/systemd/system/kubelet-watchdog.timer
-[Unit]
-Description=Run kubelet-watchdog every 30 seconds
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=30s
-Unit=kubelet-watchdog.service
-[Install]
-WantedBy=timers.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable kubelet-watchdog.timer
-"""
-
 KUBEADM_SCRIPT=r"""
 sudo kubeadm reset -f || true
 sudo @@KUBEADM_JOIN_CMD@@
 """
+
 
 class ServerNotFoundException(Exception):
     pass
@@ -1573,29 +743,14 @@ def get_github_probe_token() -> str:
     return os.environ.get("GITHUB_PROBE_TOKEN", "")
 
 
-def setup_runner_kernelspace(ssh, runner, pn):
-    ssh.run(SETUP_KERNELSPACE_SCRIPT, **_tagged_streams())
-
-
-def setup_runner_userspace(ssh, runner, pn):
-    cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
-    cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner}-metrics-token")
-    github_probe_token = get_github_probe_token()
-    script = SETUP_USERSPACE_SCRIPT.replace("@@COCKPIT_METRICS_PUSH_URL@@", cockpit_metrics_ds.url) \
-                                   .replace("@@COCKPIT_METRICS_TOKEN@@", cockpit_metrics_token.secret_key) \
-                                   .replace("@@GITHUB_PROBE_TOKEN@@", github_probe_token)
-    ssh.run(script, **_tagged_streams())
-
-
-def setup_runner(ssh, runner, pn):
-    setup_runner_kernelspace(ssh, runner, pn)
-    setup_runner_userspace(ssh, runner, pn)
-
-
-def setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip):
-    join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
-    script = KUBEADM_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd)
-    ssh.run(script, **_tagged_streams())
+def setup_runner_kubeadm(ssh, cp_public_ip):
+    ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+    try:
+        join_cmd = get_kubeadm_join_cmd(ssh_cp, cp_public_ip)
+        script = KUBEADM_SCRIPT.replace("@@KUBEADM_JOIN_CMD@@", join_cmd)
+        ssh.run(script, **_tagged_streams())
+    finally:
+        ssh_cp.close()
 
 
 def find_server_by_name(hostname):
@@ -1756,8 +911,8 @@ def cmd_runner_create(args):
         print(f"Server IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner(ssh, runner, pn)
-        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+        setup_runner_ansible(runner, ip)
+        setup_runner_kubeadm(ssh, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
@@ -1838,8 +993,8 @@ def cmd_runner_reinstall(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        setup_runner(ssh, runner, pn)
-        setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
+        setup_runner_ansible(runner, ip)
+        setup_runner_kubeadm(ssh, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
@@ -1851,6 +1006,43 @@ def cmd_runner_reinstall(args):
     return _run_parallel(args.runners, _do_runner_reinstall, jobs=args.jobs, delay=args.delay)
 
 
+def setup_runner_ansible(runner_name, runner_ip):
+    cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
+    cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner_name}-metrics-token")
+    github_probe_token = get_github_probe_token()
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ansible_bin = os.path.join(repo_root, ".venv", "bin", "ansible-playbook")
+    playbook_path = os.path.join(repo_root, "runner", "ansible", "site.yml")
+
+    extra_vars = {
+        "cockpit_metrics_push_url": cockpit_metrics_ds.url,
+        "cockpit_metrics_token": cockpit_metrics_token.secret_key,
+        "github_probe_token": github_probe_token,
+    }
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+        json.dump(extra_vars, tf)
+        extra_vars_file = tf.name
+
+    os.chmod(extra_vars_file, 0o600)
+
+    cmd = [
+        ansible_bin,
+        "-i", f"{runner_ip},",
+        "-u", "ubuntu",
+        "--private-key", os.path.expanduser("~/.ssh/id_scw"),
+        "-e", f"@{extra_vars_file}",
+        playbook_path,
+    ]
+
+    env = os.environ.copy()
+    env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
+    try:
+        subprocess.run(cmd, check=True, env=env)
+    finally:
+        if os.path.exists(extra_vars_file):
+            os.remove(extra_vars_file)
 
 def cmd_runner_setup(args):
     def _do_runner_setup(runner):
@@ -1914,15 +1106,8 @@ def cmd_runner_setup(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        if args.kernelspace_only:
-            setup_runner_kernelspace(ssh, runner, pn)
-        else:
-            if args.userspace_only:
-                setup_runner_userspace(ssh, runner, pn)
-            else:
-                setup_runner(ssh, runner, pn)
-            setup_runner_kubeadm(ssh, ssh_cp, cp_public_ip)
-
+        setup_runner_ansible(runner, ip)
+        setup_runner_kubeadm(ssh, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
         time.sleep(15)
 
