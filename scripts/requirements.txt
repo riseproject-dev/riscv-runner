@@ -2,3 +2,4 @@
 scaleway # scaleway python sdk
 fabric # execute shell commands remotely over SSH
 kubernetes
+ansible
