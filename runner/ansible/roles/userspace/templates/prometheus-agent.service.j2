@@ -1,0 +1,25 @@
+[Unit]
+Description=Prometheus (agent mode) shipping to Scaleway Cockpit
+Documentation=https://prometheus.io/docs/prometheus/latest/feature_flags/#prometheus-agent
+After=network-online.target node_exporter.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=prometheus
+Group=prometheus
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/agent.yml \
+  --agent \
+  --storage.agent.path=/var/lib/prometheus \
+  --web.listen-address=127.0.0.1:9090
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/prometheus
+
+[Install]
+WantedBy=multi-user.target

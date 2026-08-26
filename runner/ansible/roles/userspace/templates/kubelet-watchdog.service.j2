@@ -1,0 +1,9 @@
+[Unit]
+Description=Probe kubelet /healthz; restart if unresponsive
+After=kubelet.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kubelet-watchdog.sh
+SuccessExitStatus=0 1
+ExecStopPost=/bin/sh -c '[ "$EXIT_STATUS" = "0" ] || systemctl restart kubelet.service'

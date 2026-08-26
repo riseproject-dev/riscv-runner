@@ -1,0 +1,9 @@
+[Unit]
+Description=Probe containerd CRI; restart if unresponsive
+After=containerd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/containerd-watchdog.sh
+SuccessExitStatus=0 1
+ExecStopPost=/bin/sh -c '[ "$EXIT_STATUS" = "0" ] || systemctl restart containerd.service'
