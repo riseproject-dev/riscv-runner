@@ -65,7 +65,7 @@ Expected:
 
 ```
   kubernetes.io/arch=riscv64
-  riseproject.dev/board=scw-em-rv1            # or cloudv10x-pioneer / cloudv10x-jupiter
+  riseproject.dev/board=scaleway-em-rv1       # or spacemit-k1, spacemit-k3, spacemit-v100
   riseproject.com/runner:  1                  # under "Allocatable"
 ```
 
@@ -82,7 +82,7 @@ The device plugin has a ServiceAccount in `kube-system` with a ClusterRole grant
 
 When new RISC-V hardware enters the fleet:
 
-1. SSH into a node of the new board and read `/sys/firmware/devicetree/base/compatible`. Note the first NUL-separated entry.
-2. Add a row to `boardMap` in [`runner/device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go).
+1. Deploy the device plugin to a node of the new board and read the `riscv_hwprobe IDs: mvendorid=0x... marchid=0x... mimpid=0x...` line from its logs. Until the board is known, `Detect` errors and the plugin exits, which is expected.
+2. Add an entry to the `socs` list in [`runner/device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go) with that triple and the board label. (A board whose kernel lacks `riscv_hwprobe`, like the Scaleway EM-RV1, is instead special-cased against the device tree in the same file.)
 3. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels).
 4. Push and let the device-plugin deploy workflow roll out the new labeller.

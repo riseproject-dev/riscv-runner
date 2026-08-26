@@ -69,7 +69,7 @@ sequenceDiagram
 
 **Two GitHub Apps.** Organizations and personal accounts use separate GitHub Apps. The org app uses organization-level runner registration (requires Self-hosted runners permission). The personal app uses repository-level runner registration (requires Administration permission). The worker selects the correct app and API path based on entity type.
 
-**Board-based scheduling.** The device plugin reads the device tree on each RISC-V node at startup, detects the SoC, and applies a `riseproject.dev/board` label. Runner pods use a `nodeSelector` to land on the correct hardware for each label.
+**Board-based scheduling.** The device plugin probes each RISC-V node at startup with the `riscv_hwprobe` syscall, identifies the SoC from its `mvendorid`/`marchid`/`mimpid` triple, and applies a `riseproject.dev/board` label. Runner pods use a `nodeSelector` to land on the correct hardware for each label.
 
 ## Components
 

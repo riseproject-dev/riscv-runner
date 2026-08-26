@@ -59,7 +59,7 @@ A single `build-runner` matrix job builds the runner image. Currently only `ubun
 - **Platform:** `linux/riscv64`, built natively on self-hosted `ubuntu-24.04-riscv` runners. No QEMU emulation in the build path.
 - **Caching:** GitHub Actions Cache (`type=gha`) for Docker layer reuse. A concurrency group ensures only one build runs per scope.
 - **Registry choice:** Scaleway for `riseproject-dev/main`, `ghcr.io` for other internal branches, a tar artifact for external PRs.
-- **Deploy:** after `main` builds, `deploy-staging` retags `:ubuntu-24.04-staging`, then `deploy-prod` retags `:ubuntu-24.04-latest` after an environment-gated approval. Both deploys `kubectl rollout restart daemonset/rise-riscv-runner-device-plugin` so each node pre-pulls the new image via the init container in the daemonset.
+- **Deploy:** after `main` builds, `deploy-staging` retags `:ubuntu-24.04-staging`, then `deploy-prod` retags `:ubuntu-24.04-prod` after an environment-gated approval. Both deploys `kubectl rollout restart daemonset/rise-riscv-runner-device-plugin` so each node pre-pulls the new image via the init container in the daemonset.
 
 ### Version sync
 
@@ -79,8 +79,8 @@ rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner
 
 | Tag | Image | Source branch |
 |-----|-------|---------------|
-| `ubuntu-24.04-latest` | Runner image, Ubuntu 24.04 | `main` (deploy-prod) |
-| `ubuntu-26.04-latest` | Runner image, Ubuntu 26.04 | `main` (deploy-prod) |
+| `ubuntu-24.04-prod` | Runner image, Ubuntu 24.04 | `main` (deploy-prod) |
+| `ubuntu-26.04-prod` | Runner image, Ubuntu 26.04 | `main` (deploy-prod) |
 | `ubuntu-24.04-staging` | Runner image, Ubuntu 24.04 | `main` (deploy-staging) |
 | `ubuntu-26.04-staging` | Runner image, Ubuntu 26.04 | `main` (deploy-staging) |
 | `ubuntu-24.04-sha-<sha>` | Per-commit build | every build |

@@ -89,7 +89,7 @@ Runner pods are created via the Kubernetes API with:
 - **Labels:** `app=rise-riscv-runner`, `riseproject.dev/board=<pool>`.
 - **Node selector:** `riseproject.dev/board: <pool>` (targets the correct hardware).
 - **Resource limit:** `riseproject.com/runner: 1` (enforces one pod per node via the [device plugin](kubernetes)).
-- **Ephemeral storage:** request 40 Gi, limit 90 Gi (on `scw-em-*` pools only).
+- **Ephemeral storage:** request 40 Gi, limit 90 Gi (on `scaleway-em-*` pools only).
 - **Active deadline:** `525,600` seconds (~6 days). Patched to `1` to kill stuck pods (see Health checks).
 - **Security context:** `privileged: true`, host network. Required by the in-pod Docker daemon to program iptables and bridge devices.
 - **Environment:** `RUNNER_JITCONFIG` (base64 JIT token from GitHub), `RUNNER_WAIT_FOR_DOCKER_IN_SECONDS=60`.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/riseproject-dev/riscv-runner/runner/device-plugin/pkg/soc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/klog/v2"
@@ -28,13 +29,15 @@ const (
 // to control CI job concurrency.
 type Plugin struct {
 	pluginapi.UnimplementedDevicePluginServer
+	soc    soc.SoC
 	server *grpc.Server
 	socket string
 	stop   chan struct{}
 }
 
-func New() *Plugin {
+func New(soc soc.SoC) *Plugin {
 	return &Plugin{
+		soc:    soc,
 		socket: filepath.Join(socketDir, socketName),
 		stop:   make(chan struct{}),
 	}

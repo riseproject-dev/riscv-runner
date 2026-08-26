@@ -23,9 +23,9 @@ Each label maps to a Kubernetes node pool, selected by the `riseproject.dev/boar
 
 | Label | Default pool | GGML scope pool |
 |-------|--------------|-----------------|
-| `ubuntu-24.04-riscv` | `scw-em-rv1` | `cloudv10x-jupiter` |
+| `ubuntu-24.04-riscv` | `scaleway-em-rv1` | `spacemit-k1` |
 
-"GGML scope" means jobs running in `ggml-org/*`, `riseproject-dev/llama.cpp`, or `riseproject-dev/llama.cpp-validation`. Those workloads are routed to `cloudv10x-jupiter` (CloudV 10xE Jupiter, SpacemiT K1) hardware.
+"GGML scope" means jobs running in `ggml-org/*`, `riseproject-dev/llama.cpp`, or `riseproject-dev/llama.cpp-validation`. Those workloads are routed to `spacemit-k1` (CloudV 10xE Jupiter, SpacemiT K1) hardware.
 
 ## Runner exclusivity
 

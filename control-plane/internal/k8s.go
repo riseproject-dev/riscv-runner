@@ -45,13 +45,13 @@ func NewK8sClientFromInterface(cs kubernetes.Interface) *K8sClient {
 
 // ProvisionRunner creates the runner pod. The exact shape (host-network,
 // privileged, two emptyDir volumes, single container, RUNNER_JITCONFIG env,
-// ephemeral-storage limit on scw-em-* only) is load-bearing. Don't tweak
+// ephemeral-storage limit on scaleway-em-* only) is load-bearing. Don't tweak
 // without a test.
 func (k *K8sClient) ProvisionRunner(ctx context.Context, jitConfig, runnerName, image, pool string, entity Entity) error {
 	limits := corev1.ResourceList{
 		"riseproject.com/runner": resource.MustParse("1"),
 	}
-	if strings.HasPrefix(pool, "scw-em-") {
+	if strings.HasPrefix(pool, "scaleway-em-") {
 		limits["ephemeral-storage"] = resource.MustParse("90Gi")
 	}
 

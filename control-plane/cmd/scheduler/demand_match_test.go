@@ -31,11 +31,11 @@ func TestDemandMatch_SkipsWhenSlotsNonPositive(t *testing.T) {
 		JobID: 1, Status: "pending", Provider: "github",
 		EntityID: 1, EntityName: "e", EntityType: "Organization",
 		RepoFullName: "e/r", InstallationID: 9,
-		K8sPool: "scw-em-rv1", K8sImage: "img",
+		K8sPool: "scaleway-em-rv1", K8sImage: "img",
 	}}
 	db.SetPoolDemand(1, nil, 5, 0) // demand > supply
 
-	kube.SlotsByPool["scw-em-rv1"] = 0
+	kube.SlotsByPool["scaleway-em-rv1"] = 0
 	if err := app.demandMatch(context.Background()); err != nil {
 		t.Fatalf("demandMatch: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestDemandMatch_SkipsWhenSlotsNonPositive(t *testing.T) {
 		t.Fatalf("expected no provisioning, got %v", kube.ProvisionCalls)
 	}
 
-	kube.SlotsByPool["scw-em-rv1"] = -2
+	kube.SlotsByPool["scaleway-em-rv1"] = -2
 	if err := app.demandMatch(context.Background()); err != nil {
 		t.Fatalf("demandMatch: %v", err)
 	}
@@ -60,16 +60,16 @@ func TestDemandMatch_CapacityFetchedOncePerPool(t *testing.T) {
 			JobID: i, Status: "pending", Provider: "github",
 			EntityID: 1, EntityName: "e", EntityType: "Organization",
 			RepoFullName: "e/r", InstallationID: 9,
-			K8sPool: "scw-em-rv1", K8sImage: "img",
+			K8sPool: "scaleway-em-rv1", K8sImage: "img",
 		})
 	}
 	db.SetPoolDemand(1, nil, 3, 0)
-	kube.SlotsByPool["scw-em-rv1"] = 5
+	kube.SlotsByPool["scaleway-em-rv1"] = 5
 
 	if err := app.demandMatch(context.Background()); err != nil {
 		t.Fatalf("demandMatch: %v", err)
 	}
-	calls := kube.SlotCalls["scw-em-rv1"]
+	calls := kube.SlotCalls["scaleway-em-rv1"]
 	if calls != 1 {
 		t.Fatalf("AvailableSlots called %d times, expected 1", calls)
 	}
@@ -82,10 +82,10 @@ func TestProvisionRunner_FailureMarksWorker(t *testing.T) {
 		JobID: 1, Status: "pending", Provider: "github",
 		EntityID: 1, EntityName: "e", EntityType: "Organization",
 		RepoFullName: "e/r", InstallationID: 9,
-		K8sPool: "scw-em-rv1", K8sImage: "img",
+		K8sPool: "scaleway-em-rv1", K8sImage: "img",
 	}}
 	db.SetPoolDemand(1, nil, 1, 0)
-	kube.SlotsByPool["scw-em-rv1"] = 1
+	kube.SlotsByPool["scaleway-em-rv1"] = 1
 	kube.OnProvisionRunner = func(_, _, _, _ string, _ internal.Entity) error {
 		return errors.New("boom")
 	}
@@ -108,11 +108,11 @@ func TestDemandMatch_RespectsEntityMaxWorkers(t *testing.T) {
 		JobID: 1, Status: "pending", Provider: "github",
 		EntityID: internal.PyTorchOrgID, EntityName: "pytorch", EntityType: "Organization",
 		RepoFullName: "pytorch/pytorch", InstallationID: 9,
-		K8sPool: "scw-em-rv1", K8sImage: "img",
+		K8sPool: "scaleway-em-rv1", K8sImage: "img",
 	}}
 	db.SetPoolDemand(internal.PyTorchOrgID, nil, 1, 0)
 	db.EntityWorkerCnt[internal.PyTorchOrgID] = 20 // at cap
-	kube.SlotsByPool["scw-em-rv1"] = 5
+	kube.SlotsByPool["scaleway-em-rv1"] = 5
 
 	if err := app.demandMatch(context.Background()); err != nil {
 		t.Fatalf("demandMatch: %v", err)

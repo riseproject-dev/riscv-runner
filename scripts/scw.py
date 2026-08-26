@@ -69,6 +69,7 @@ scw_client = Client.from_config_file_and_env()
 # IPAM API is a regional service requiring default_region to be explicitly set (e.g. fr-par)
 scw_client.default_region = ZONE.rsplit("-", 1)[0]
 scw_client.default_zone = ZONE
+scw_client.default_region = ZONE.rsplit("-", 1)[0]
 scw_client.default_project_id = PROJECT_ID
 instance_api = InstanceUtilsV1API(scw_client)
 baremetal_api = BaremetalV1API(scw_client)
@@ -1021,7 +1022,6 @@ def setup_runner_ansible(runner_name, runner_ip):
         "github_probe_token": github_probe_token,
     }
 
-    # Write extra-vars to temporary file with 0600 permissions to avoid exposing secrets in process table (/proc/<pid>/cmdline)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(extra_vars, tf)
         extra_vars_file = tf.name
@@ -1044,7 +1044,6 @@ def setup_runner_ansible(runner_name, runner_ip):
     finally:
         if os.path.exists(extra_vars_file):
             os.remove(extra_vars_file)
-
 
 def cmd_runner_setup(args):
     def _do_runner_setup(runner):
@@ -1226,6 +1225,10 @@ CONTROL_PLANE_SERVER_TYPE = "POP2-2C-8G"
 BLOCK_STORAGE_SIZE = 50 * 1_000_000_000
 
 CLOUD_INIT = r"""#cloud-config
+ssh_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMAe9cz1jHSoBkKg8Rpchr/BRAMkYBcbf6sTD8KO3J66 luhenry"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPgHMVi/V29QNE/S/+tXWOZoyjq1vgVG1Bl4aXIJxVTI puneetha"
+
 write_files:
   - path: /etc/modules-load.d/k8s.conf
     owner: root:root
@@ -1261,6 +1264,19 @@ write_files:
         - apiGroup: rbac.authorization.k8s.io
           kind: User
           name: luhenry
+      # puneetha
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: puneetha-cluster-admin-binding
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: User
+          name: puneetha
       # gh-app
       - apiVersion: rbac.authorization.k8s.io/v1
         kind: ClusterRoleBinding
@@ -1384,6 +1400,7 @@ runcmd:
     # Create user kubeconfigs (these will use the private IP as server address;
     # the script replaces it with the public IP when printing)
     kubeadm kubeconfig user --client-name=luhenry   > /etc/kubernetes/kubeconfig-luhenry.conf
+    kubeadm kubeconfig user --client-name=puneetha  > /etc/kubernetes/kubeconfig-puneetha.conf
     kubeadm kubeconfig user --client-name=gh-deploy > /etc/kubernetes/kubeconfig-gh-deploy.conf
     kubeadm kubeconfig user --client-name=gh-app    > /etc/kubernetes/kubeconfig-gh-app.conf
 
@@ -1449,6 +1466,12 @@ def cmd_control_plane_create(args):
     result = ssh.run("cat /etc/kubernetes/kubeconfig-luhenry.conf", hide=True)
     print(result.stdout)
 
+    print(f"\n{'='*60}")
+    print("Kubeconfig for puneetha:")
+    print(f"{'='*60}")
+    result = ssh.run("cat /etc/kubernetes/kubeconfig-puneetha.conf", hide=True)
+    print(result.stdout)
+
 
     print(f"Run the following commands to update GitHub secrets:")
     print(f"(set -o pipefail; ssh root@{public_ip} cat /etc/kubernetes/kubeconfig-gh-app.conf    | gh secret set K8S_KUBECONFIG_GH_APP    --repo riseproject-dev/riscv-runner --env {"staging" if staging else "prod"})")
@@ -1505,6 +1528,9 @@ def main():
 
     runner_setup = runner_subparsers.add_parser("setup", help="Setup existing runners")
     runner_setup.add_argument("--to-control-plane", type=str, help="Name of the control plane instance to switch the runner to")
+    setup_group = runner_setup.add_mutually_exclusive_group()
+    setup_group.add_argument("--kernelspace-only", action="store_true", help="Only run kernelspace setup (kernel modules, sysctl, etc.)")
+    setup_group.add_argument("--userspace-only", action="store_true", help="Only run userspace setup (node_exporter, containerd, kubelet, etc.)")
     runner_setup.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
     _add_parallel_args(runner_setup)
     runner_setup.set_defaults(func=cmd_runner_setup)
