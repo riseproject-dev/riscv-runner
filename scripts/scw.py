@@ -1005,15 +1005,7 @@ def cmd_runner_reinstall(args):
     return _run_parallel(args.runners, _do_runner_reinstall, jobs=args.jobs, delay=args.delay)
 
 
-def wait_ssh_up(ip):
-    print(f"Waiting for {ip} to be reachable via SSH...")
-    time.sleep(15)
-    ssh = ssh_connect(host=ip, user="ubuntu")
-    ssh.close()
-    print(f"SSH is up on {ip}")
-
-
-def setup_runner_ansible(runner_name, runner_ip, tags=None):
+def setup_runner_ansible(runner_name, runner_ip):
     cockpit_metrics_ds = get_or_create_cockpit_metrics_data_source()
     cockpit_metrics_token = create_cockpit_metrics_push_token(f"{runner_name}-metrics-token")
     github_probe_token = get_github_probe_token()
@@ -1044,8 +1036,6 @@ def setup_runner_ansible(runner_name, runner_ip, tags=None):
         "-e", f"@{extra_vars_file}",
         playbook_path,
     ]
-    if tags:
-        cmd.extend(["--tags", tags])
 
     env = os.environ.copy()
     env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
@@ -1118,23 +1108,13 @@ def cmd_runner_setup(args):
         print(f"Public IP: {ip}")
 
         ssh = ssh_connect(host=ip, user="ubuntu")
-        tags = None
-        if args.kernelspace_only:
-            tags = "kernelspace"
-        elif args.userspace_only:
-            tags = "userspace"
-
-        setup_runner_ansible(runner, ip, tags=tags)
-        if not args.kernelspace_only:
-            setup_runner_kubeadm(ssh, cp_public_ip)
-
+        setup_runner_ansible(runner, ip)
+        setup_runner_kubeadm(ssh, cp_public_ip)
         ssh.run("sudo reboot now", **_tagged_streams())
-        if args.kernelspace_only:
-            wait_ssh_up(ip)
-        else:
-            time.sleep(15)
-            print(f"Waiting for node {runner} to be ready on k8s")
-            wait_k8s_node(runner, k8s)
+        time.sleep(15)
+
+        print(f"Waiting for node {runner} to be ready on k8s")
+        wait_k8s_node(runner, k8s)
 
         print(f"Server {runner} provisioned")
 
@@ -1525,9 +1505,6 @@ def main():
 
     runner_setup = runner_subparsers.add_parser("setup", help="Setup existing runners")
     runner_setup.add_argument("--to-control-plane", type=str, help="Name of the control plane instance to switch the runner to")
-    runner_setup_group = runner_setup.add_mutually_exclusive_group()
-    runner_setup_group.add_argument("--kernelspace-only", action="store_true", help="Only run kernelspace setup (kernel modules, sysctl)")
-    runner_setup_group.add_argument("--userspace-only", action="store_true", help="Only run userspace setup (containerd, kubelet, watchdogs)")
     runner_setup.add_argument("runners", nargs="+", type=str, help="Runner to reinstall")
     _add_parallel_args(runner_setup)
     runner_setup.set_defaults(func=cmd_runner_setup)
