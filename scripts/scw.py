@@ -1014,6 +1014,7 @@ def setup_runner_ansible(runner_name, runner_ip):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ansible_bin = os.path.join(repo_root, ".venv", "bin", "ansible-playbook")
     playbook_path = os.path.join(repo_root, "runner", "ansible", "site.yml")
+    ssh_key_path = os.environ.get("SCW_SSH_KEY_PATH", os.path.expanduser("~/.ssh/id_scw"))
 
     extra_vars = {
         "cockpit_metrics_push_url": cockpit_metrics_ds.url,
@@ -1031,7 +1032,7 @@ def setup_runner_ansible(runner_name, runner_ip):
         ansible_bin,
         "-i", f"{runner_ip},",
         "-u", "ubuntu",
-        "--private-key", os.path.expanduser("~/.ssh/id_scw"),
+        "--private-key", ssh_key_path,
         "-e", f"@{extra_vars_file}",
         playbook_path,
     ]
@@ -1144,9 +1145,8 @@ def cmd_runner_reboot(args):
         ssh_cp = ssh_connect(host=cp_public_ip, user="root")
         k8s = setup_k8s_client(ssh_cp)
 
-        print(f"Draining and removing {runner} from k8s")
+        print(f"Cordoning node {runner} on k8s")
         cordon_k8s_node(runner, k8s)
-        delete_k8s_node(runner, k8s)
 
         server = BareMetal(server.id)
 
@@ -1196,18 +1196,19 @@ def cmd_runner_delete(args):
         server = find_server_by_name(runner)
         print(f"Found server: {server.id}")
 
-        control_plane = next(tag[14:] for tag in server.tags if tag.startswith("control-plane:"))
-        if not control_plane:
-            raise ProvisioningException(f"missing 'control-plane:*' tag, tags = [{",".join(server.tags)}]")
+        try:
+            control_plane = next((tag[14:] for tag in server.tags if tag.startswith("control-plane:")), None)
+            if control_plane:
+                cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
+                print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
+                ssh_cp = ssh_connect(host=cp_public_ip, user="root")
+                k8s = setup_k8s_client(ssh_cp)
 
-        cp_public_ip, cp_private_ip = get_control_plane_host(control_plane)
-        print(f"Using control plane: {control_plane} (public: {cp_public_ip}, private: {cp_private_ip})")
-        ssh_cp = ssh_connect(host=cp_public_ip, user="root")
-        k8s = setup_k8s_client(ssh_cp)
-
-        print(f"Draining and removing {runner} from k8s")
-        cordon_k8s_node(runner, k8s)
-        delete_k8s_node(runner, k8s)
+                print(f"Draining and removing {runner} from k8s")
+                cordon_k8s_node(runner, k8s)
+                delete_k8s_node(runner, k8s)
+        except Exception as e:
+            print(f"WARNING: Could not connect to Control Plane or drain k8s node for {runner}: {e}. Proceeding with baremetal deletion...")
 
         server = BareMetal(server.id)
         server.delete()
