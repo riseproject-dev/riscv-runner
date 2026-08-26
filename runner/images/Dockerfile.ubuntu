@@ -40,9 +40,9 @@ ARG OS_VERSION
 # Build Python 3.10
 FROM base-builder AS python-3.10
 
-ARG PYTHON310_VERSION=3.10.20
-ARG PYTHON310_TAG=${PYTHON310_VERSION}-24741349542
-ARG PYTHON310_SHA256=f4d1a502c5f109d05a03333e14e4c0f0b92634c29de76613aaf42d0019b99cd5 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON310_TAG}
+ARG PYTHON310_VERSION=3.10.21
+ARG PYTHON310_TAG=${PYTHON310_VERSION}-31677763210
+ARG PYTHON310_SHA256=0857d5b96b767691b62e9568c6f7afe65e020c5194b1e292bd3f246d42d12b5c # https://github.com/riseproject-dev/python-versions/releases/${PYTHON310_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -71,9 +71,9 @@ EOF
 # Build Python 3.11
 FROM base-builder AS python-3.11
 
-ARG PYTHON311_VERSION=3.11.15
-ARG PYTHON311_TAG=${PYTHON311_VERSION}-24739855755
-ARG PYTHON311_SHA256=4fbfb313efdf4faa4684100a0fde10919766a77c4463b98fe52c146c4b14e4a2 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON311_TAG}
+ARG PYTHON311_VERSION=3.11.16
+ARG PYTHON311_TAG=${PYTHON311_VERSION}-31677763315
+ARG PYTHON311_SHA256=1cd95db78faca52bf70f62beea73132175dd914f2805a3c96be9f0324950cd5e # https://github.com/riseproject-dev/python-versions/releases/${PYTHON311_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -102,9 +102,9 @@ EOF
 # Build Python 3.12
 FROM base-builder AS python-3.12
 
-ARG PYTHON312_VERSION=3.12.13
-ARG PYTHON312_TAG=${PYTHON312_VERSION}-24738165632
-ARG PYTHON312_SHA256=377dd19847333f18e319ce1b5c0f90246646c81d9356050b08b82a366c5bb3f8 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON312_TAG}
+ARG PYTHON312_VERSION=3.12.14
+ARG PYTHON312_TAG=${PYTHON312_VERSION}-31677763231
+ARG PYTHON312_SHA256=16ec4c8dc4b69068fb0325ad076a1276c825149c2dd4e5b51590201181639f66 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON312_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -323,8 +323,8 @@ ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64/bin:${PATH}
 # Download Go 1.25
 FROM base-builder AS go-1.25
 
-ARG GO125_VERSION=1.25.12
-ARG GO125_SHA256=26919d62d21b0bee9c5c67ad76ace462edd16c2c128a983d942cb45b0bf7693c # https://dl.google.com/go/go1.25.12.linux-riscv64.tar.gz.sha256
+ARG GO125_VERSION=1.25.13
+ARG GO125_SHA256=cda04922b7221f91ce42660ed2cbaea2ea2ed514cf7a7749651e9c6e3c4d1f67 # https://dl.google.com/go/go1.25.13.linux-riscv64.tar.gz.sha256
 RUN bash -eux -o pipefail <<'EOF'
     # Download Go 1.25
     curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO125_VERSION}.linux-riscv64.tar.gz \
@@ -855,11 +855,11 @@ RUN bash -eux -o pipefail <<'EOF'
 EOF
 
 # Install Python
-ARG PYTHON310_VERSION=3.10.20
+ARG PYTHON310_VERSION=3.10.21
 COPY --link --from=python-3.10 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}
-ARG PYTHON311_VERSION=3.11.15
+ARG PYTHON311_VERSION=3.11.16
 COPY --link --from=python-3.11 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}
-ARG PYTHON312_VERSION=3.12.13
+ARG PYTHON312_VERSION=3.12.14
 COPY --link --from=python-3.12 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}
 ARG PYTHON313_VERSION=3.13.15
 COPY --link --from=python-3.13  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}
@@ -878,7 +878,7 @@ ENV GOROOT_1_23_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64
 ARG GO124_VERSION=1.24.13
 COPY --link --from=go-1.24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}
 ENV GOROOT_1_24_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64
-ARG GO125_VERSION=1.25.12
+ARG GO125_VERSION=1.25.13
 COPY --link --from=go-1.25 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}
 ENV GOROOT_1_25_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64
 

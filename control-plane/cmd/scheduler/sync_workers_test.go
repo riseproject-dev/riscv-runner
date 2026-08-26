@@ -15,7 +15,7 @@ func pendingWorker(name string, runningAt *time.Time) internal.Worker {
 	return internal.Worker{
 		PodName: name, Provider: "github",
 		EntityID: 1, EntityName: "e", EntityType: "Organization",
-		InstallationID: 9, K8sPool: "scw-em-rv1", K8sImage: "img",
+		InstallationID: 9, K8sPool: "scaleway-em-rv1", K8sImage: "img",
 		Status: "running", RunningAt: runningAt,
 	}
 }

@@ -129,8 +129,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		cfg.PostgresSchema = "prod"
 		cfg.RunnerGroup = "RISE RISC-V Runners"
 		cfg.RunnerPrefix = "rise-riscv-runner-"
-		cfg.ImageUbuntu24 = fmt.Sprintf("%s/%s:ubuntu-24.04-latest", RunnerRegistry, RunnerImage)
-		cfg.ImageUbuntu26 = fmt.Sprintf("%s/%s:ubuntu-26.04-latest", RunnerRegistry, RunnerImage)
+		cfg.ImageUbuntu24 = fmt.Sprintf("%s/%s:ubuntu-24.04-prod", RunnerRegistry, RunnerImage)
+		cfg.ImageUbuntu26 = fmt.Sprintf("%s/%s:ubuntu-26.04-prod", RunnerRegistry, RunnerImage)
 	} else {
 		cfg.PostgresSchema = "staging"
 		cfg.RunnerGroup = "RISE RISC-V Runners (staging)"

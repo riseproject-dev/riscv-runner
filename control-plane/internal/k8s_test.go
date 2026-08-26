@@ -27,7 +27,7 @@ func fakePod(t *testing.T, k *K8sClient, runnerName string) *corev1.Pod {
 // TestProvisionRunner_UsesHostNetwork asserts pod.spec.hostNetwork=true on every
 // pool — invariant 9de4c35.
 func TestProvisionRunner_UsesHostNetwork(t *testing.T) {
-	for _, pool := range []string{"scw-em-rv1", "cloudv10x-jupiter"} {
+	for _, pool := range []string{"scaleway-em-rv1", "spacemit-k1"} {
 		k := NewK8sClientFromInterface(fake.NewSimpleClientset())
 		if err := k.ProvisionRunner(context.Background(), "jit", "runner-"+pool, "img", pool, Entity{ID: 1, Name: "ent"}); err != nil {
 			t.Fatalf("provision: %v", err)
@@ -43,7 +43,7 @@ func TestProvisionRunner_UsesHostNetwork(t *testing.T) {
 // /var/lib/docker and /var/lib/k0s exist on every pool (invariants 0028278/653a5ba).
 func TestProvisionRunner_EmptyDirVolumes(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scw-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -76,16 +76,16 @@ func TestProvisionRunner_EmptyDirVolumes(t *testing.T) {
 	}
 }
 
-// TestProvisionRunner_DiskLimitsOnlyOnScwEM asserts ephemeral-storage=90Gi
-// only on scw-em-* pools (invariant 3286cf6).
-func TestProvisionRunner_DiskLimitsOnlyOnScwEM(t *testing.T) {
+// TestProvisionRunner_DiskLimitsOnlyOnScalewayEM asserts ephemeral-storage=90Gi
+// only on scaleway-em-* pools (invariant 3286cf6).
+func TestProvisionRunner_DiskLimitsOnlyOnScalewayEM(t *testing.T) {
 	tests := []struct {
 		pool     string
 		wantDisk bool
 	}{
-		{"scw-em-rv1", true},
-		{"scw-em-something", true},
-		{"cloudv10x-jupiter", false},
+		{"scaleway-em-rv1", true},
+		{"scaleway-em-something", true},
+		{"spacemit-k1", false},
 	}
 	for _, tc := range tests {
 		k := NewK8sClientFromInterface(fake.NewSimpleClientset())
@@ -115,7 +115,7 @@ func TestProvisionRunner_DiskLimitsOnlyOnScwEM(t *testing.T) {
 // docker-certs volume, no DOCKER_* env (invariant 5c5004f).
 func TestProvisionRunner_NoSidecar(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scw-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -153,7 +153,7 @@ func mustHaveEnv(t *testing.T, env []corev1.EnvVar, name, value string) {
 // TestProvisionRunner_Labels asserts the four pod labels are set.
 func TestProvisionRunner_Labels(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scw-em-rv1", Entity{ID: 42, Name: "pytorch"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 42, Name: "pytorch"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -161,14 +161,14 @@ func TestProvisionRunner_Labels(t *testing.T) {
 		"app":                         "rise-riscv-runner",
 		"riseproject.dev/entity_id":   "42",
 		"riseproject.dev/entity_name": "pytorch",
-		"riseproject.dev/board":       "scw-em-rv1",
+		"riseproject.dev/board":       "scaleway-em-rv1",
 	}
 	for k, v := range want {
 		if p.Labels[k] != v {
 			t.Errorf("label %s=%q want %q", k, p.Labels[k], v)
 		}
 	}
-	if p.Spec.NodeSelector["riseproject.dev/board"] != "scw-em-rv1" {
+	if p.Spec.NodeSelector["riseproject.dev/board"] != "scaleway-em-rv1" {
 		t.Errorf("nodeSelector board mismatch: %v", p.Spec.NodeSelector)
 	}
 }
@@ -177,7 +177,7 @@ func TestProvisionRunner_Labels(t *testing.T) {
 // activeDeadlineSeconds=525600, restartPolicy=Never, container privileged=true.
 func TestProvisionRunner_TimeoutsAndPrivileged(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scw-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -226,16 +226,16 @@ func makePod(name, board string, phase corev1.PodPhase) *corev1.Pod {
 
 func TestAvailableSlots_TotalMinusActive(t *testing.T) {
 	cs := fake.NewSimpleClientset(
-		makeNode("n1", "scw-em-rv1", 3),
-		makeNode("n2", "scw-em-rv1", 2),
-		makeNode("other", "cloudv10x-jupiter", 5), // different board, ignored
-		makePod("p1", "scw-em-rv1", corev1.PodPending),
-		makePod("p2", "scw-em-rv1", corev1.PodRunning),
-		makePod("p3", "scw-em-rv1", corev1.PodSucceeded), // terminal, doesn't count
-		makePod("po", "cloudv10x-jupiter", corev1.PodRunning),
+		makeNode("n1", "scaleway-em-rv1", 3),
+		makeNode("n2", "scaleway-em-rv1", 2),
+		makeNode("other", "spacemit-k1", 5), // different board, ignored
+		makePod("p1", "scaleway-em-rv1", corev1.PodPending),
+		makePod("p2", "scaleway-em-rv1", corev1.PodRunning),
+		makePod("p3", "scaleway-em-rv1", corev1.PodSucceeded), // terminal, doesn't count
+		makePod("po", "spacemit-k1", corev1.PodRunning),
 	)
 	k := NewK8sClientFromInterface(cs)
-	cap, err := k.AvailableSlots(context.Background(), "scw-em-rv1")
+	cap, err := k.AvailableSlots(context.Background(), "scaleway-em-rv1")
 	if err != nil {
 		t.Fatalf("AvailableSlots: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestAvailableSlots_TotalMinusActive(t *testing.T) {
 
 func TestAvailableSlots_NoMatchingNodes(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	cap, err := k.AvailableSlots(context.Background(), "scw-em-rv1")
+	cap, err := k.AvailableSlots(context.Background(), "scaleway-em-rv1")
 	if err != nil {
 		t.Fatalf("AvailableSlots: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestAvailableSlots_NoMatchingNodes(t *testing.T) {
 
 func TestListPods_FiltersByAppLabel(t *testing.T) {
 	cs := fake.NewSimpleClientset(
-		makePod("r1", "scw-em-rv1", corev1.PodRunning),
+		makePod("r1", "scaleway-em-rv1", corev1.PodRunning),
 		&corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "noise", Namespace: "default",
@@ -284,7 +284,7 @@ func TestDeletePod_404IsSilentSuccess(t *testing.T) {
 }
 
 func TestDeletePod_Deletes(t *testing.T) {
-	cs := fake.NewSimpleClientset(makePod("p", "scw-em-rv1", corev1.PodSucceeded))
+	cs := fake.NewSimpleClientset(makePod("p", "scaleway-em-rv1", corev1.PodSucceeded))
 	k := NewK8sClientFromInterface(cs)
 	if err := k.DeletePod(context.Background(), "p"); err != nil {
 		t.Fatalf("DeletePod: %v", err)
@@ -295,7 +295,7 @@ func TestDeletePod_Deletes(t *testing.T) {
 }
 
 func TestKillPod_PatchesActiveDeadlineSeconds(t *testing.T) {
-	cs := fake.NewSimpleClientset(makePod("p", "scw-em-rv1", corev1.PodRunning))
+	cs := fake.NewSimpleClientset(makePod("p", "scaleway-em-rv1", corev1.PodRunning))
 	k := NewK8sClientFromInterface(cs)
 	if err := k.KillPod(context.Background(), "p"); err != nil {
 		t.Fatalf("KillPod: %v", err)

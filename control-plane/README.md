@@ -65,7 +65,7 @@ The `Dockerfile` produces two binaries on top of `gcr.io/distroless/base-debian1
 
 | Variable | Required | Purpose |
 |---|:-:|---|
-| `PROD` | yes | `true` selects the `prod` schema and `*-latest` image tags; otherwise `staging`/`*-staging` |
+| `PROD` | yes | `true` selects the `prod` schema and `*-prod` image tags; otherwise `staging`/`*-staging` |
 | `PROD_URL`, `STAGING_URL` | yes (ghfe) | URLs of the prod/staging ghfe; used by the staging proxy |
 | `POSTGRES_URL` | yes | `postgresql://...?sslmode=require` |
 | `K8S_KUBECONFIG` | yes (scheduler) | Kubeconfig as a string |

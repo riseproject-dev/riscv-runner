@@ -272,19 +272,19 @@ jobs:
       - name: Tag ubuntu-24.04 image for prod
         run: >-
           docker buildx imagetools create \
-            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-latest \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-prod \
             ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-24.04-sha-${{ github.sha }}
 
       - name: Tag ubuntu-26.04 image for prod
         run: >-
           docker buildx imagetools create \
-            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-latest \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-prod \
             ${{ needs.setup.outputs.docker-registry }}/riscv-runner:ubuntu-26.04-sha-${{ github.sha }}
 
       - name: Tag device-plugin image for prod
         run: >-
           docker buildx imagetools create \
-            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-latest \
+            -t ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-prod \
             ${{ needs.setup.outputs.docker-registry }}/riscv-runner:device-plugin-sha-${{ github.sha }}
 
       - name: Set up kubeconfig
@@ -295,7 +295,7 @@ jobs:
 
       - name: Apply device-plugin DaemonSet
         env:
-          TAG: latest
+          TAG: prod
         run: |
           envsubst < runner/device-plugin/k8s-ds-device-plugin.yaml | kubectl apply -f -
           kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system

@@ -205,7 +205,7 @@ def main() -> int:
     print("Extracting versions from manifest...")
     lookup = extract_versions(manifest)
 
-    map_path = REPO_ROOT / "images" / "versions-map.json"
+    map_path = REPO_ROOT / "runner" / "images" / "versions-map.json"
     print(f"Loading mapping from {map_path.relative_to(REPO_ROOT)}")
     mapping = json.loads(map_path.read_text())
 
