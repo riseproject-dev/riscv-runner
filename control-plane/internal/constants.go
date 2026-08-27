@@ -60,11 +60,11 @@ type EntityConfig struct {
 
 // EntityConfigs is keyed by entity id (org id or user id).
 var EntityConfigs = map[int64]EntityConfig{
-	RiseprojectDevOrgID:     {MaxWorkers: nil},
-	RiseprojectStagingOrgID: {MaxWorkers: nil, Staging: true},
+	RiseprojectDevOrgID:     {MaxWorkers: intPtr(40)},
+	RiseprojectStagingOrgID: {MaxWorkers: intPtr(40), Staging: true},
 	PyTorchOrgID:            {MaxWorkers: intPtr(20)},
 	GGMLOrgID:               {MaxWorkers: intPtr(20)},
-	LuhenryUserID:           {MaxWorkers: nil},
+	LuhenryUserID:           {MaxWorkers: intPtr(40)},
 }
 
 // DefaultMaxWorkers applies when an entity has no entry in EntityConfigs.
