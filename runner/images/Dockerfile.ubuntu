@@ -323,8 +323,8 @@ ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64/bin:${PATH}
 # Download Go 1.25
 FROM base-builder AS go-1.25
 
-ARG GO125_VERSION=1.25.13
-ARG GO125_SHA256=cda04922b7221f91ce42660ed2cbaea2ea2ed514cf7a7749651e9c6e3c4d1f67 # https://dl.google.com/go/go1.25.13.linux-riscv64.tar.gz.sha256
+ARG GO125_VERSION=1.25.14
+ARG GO125_SHA256=c47a1bd1ca1fef087920c9a5d648af77a90071f5af305b6e4c426a3dea982983 # https://dl.google.com/go/go1.25.14.linux-riscv64.tar.gz.sha256
 RUN bash -eux -o pipefail <<'EOF'
     # Download Go 1.25
     curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO125_VERSION}.linux-riscv64.tar.gz \
@@ -485,8 +485,8 @@ EOF
 # Download Gradle
 FROM base-builder AS gradle
 
-ARG GRADLE_VERSION=9.7.0
-ARG GRADLE_SHA256=84fbba45c7f4c64abc77460e1c00f541e9f960e3c7ed2538f1ede19eacd873ae # https://services.gradle.org/distributions/gradle-9.7.0-bin.zip.sha256
+ARG GRADLE_VERSION=9.7.1
+ARG GRADLE_SHA256=acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a # https://services.gradle.org/distributions/gradle-9.7.1-bin.zip.sha256
 RUN bash -eux -o pipefail <<'EOF'
     # Download Gradle
     curl -fsSL --retry 12 --retry-all-errors https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip \
@@ -522,7 +522,7 @@ EOF
 FROM base-builder AS rust
 
 ARG RUSTUP_VERSION=1.29.0
-ARG RUSTTOOLCHAIN_VERSION=1.97.1
+ARG RUSTTOOLCHAIN_VERSION=1.98.0
 ENV RUSTUP_HOME=/build/rust/rustup
 ENV CARGO_HOME=/build/rust/cargo
 RUN bash -eux -o pipefail <<'EOF'
@@ -576,7 +576,7 @@ FROM go-1.26 AS kubernetes
 
 WORKDIR /build
 
-ARG KUBECTL_VERSION=1.36.3
+ARG KUBECTL_VERSION=1.36.4
 RUN bash -eux -o pipefail <<'EOF'
     # Download kubernetes
     git clone --recurse-submodules --depth 1 https://github.com/kubernetes/kubernetes.git -b v${KUBECTL_VERSION}
@@ -878,7 +878,7 @@ ENV GOROOT_1_23_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64
 ARG GO124_VERSION=1.24.13
 COPY --link --from=go-1.24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}
 ENV GOROOT_1_24_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64
-ARG GO125_VERSION=1.25.13
+ARG GO125_VERSION=1.25.14
 COPY --link --from=go-1.25 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION} ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}
 ENV GOROOT_1_25_RISCV64=${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64
 
@@ -909,7 +909,7 @@ ENV CARGO_HOME=/home/runner/.cargo
 ENV PATH=${RUSTUP_HOME}/bin:${CARGO_HOME}/bin:${PATH}
 
 # Install Gradle
-ARG GRADLE_VERSION=9.7.0
+ARG GRADLE_VERSION=9.7.1
 COPY --link --from=gradle --chmod=0777 /usr/share/gradle-${GRADLE_VERSION} /usr/share/gradle-${GRADLE_VERSION}
 ENV GRADLE_HOME=/usr/share/gradle-${GRADLE_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
