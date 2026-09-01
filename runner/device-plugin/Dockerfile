@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-trixie AS build
 ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
