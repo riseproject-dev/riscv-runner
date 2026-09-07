@@ -79,6 +79,20 @@ func trimWorkflowJobPayload(payload map[string]any) map[string]any {
 	return out
 }
 
+// minimalJobPayload is the row body for drop paths (no matching label, banned
+// entity). Those are the highest-volume rows, so keep identity only: enough to
+// answer "which job, which repo, which labels" and nothing else.
+func minimalJobPayload(job map[string]any, labels []string, repoFullName string) map[string]any {
+	htmlURL, _ := job["html_url"].(string)
+	return map[string]any{
+		"workflow_job": map[string]any{
+			"labels":   labels,
+			"html_url": htmlURL,
+		},
+		"repository": map[string]any{"full_name": repoFullName},
+	}
+}
+
 func shallowCopy(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {

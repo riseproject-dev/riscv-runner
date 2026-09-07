@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -198,6 +199,19 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 		EntityName:     &entity.Name,
 	}
 
+	// Checked ahead of the staging proxy so a banned entity reaches neither
+	// environment: no job row, no runner, no GitHub API calls. The audit row
+	// is still written (invariant b909123).
+	if slices.Contains(BannedEntities, entity.ID) {
+		base.Event = "workflow_job." + action
+		base.Outcome = internal.OutcomeBannedEntity
+		base.Payload = minimalJobPayload(job, jsonStrings(job["labels"]), repoFullName)
+		a.recordEvent(r, base)
+		slog.Warn("Ignoring job from banned entity", "entity", entity, "repo", repoFullName)
+		_, _ = w.Write([]byte("Ignoring job: entity is banned"))
+		return
+	}
+
 	// Staging proxy: a real repo (e.g. riscv-runner-sample) is wired into
 	// the prod app but its webhooks should drive the staging environment.
 	// Forward the unmodified body to staging ghfe and short-circuit; the
@@ -241,15 +255,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 
 	pool, image, matched := matchLabelsToK8s(a.Config, entity.ID, repoFullName, labels)
 	if !matched {
-		// ignored_no_label is the highest-volume row; trim aggressively.
-		htmlURL, _ := job["html_url"].(string)
-		base.Payload = map[string]any{
-			"workflow_job": map[string]any{
-				"labels":   labels,
-				"html_url": htmlURL,
-			},
-			"repository": map[string]any{"full_name": repoFullName},
-		}
+		base.Payload = minimalJobPayload(job, labels, repoFullName)
 		base.Outcome = internal.OutcomeIgnoredNoLabel
 		a.recordEvent(r, base)
 		w.WriteHeader(200)
