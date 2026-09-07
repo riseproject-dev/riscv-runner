@@ -39,6 +39,12 @@ func (a *App) demandMatch(ctx context.Context) error {
 		byPool[j.K8sPool] = append(byPool[j.K8sPool], j)
 	}
 
+	// Rate limits are scoped per entity (each installation authenticates with
+	// its own token). When one entity hits its limit we back it off for the
+	// rest of this iteration and keep going, so a single busy org can neither
+	// starve the others nor keep hammering an endpoint that's already 403ing.
+	rateLimited := map[int64]bool{}
+
 	for pool, jobs := range byPool {
 		cap, err := a.K8s.AvailableSlots(ctx, pool)
 		if err != nil {
@@ -56,7 +62,15 @@ func (a *App) demandMatch(ctx context.Context) error {
 				slog.Debug("Capacity for k8s_pool is now 0", "k8s_pool", pool)
 				break
 			}
-			if a.tryProvision(ctx, j) {
+			if rateLimited[j.EntityID] {
+				continue
+			}
+			consumed, err := a.tryProvision(ctx, j)
+			if internal.IsRateLimited(err) {
+				rateLimited[j.EntityID] = true
+				continue
+			}
+			if consumed {
 				slots--
 			}
 		}
@@ -65,26 +79,28 @@ func (a *App) demandMatch(ctx context.Context) error {
 }
 
 // tryProvision evaluates demand/cap/availability for one job and provisions
-// a runner if all checks pass. Returns true when a worker row was created
-// (caller decrements pool slots regardless of provisioning success — the row
-// occupies a slot until the scheduler marks it failed/orphaned).
-func (a *App) tryProvision(ctx context.Context, j internal.Job) bool {
+// a runner if all checks pass. The bool is true when a worker row was created
+// (caller decrements pool slots regardless of provisioning success: the row
+// occupies a slot until the scheduler marks it failed/orphaned). A non-nil
+// error is returned only when GitHub rate limited this entity's token, so the
+// caller can back the entity off for the rest of the iteration.
+func (a *App) tryProvision(ctx context.Context, j internal.Job) (bool, error) {
 	e := j.Entity()
 	labels := parseLabels(j.JobLabels)
 	if _, err := internal.ParseEntityType(j.EntityType); err != nil {
 		slog.Error("invalid entity_type on job", "entity", e, "job_id", j.JobID, "err", err)
-		return false
+		return false, nil
 	}
 
 	jobCount, workerCount, err := a.DB.GetPoolDemand(ctx, j.EntityID, labels)
 	if err != nil {
 		slog.Error("GetPoolDemand failed", "entity", e, "err", err)
-		return false
+		return false, nil
 	}
 	if jobCount <= workerCount {
 		slog.Info("Demand met for entity",
 			"entity", e, "labels", labels, "jobs_count", jobCount, "workers_count", workerCount)
-		return false
+		return false, nil
 	}
 
 	cfg, ok := internal.EntityConfigs[j.EntityID]
@@ -96,12 +112,12 @@ func (a *App) tryProvision(ctx context.Context, j internal.Job) bool {
 		count, err := a.DB.GetTotalWorkersForEntity(ctx, j.EntityID)
 		if err != nil {
 			slog.Error("GetTotalWorkersForEntity failed", "entity", e, "err", err)
-			return false
+			return false, nil
 		}
 		if count >= maxWorkers {
 			slog.Info("Max workers allocated for entity",
 				"entity", e, "labels", labels, "workers_count", count, "max_workers", maxWorkers)
-			return false
+			return false, nil
 		}
 	}
 
@@ -109,21 +125,29 @@ func (a *App) tryProvision(ctx context.Context, j internal.Job) bool {
 	if err != nil {
 		slog.Error("Failed to generate unique runner name",
 			"entity", e, "k8s_pool", j.K8sPool, "err", err)
-		return false
+		return false, nil
 	}
 
 	if err := a.provisionRunner(ctx, j, runnerName, labels); err != nil {
+		if internal.IsRateLimited(err) {
+			slog.Warn("Provisioning hit GitHub rate limit; backing off entity for this iteration",
+				"entity", e, "runner_name", runnerName, "k8s_pool", j.K8sPool, "err", err)
+			info := internal.FailureInfoV2{Reason: internal.ReasonRateLimited}
+			_ = a.DB.MarkWorkerFailed(ctx, runnerName, "", info, nil)
+			// Row was created, slot is not consumed.
+			return false, err
+		}
 		slog.Error("Failed to provision runner",
 			"entity", e, "runner_name", runnerName, "k8s_pool", j.K8sPool, "err", err)
 		info := internal.FailureInfoV2{Reason: internal.ReasonPodAllocationFailure}
 		_ = a.DB.MarkWorkerFailed(ctx, runnerName, "", info, nil)
 		// Row was created, slot is consumed.
-		return true
+		return true, nil
 	}
 
 	slog.Info("Provisioned runner",
 		"entity", e, "runner_name", runnerName, "k8s_pool", j.K8sPool)
-	return true
+	return true, nil
 }
 
 // reserveRunnerName picks a random name and persists it before the pod is

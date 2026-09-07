@@ -121,3 +121,59 @@ func TestDemandMatch_RespectsEntityMaxWorkers(t *testing.T) {
 		t.Fatalf("expected no provisioning at cap, got %v", kube.ProvisionCalls)
 	}
 }
+
+// TestDemandMatch_RateLimitedEntityBacksOffButOthersProceed locks the incident
+// fix: when one entity's token is rate limited, we stop trying to provision for
+// that entity this iteration (no repeated 403s) yet still handle other entities
+// sharing the pool.
+func TestDemandMatch_RateLimitedEntityBacksOffButOthersProceed(t *testing.T) {
+	app, db, gh, kube := schedTestApp()
+	for i := int64(1); i <= 3; i++ {
+		db.Jobs = append(db.Jobs, internal.Job{
+			JobID: i, Status: "pending", Provider: "github",
+			EntityID: 1, EntityName: "orga", EntityType: "Organization",
+			RepoFullName: "orga/r", InstallationID: 9,
+			K8sPool: "scaleway-em-rv1", K8sImage: "img",
+		})
+	}
+	db.Jobs = append(db.Jobs, internal.Job{
+		JobID: 4, Status: "pending", Provider: "github",
+		EntityID: 2, EntityName: "orgb", EntityType: "Organization",
+		RepoFullName: "orgb/r", InstallationID: 10,
+		K8sPool: "scaleway-em-rv1", K8sImage: "img",
+	})
+	db.SetPoolDemand(1, nil, 3, 0)
+	db.SetPoolDemand(2, nil, 1, 0)
+	kube.SlotsByPool["scaleway-em-rv1"] = 10
+
+	jitByOrg := map[string]int{}
+	gh.OnCreateJITRunnerOrg = func(_, org, _ string, _ int64, _ []string) (string, error) {
+		jitByOrg[org]++
+		if org == "orga" {
+			return "", &internal.GitHubAPIError{StatusCode: 429, Message: "rate limited"}
+		}
+		return "jit", nil
+	}
+	provisioned := map[string]int{}
+	kube.OnProvisionRunner = func(_, _, _, _ string, e internal.Entity) error {
+		provisioned[e.Name]++
+		return nil
+	}
+
+	if err := app.demandMatch(context.Background()); err != nil {
+		t.Fatalf("demandMatch: %v", err)
+	}
+
+	if jitByOrg["orga"] != 1 {
+		t.Errorf("rate-limited entity should be tried once, got %d attempts", jitByOrg["orga"])
+	}
+	if provisioned["orgb"] != 1 {
+		t.Errorf("non-limited entity should still be provisioned, got %v", provisioned)
+	}
+	if provisioned["orga"] != 0 {
+		t.Errorf("rate-limited entity should not reach k8s provisioning, got %v", provisioned)
+	}
+	if len(db.MarkFailed) != 1 || db.MarkFailed[0].Info.(internal.FailureInfoV2).Reason != internal.ReasonRateLimited {
+		t.Errorf("expected one rate_limited MarkWorkerFailed, got %v", db.MarkFailed)
+	}
+}

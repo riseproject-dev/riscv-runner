@@ -5,6 +5,7 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -76,6 +77,7 @@ const (
 	ReasonRunnerNeverRegistered FailureReason = "runner_never_registered"
 	ReasonRunnerIdle            FailureReason = "runner_idle"
 	ReasonNodeUnreachable       FailureReason = "node_unreachable"
+	ReasonRateLimited           FailureReason = "rate_limited"
 )
 
 // Job is one row of the jobs table.
@@ -469,6 +471,18 @@ type GitHubAPIError struct {
 }
 
 func (e *GitHubAPIError) Error() string { return e.Message }
+
+// IsRateLimited reports whether err is a GitHub rate-limit / secondary-limit
+// rejection. GitHub answers primary limits with 403 and secondary limits with
+// 403 or 429; both mean "back off this entity" (invariant: the token is scoped
+// per installation, so one entity's limit says nothing about the others).
+func IsRateLimited(err error) bool {
+	var apiErr *GitHubAPIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == 429 || apiErr.StatusCode == 403
+}
 
 // Capacity is the AvailableSlots breakdown so callers can log every number
 // that goes into the decision.
