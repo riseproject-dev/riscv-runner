@@ -6,11 +6,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +25,15 @@ import (
 // Tests pass an httptest.Server-backed *http.Client; production uses http.DefaultClient.
 type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
+}
+
+// GHResponse is the result of doRequest: the read body plus the status and
+// headers callers need (Header carries Link for pagination and ETag for logs).
+// On a cache hit or 304 these are the stored values, not the wire response.
+type GHResponse struct {
+	Body       []byte
+	StatusCode int
+	Header     http.Header
 }
 
 // GHClient implements GitHubClient over the live GitHub REST API.
@@ -42,6 +54,16 @@ type GHClient struct {
 	mu     sync.Mutex
 	tokens map[ghTokenKey]ghToken
 	order  []ghTokenKey
+
+	// Response cache and per-token cooldown implement GitHub's REST best
+	// practices: conditional requests (ETag), X-Poll-Interval, and backing a
+	// rate-limited token off. Keyed by a hash of the auth token so one tenant
+	// never reads another's body or sends its validator.
+	CacheMax  int
+	cacheMu   sync.Mutex
+	respCache map[string]*ghCacheEntry
+	respOrder []string
+	cooldowns map[string]time.Time
 }
 
 type ghTokenKey struct {
@@ -52,6 +74,16 @@ type ghTokenKey struct {
 type ghToken struct {
 	value     string
 	expiresAt time.Time
+}
+
+// ghCacheEntry is a stored GET response. header is cloned so a 304 can replay
+// Link (paginatedRunners follows it) without exposing the stored map to callers.
+type ghCacheEntry struct {
+	etag      string
+	status    int
+	header    http.Header
+	body      []byte
+	notBefore time.Time // storedAt + X-Poll-Interval; skip the network until then
 }
 
 // NewGHClient wires a GHClient from a Config.
@@ -75,6 +107,9 @@ func NewGHClient(cfg Config) (*GHClient, error) {
 		TokenMax:  1024,
 		Now:       time.Now,
 		tokens:    map[ghTokenKey]ghToken{},
+		CacheMax:  4096,
+		respCache: map[string]*ghCacheEntry{},
+		cooldowns: map[string]time.Time{},
 	}, nil
 }
 
@@ -266,19 +301,17 @@ func (c *GHClient) paginatedRunners(ctx context.Context, path, token string) ([]
 		req, _ := http.NewRequestWithContext(ctx, "GET", next, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Accept", "application/vnd.github.v3+json")
-		resp, err := c.HTTP.Do(req)
+		resp, err := c.doRequest(req, token)
 		if err != nil {
 			return nil, err
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
 		if resp.StatusCode != 200 {
-			return nil, &GitHubAPIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("GET %s: %s", next, body)}
+			return nil, &GitHubAPIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("GET %s: %s", next, resp.Body)}
 		}
 		var page struct {
 			Runners []GHRunner `json:"runners"`
 		}
-		if err := json.Unmarshal(body, &page); err != nil {
+		if err := json.Unmarshal(resp.Body, &page); err != nil {
 			return nil, err
 		}
 		all = append(all, page.Runners...)
@@ -373,13 +406,146 @@ func (c *GHClient) doJSON(ctx context.Context, method, path string, body any, au
 	if buf != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	resp, err := c.doRequest(req, auth)
+	return resp.Body, resp.StatusCode, err
+}
+
+// doRequest is the single choke point for GitHub HTTP: a per-token cooldown
+// after 403/429, conditional GETs (ETag -> 304), and honoring X-Poll-Interval.
+// Both doJSON and paginatedRunners route through it so the behavior can't drift.
+// The cache key hashes the auth token, so one tenant never reads another's body
+// or replays its validator.
+func (c *GHClient) doRequest(req *http.Request, auth string) (GHResponse, error) {
+	now := c.now()
+	cdKey := authHash(auth)
+
+	c.cacheMu.Lock()
+	if until, ok := c.cooldowns[cdKey]; ok {
+		if now.Before(until) {
+			c.cacheMu.Unlock()
+			return GHResponse{StatusCode: http.StatusTooManyRequests}, &GitHubAPIError{
+				StatusCode: http.StatusTooManyRequests,
+				Message:    "rate limited, cooling down until " + until.Format(time.RFC3339),
+			}
+		}
+		delete(c.cooldowns, cdKey)
+	}
+	c.cacheMu.Unlock()
+
+	cacheable := req.Method == http.MethodGet
+	key := respCacheKey(req.Method, req.URL.String(), auth)
+
+	var cached *ghCacheEntry
+	if cacheable {
+		c.cacheMu.Lock()
+		cached = c.respCache[key]
+		if cached != nil && cached.status == http.StatusOK && now.Before(cached.notBefore) {
+			resp := GHResponse{Body: cached.body, StatusCode: http.StatusOK, Header: cached.header.Clone()}
+			c.cacheMu.Unlock()
+			return resp, nil
+		}
+		c.cacheMu.Unlock()
+		if cached != nil && cached.etag != "" {
+			req.Header.Set("If-None-Match", cached.etag)
+		}
+	}
+
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return GHResponse{}, err
 	}
 	defer resp.Body.Close()
-	rb, err := io.ReadAll(resp.Body)
-	return rb, resp.StatusCode, err
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return GHResponse{}, err
+	}
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+		if until, ok := parseCooldown(now, resp.StatusCode, resp.Header); ok {
+			c.cacheMu.Lock()
+			if c.cooldowns != nil {
+				c.cooldowns[cdKey] = until
+			}
+			c.cacheMu.Unlock()
+		}
+		return GHResponse{Body: body, StatusCode: resp.StatusCode, Header: resp.Header}, nil
+	}
+
+	if cacheable && resp.StatusCode == http.StatusNotModified && cached != nil {
+		c.cacheMu.Lock()
+		cached.notBefore = now.Add(parsePollInterval(resp.Header))
+		c.cacheMu.Unlock()
+		return GHResponse{Body: cached.body, StatusCode: cached.status, Header: cached.header.Clone()}, nil
+	}
+
+	if cacheable && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Cache-Control"), "no-store") {
+		c.storeResp(key, now, resp, body)
+	}
+	return GHResponse{Body: body, StatusCode: resp.StatusCode, Header: resp.Header}, nil
+}
+
+// storeResp caches a 200 GET response. Stored entries are never mutated except
+// notBefore (under cacheMu), so callers may read a captured pointer's immutable
+// fields off-lock. FIFO eviction mirrors the token cache.
+func (c *GHClient) storeResp(key string, now time.Time, resp *http.Response, body []byte) {
+	e := &ghCacheEntry{
+		etag:      resp.Header.Get("ETag"),
+		status:    resp.StatusCode,
+		header:    resp.Header.Clone(),
+		body:      body,
+		notBefore: now.Add(parsePollInterval(resp.Header)),
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.respCache == nil {
+		return
+	}
+	if _, ok := c.respCache[key]; !ok {
+		c.respOrder = append(c.respOrder, key)
+	}
+	c.respCache[key] = e
+	for c.CacheMax > 0 && len(c.respOrder) > c.CacheMax {
+		delete(c.respCache, c.respOrder[0])
+		c.respOrder = c.respOrder[1:]
+	}
+}
+
+func authHash(auth string) string {
+	sum := sha256.Sum256([]byte(auth))
+	return hex.EncodeToString(sum[:])
+}
+
+func respCacheKey(method, url, auth string) string {
+	return method + " " + url + " " + authHash(auth)
+}
+
+// parsePollInterval reads X-Poll-Interval (seconds). Zero means revalidate next
+// call; GitHub only asks us to wait when it sends the header.
+func parsePollInterval(h http.Header) time.Duration {
+	n, err := strconv.Atoi(h.Get("X-Poll-Interval"))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
+}
+
+// parseCooldown derives how long to back a token off after a 403/429, per
+// GitHub: Retry-After (delta seconds), else X-RateLimit-Reset (epoch) when the
+// remaining count is 0, else a 60s default for a 429. A bare 403 carries no
+// rate-limit signal (e.g. a permissions error), so it does not arm a cooldown.
+func parseCooldown(now time.Time, status int, h http.Header) (time.Time, bool) {
+	if n, err := strconv.Atoi(h.Get("Retry-After")); err == nil && n >= 0 {
+		return now.Add(time.Duration(n) * time.Second), true
+	}
+	if h.Get("X-RateLimit-Remaining") == "0" {
+		if epoch, err := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+			return time.Unix(epoch, 0), true
+		}
+	}
+	if status == http.StatusTooManyRequests {
+		return now.Add(60 * time.Second), true
+	}
+	return time.Time{}, false
 }
 
 // apiMessage best-effort extracts {"message":...} from a GitHub error body.

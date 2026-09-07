@@ -477,3 +477,341 @@ func TestDoJSON_TransportError(t *testing.T) {
 
 // silence unused-import lint when imports rotate
 var _ = io.Discard
+
+func TestCache_ConditionalRequestReturns304AsCached(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	var calls int
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("ETag", `"v1"`)
+		if r.Header.Get("If-None-Match") == `"v1"` {
+			w.WriteHeader(304)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"status": "completed", "conclusion": "success"})
+	})
+
+	j1, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	j2, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if j1.Status != "completed" || j2.Status != "completed" {
+		t.Errorf("status j1=%q j2=%q want completed", j1.Status, j2.Status)
+	}
+	if calls != 2 {
+		t.Errorf("calls=%d want 2 (200 then 304)", calls)
+	}
+}
+
+func TestCache_PerTokenKeyIsolation(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "Bearer B" && r.Header.Get("If-None-Match") != "" {
+			t.Errorf("token B must not send token A's validator: %q", r.Header.Get("If-None-Match"))
+		}
+		w.Header().Set("ETag", `"`+auth+`"`)
+		if r.Header.Get("If-None-Match") == `"Bearer A"` {
+			w.WriteHeader(304)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"status": "from-" + auth})
+	})
+
+	ja, err := gh.GetJobInfo(context.Background(), "A", "user/proj", 1)
+	if err != nil {
+		t.Fatalf("A: %v", err)
+	}
+	jb, err := gh.GetJobInfo(context.Background(), "B", "user/proj", 1)
+	if err != nil {
+		t.Fatalf("B: %v", err)
+	}
+	if ja.Status != "from-Bearer A" || jb.Status != "from-Bearer B" {
+		t.Errorf("tenant leak: A=%q B=%q", ja.Status, jb.Status)
+	}
+	ja2, err := gh.GetJobInfo(context.Background(), "A", "user/proj", 1)
+	if err != nil || ja2.Status != "from-Bearer A" {
+		t.Errorf("A revalidate got %q err=%v", ja2.Status, err)
+	}
+}
+
+func TestCache_PollIntervalSkipsNetwork(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	gh.Now = func() time.Time { return now }
+	var calls int
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("X-Poll-Interval", "60")
+		writeJSON(w, 200, map[string]any{"status": "in_progress"})
+	})
+
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(10 * time.Second)
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("within poll interval calls=%d want 1", calls)
+	}
+	now = now.Add(51 * time.Second) // 61s total, past the interval
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Errorf("after poll interval calls=%d want 2", calls)
+	}
+}
+
+func TestCache_RateLimitCooldownShortCircuits(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	gh.Now = func() time.Time { return now }
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		writeJSON(w, 403, map[string]string{"message": "rate limited"})
+	})
+	var runCalls int
+	mux.HandleFunc("/repos/user/proj/actions/runs/1", func(w http.ResponseWriter, r *http.Request) {
+		runCalls++
+		writeJSON(w, 200, map[string]any{"status": "completed"})
+	})
+
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatalf("want rate limited, got %v", err)
+	}
+	// Same token, different endpoint: short-circuited without a network call.
+	if _, err := gh.GetRunInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatalf("second endpoint want rate limited, got %v", err)
+	}
+	if runCalls != 0 {
+		t.Errorf("run endpoint hit during cooldown, calls=%d want 0", runCalls)
+	}
+	now = now.Add(31 * time.Second) // past Retry-After
+	if _, err := gh.GetRunInfo(context.Background(), "tok", "user/proj", 1); err != nil {
+		t.Fatalf("after cooldown: %v", err)
+	}
+	if runCalls != 1 {
+		t.Errorf("run endpoint after cooldown calls=%d want 1", runCalls)
+	}
+}
+
+func TestCache_RateLimitResetHeader(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	gh.Now = func() time.Time { return now }
+	reset := now.Add(45 * time.Second).Unix()
+	var calls int
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", reset))
+		writeJSON(w, 403, map[string]string{"message": "API rate limit exceeded"})
+	})
+
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatalf("want limited, got %v", err)
+	}
+	now = now.Add(30 * time.Second) // before reset
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatalf("still limited, got %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("cooling down until reset, calls=%d want 1", calls)
+	}
+	now = now.Add(20 * time.Second) // 50s > 45s reset
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatalf("endpoint still 403s, got %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("after reset should re-hit, calls=%d want 2", calls)
+	}
+}
+
+func TestCache_SecondaryLimitDefault60s(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	gh.Now = func() time.Time { return now }
+	var calls int
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		writeJSON(w, 429, map[string]string{"message": "secondary rate limit"})
+	})
+
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatalf("want limited, got %v", err)
+	}
+	now = now.Add(59 * time.Second)
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatal("still cooling down")
+	}
+	if calls != 1 {
+		t.Errorf("within 60s calls=%d want 1", calls)
+	}
+	now = now.Add(2 * time.Second) // 61s
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatal("endpoint still 429s")
+	}
+	if calls != 2 {
+		t.Errorf("after 60s calls=%d want 2", calls)
+	}
+}
+
+// A bare 403 (no rate-limit headers) is a permissions signal, not a rate limit.
+// It must not cool the whole token down and block unrelated endpoints.
+func TestCache_BareForbiddenNoCooldown(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 403, map[string]string{"message": "Resource not accessible by integration"})
+	})
+	var runCalls int
+	mux.HandleFunc("/repos/user/proj/actions/runs/1", func(w http.ResponseWriter, r *http.Request) {
+		runCalls++
+		writeJSON(w, 200, map[string]any{"status": "completed"})
+	})
+
+	if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); !IsRateLimited(err) {
+		t.Fatalf("IsRateLimited should still treat 403 as limited, got %v", err)
+	}
+	if _, err := gh.GetRunInfo(context.Background(), "tok", "user/proj", 1); err != nil {
+		t.Fatalf("unrelated endpoint blocked by a bare 403: %v", err)
+	}
+	if runCalls != 1 {
+		t.Errorf("run endpoint should be reachable, calls=%d want 1", runCalls)
+	}
+}
+
+func TestCache_NonGETPassThrough(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	var calls int
+	mux.HandleFunc("/orgs/acme/actions/runners/generate-jitconfig", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("If-None-Match") != "" {
+			t.Errorf("POST must not carry If-None-Match")
+		}
+		writeJSON(w, 201, map[string]string{"encoded_jit_config": "ENC"})
+	})
+
+	for i := 0; i < 2; i++ {
+		if _, err := gh.CreateJITRunnerConfigOrg(context.Background(), "tok", "acme", "r", 1, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Errorf("both POSTs should hit the server, calls=%d want 2", calls)
+	}
+}
+
+func TestCache_RateLimitOnWriteArmsCooldown(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	gh.Now = func() time.Time { return now }
+	mux.HandleFunc("/orgs/acme/actions/runners/generate-jitconfig", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		writeJSON(w, 429, map[string]string{"message": "secondary rate limit"})
+	})
+	var getCalls int
+	mux.HandleFunc("/orgs/acme/actions/runner-groups", func(w http.ResponseWriter, r *http.Request) {
+		getCalls++
+		writeJSON(w, 200, map[string]any{"runner_groups": []any{}})
+	})
+
+	if _, err := gh.CreateJITRunnerConfigOrg(context.Background(), "tok", "acme", "r", 1, nil); !IsRateLimited(err) {
+		t.Fatalf("write want limited, got %v", err)
+	}
+	// A limit on a write cools the token down for reads too.
+	if _, err := gh.EnsureRunnerGroup(context.Background(), "tok", "acme", "g"); !IsRateLimited(err) {
+		t.Fatalf("GET after write-limit want limited, got %v", err)
+	}
+	if getCalls != 0 {
+		t.Errorf("GET should be short-circuited, calls=%d want 0", getCalls)
+	}
+}
+
+func TestCache_PaginationPerPageETag(t *testing.T) {
+	gh, mux, srv := newTestClient(t)
+	base := "/orgs/acme/actions/runner-groups/7/runners"
+	var p1, p2 int
+	mux.HandleFunc(base, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "" {
+			p1++
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?page=2&per_page=100>; rel="next"`, srv.URL, base))
+			w.Header().Set("ETag", `"p1"`)
+			if r.Header.Get("If-None-Match") == `"p1"` {
+				w.WriteHeader(304)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"runners": []map[string]any{{"id": 1, "name": "a"}}})
+			return
+		}
+		p2++
+		w.Header().Set("ETag", `"p2"`)
+		if r.Header.Get("If-None-Match") == `"p2"` {
+			w.WriteHeader(304)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"runners": []map[string]any{{"id": 2, "name": "b"}}})
+	})
+
+	out1, err := gh.ListRunnersOrgGroup(context.Background(), "tok", "acme", 7)
+	if err != nil || len(out1) != 2 {
+		t.Fatalf("first list: %+v err=%v", out1, err)
+	}
+	out2, err := gh.ListRunnersOrgGroup(context.Background(), "tok", "acme", 7)
+	if err != nil || len(out2) != 2 || out2[0].Name != "a" || out2[1].Name != "b" {
+		t.Fatalf("second list from cache: %+v err=%v", out2, err)
+	}
+	if p1 != 2 || p2 != 2 {
+		t.Errorf("each page hit twice (200 then 304): p1=%d p2=%d", p1, p2)
+	}
+}
+
+func TestCache_NoStoreNotCached(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	var calls int
+	mux.HandleFunc("/repos/user/proj/actions/jobs/1", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("If-None-Match") != "" {
+			t.Errorf("no-store response must not be revalidated: %q", r.Header.Get("If-None-Match"))
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("ETag", `"v1"`)
+		writeJSON(w, 200, map[string]any{"status": "in_progress"})
+	})
+
+	for i := 0; i < 2; i++ {
+		if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Errorf("no-store should not be cached, calls=%d want 2", calls)
+	}
+}
+
+func TestCache_FIFOEviction(t *testing.T) {
+	gh, mux, _ := newTestClient(t)
+	gh.CacheMax = 2
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"e"`)
+		writeJSON(w, 200, map[string]any{"status": "x"})
+	})
+
+	for i := int64(1); i <= 3; i++ {
+		if _, err := gh.GetJobInfo(context.Background(), "tok", "user/proj", i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gh.cacheMu.Lock()
+	n := len(gh.respCache)
+	gh.cacheMu.Unlock()
+	if n != 2 {
+		t.Errorf("expected 2 cached entries after FIFO, got %d", n)
+	}
+}
