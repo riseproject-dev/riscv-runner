@@ -7,4 +7,5 @@ package main
 // entry's comment. Resolve an id with `gh api orgs/<name> --jq '.id'`.
 var BannedEntities = []int64{
 	325883364, // github.com/demo99969
+	325940811, // github.com/myjobs99
 }
