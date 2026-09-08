@@ -608,6 +608,13 @@ RUN bash -eux -o pipefail <<'EOF'
     rm -rf ninja
 EOF
 
+# Download pipx
+FROM scratch AS pipx
+
+ARG PIPX_VERSION=1.16.7
+ARG PIPX_CHECKSUM=sha256:302633d0061e0ab4269257501cbe1338cde5f00f22f121543706624aada0145e # https://github.com/pypa/pipx/releases/${PIPX_VERSION}
+ADD --link --checksum=${PIPX_CHECKSUM} https://github.com/pypa/pipx/releases/download/${PIPX_VERSION}/pipx.pyz /tmp/pipx.pyz
+
 ##########################################
 # Build final image
 
@@ -940,6 +947,12 @@ COPY --link --from=docker-buildx  --chmod=0777 /usr/local/lib/docker/cli-plugins
 COPY --link --from=moby --chmod=0777 /usr/local/bin/dockerd /usr/local/bin/dockerd
 COPY --link --from=moby --chmod=0777 /usr/local/bin/docker-proxy /usr/local/bin/docker-proxy
 COPY --link --from=docker-init --chmod=0777 /usr/local/bin/docker-init /usr/local/bin/docker-init
+
+# Install pipx
+RUN --mount=type=bind,from=pipx,source=/tmp/pipx.pyz,target=/tmp/pipx.pyz \
+  bash -eux -o pipefail <<'EOF'
+    python3 /tmp/pipx.pyz ensurepath --global
+EOF
 
 # Fix some specific directories' permissions
 RUN bash -eux -o pipefail <<'EOF'
