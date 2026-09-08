@@ -168,6 +168,12 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 		httpError(w, 400, "Missing repository/installation/workflow_job in payload")
 		return
 	}
+	sender, _ := payload["sender"].(map[string]any)
+	if sender == nil {
+		httpError(w, 400, "Missing sender in payload")
+		return
+	}
+	senderID := asInt64(sender["id"])
 	owner, _ := repo["owner"].(map[string]any)
 	if owner == nil {
 		httpError(w, 400, "Missing repository.owner in payload")
@@ -202,7 +208,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 	// Checked ahead of the staging proxy so a banned entity reaches neither
 	// environment: no job row, no runner, no GitHub API calls. The audit row
 	// is still written (invariant b909123).
-	if slices.Contains(BannedEntities, entity.ID) {
+	if slices.Contains(BannedEntities, entity.ID) || slices.Contains(BannedSenders, senderID) {
 		base.Event = "workflow_job." + action
 		base.Outcome = internal.OutcomeBannedEntity
 		base.Payload = minimalJobPayload(job, jsonStrings(job["labels"]), repoFullName)

@@ -52,6 +52,7 @@ func stagingPayload() []byte {
 	return mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},
+		"sender":       testSender,
 		"repository": map[string]any{
 			"id":        float64(2),
 			"full_name": "riseproject-staging/riscv-runner-sample",

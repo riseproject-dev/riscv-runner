@@ -19,6 +19,11 @@ import (
 
 const webhookSecret = "test-secret"
 
+// testSender stands in for the sender GitHub always attaches to workflow_job.
+// handleWorkflowJobEvent rejects payloads without one, so every workflow_job
+// fixture needs it.
+var testSender = map[string]any{"id": float64(4242)}
+
 func newTestApp() (*App, *testutil.FakeDB) {
 	db := testutil.NewFakeDB()
 	cfg := internal.Config{
@@ -123,6 +128,7 @@ func TestWebhook_InstallationEvents(t *testing.T) {
 				"target_type":  "Organization",
 				"account":      map[string]any{"id": float64(42), "login": "new"},
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 			},
 			wantEvent:   "installation_target.renamed",
 			wantOutcome: internal.OutcomeOK,
@@ -167,6 +173,7 @@ func TestWebhook_WorkflowJob_IgnoredAction(t *testing.T) {
 	body := mustJSON(map[string]any{
 		"action":       "waiting",
 		"installation": map[string]any{"id": float64(1)},
+		"sender":       testSender,
 		"repository": map[string]any{
 			"id": float64(2), "full_name": "x/y",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
@@ -187,6 +194,7 @@ func TestIgnoredNoLabel_PayloadMinimized(t *testing.T) {
 	body := mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},
+		"sender":       testSender,
 		"repository": map[string]any{
 			"id": float64(2), "full_name": "x/y", "url": "drop",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x", "url": "drop"},
@@ -237,6 +245,7 @@ func TestWebhook_QueuedJobStored(t *testing.T) {
 	body := mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},
+		"sender":       testSender,
 		"repository": map[string]any{
 			"id": float64(2), "full_name": "x/y",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
@@ -343,6 +352,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 			map[string]any{
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 				"repository":   map[string]any{"id": float64(2), "full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 			},
 			400,
@@ -352,6 +362,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 			map[string]any{
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 				"repository":   map[string]any{"id": float64(2), "full_name": "x/y"},
 				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
 			},
@@ -362,6 +373,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 			map[string]any{
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 				"repository":   map[string]any{"id": float64(2), "full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"labels": []any{"ubuntu-24.04-riscv"}},
 			},
@@ -372,6 +384,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 			map[string]any{
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 				"repository":   map[string]any{"id": float64(2), "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
 			},
@@ -382,6 +395,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 			map[string]any{
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 				"repository":   map[string]any{"full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
 			},
@@ -392,6 +406,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 			map[string]any{
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 				"repository":   map[string]any{"id": float64(2), "full_name": "x/y", "owner": map[string]any{"type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
 			},
@@ -402,7 +417,18 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 			map[string]any{
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
+				"sender":       testSender,
 				"repository":   map[string]any{"id": float64(2), "full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Bot", "login": "x"}},
+				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
+			},
+			400,
+		},
+		{
+			"missing sender",
+			map[string]any{
+				"action":       "queued",
+				"installation": map[string]any{"id": float64(1)},
+				"repository":   map[string]any{"id": float64(2), "full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
 			},
 			400,
@@ -427,6 +453,7 @@ func TestWebhook_WorkflowJob_QueuedMissingInstallOrURL(t *testing.T) {
 		p := map[string]any{
 			"action":       "queued",
 			"installation": map[string]any{"id": float64(1)},
+			"sender":       testSender,
 			"repository": map[string]any{
 				"id": float64(2), "full_name": "x/y",
 				"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
@@ -478,6 +505,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 		return mustJSON(map[string]any{
 			"action":       action,
 			"installation": map[string]any{"id": float64(1)},
+			"sender":       testSender,
 			"repository": map[string]any{
 				"id": float64(2), "full_name": "x/y",
 				"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
@@ -586,6 +614,7 @@ func TestWebhook_QueuedAddJobError(t *testing.T) {
 	body := mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},
+		"sender":       testSender,
 		"repository": map[string]any{
 			"id": float64(2), "full_name": "x/y",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
@@ -612,6 +641,7 @@ func TestWebhook_QueuedAlreadyExists(t *testing.T) {
 	body := mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},
+		"sender":       testSender,
 		"repository": map[string]any{
 			"id": float64(2), "full_name": "x/y",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
