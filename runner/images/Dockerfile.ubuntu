@@ -615,6 +615,13 @@ ARG PIPX_VERSION=1.16.7
 ARG PIPX_CHECKSUM=sha256:302633d0061e0ab4269257501cbe1338cde5f00f22f121543706624aada0145e # https://github.com/pypa/pipx/releases/${PIPX_VERSION}
 ADD --link --checksum=${PIPX_CHECKSUM} https://github.com/pypa/pipx/releases/download/${PIPX_VERSION}/pipx.pyz /tmp/pipx.pyz
 
+# Download github-action-runner
+FROM scratch AS github-action-runner
+
+ARG RUNNER_VERSION=2.336.0
+ARG RUNNER_CHECKSUM=sha256:404d376f36c38656fa95a155a83cf9387a1612c70c6498fc0e11595f7c9c3238 # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
+ADD --link --checksum=${RUNNER_CHECKSUM} --unpack=true https://github.com/Cloud-V-10xE/github-runner-riscv/releases/download/v${RUNNER_VERSION}-riscv64-net8/actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz /home/runner/actions-runner/cached/${RUNNER_VERSION}
+
 ##########################################
 # Build final image
 
@@ -973,22 +980,8 @@ USER runner
 
 # Setup GitHub runner
 ARG RUNNER_VERSION=2.336.0
-ARG RUNNER_SHA256=404d376f36c38656fa95a155a83cf9387a1612c70c6498fc0e11595f7c9c3238 # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
+COPY --link --from=github-action-runner --chown=1001:1001 --chmod=0777 /home/runner/actions-runner/cached/${RUNNER_VERSION} /home/runner/actions-runner/cached/${RUNNER_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
-    # reduce timestamps differences between layers
-    export SOURCE_DATE_EPOCH=0
-
-    curl -fsSL --retry 12 --retry-all-errors "https://github.com/Cloud-V-10xE/github-runner-riscv/releases/download/v${RUNNER_VERSION}-riscv64-net8/actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz" \
-        -o "actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz"
-
-    # Verify package integrity
-    echo "${RUNNER_SHA256} actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz" | sha256sum --check
-
-    # Unpack tar file
-    mkdir -p /home/runner/actions-runner/cached/${RUNNER_VERSION}
-    tar -xzf actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz -C /home/runner/actions-runner/cached/${RUNNER_VERSION}
-    rm actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz
-
     # Install dependencies for the runner (if any)
     sudo /home/runner/actions-runner/cached/${RUNNER_VERSION}/bin/installdependencies.sh
 
