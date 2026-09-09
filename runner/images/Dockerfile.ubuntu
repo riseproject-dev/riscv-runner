@@ -259,19 +259,12 @@ FROM base-builder AS go-1.22
 
 ARG GO122_VERSION=1.22.12
 ARG GO122_SHA256=f03a084aabc812fdc15b29acd5e1ee18e13b3c80be22aec43990119afcaf4947 # https://go.dev/dl/go1.22.12.linux-riscv64.tar.gz
+ADD --link --checksum=sha256:${GO122_SHA256} https://go.dev/dl/go${GO122_VERSION}.linux-riscv64.tar.gz /tmp/go${GO122_VERSION}.linux-riscv64.tar.gz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Go 1.22
-    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO122_VERSION}.linux-riscv64.tar.gz \
-        -o go${GO122_VERSION}.linux-riscv64.tar.gz
-
-    # Verify package integrity
-    echo "${GO122_SHA256}  go${GO122_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
-
     # Unpack and install
     mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64
-    tar -xzf go${GO122_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64 --strip-components=1
+    tar -xzf /tmp/go${GO122_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64 --strip-components=1
     touch ${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64.complete
-    rm go${GO122_VERSION}.linux-riscv64.tar.gz
 EOF
 
 ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO122_VERSION}/riscv64/bin:${PATH}
@@ -281,19 +274,12 @@ FROM base-builder AS go-1.23
 
 ARG GO123_VERSION=1.23.12
 ARG GO123_SHA256=5798eda8c167dd620feb54e1bcca1b4cc014a529821d8c01f31d7e17a43cb8ed # https://go.dev/dl/go1.23.12.linux-riscv64.tar.gz
+ADD --link --checksum=sha256:${GO123_SHA256} https://go.dev/dl/go${GO123_VERSION}.linux-riscv64.tar.gz /tmp/go${GO123_VERSION}.linux-riscv64.tar.gz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Go 1.23
-    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO123_VERSION}.linux-riscv64.tar.gz \
-        -o go${GO123_VERSION}.linux-riscv64.tar.gz
-
-    # Verify package integrity
-    echo "${GO123_SHA256}  go${GO123_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
-
     # Unpack and install
     mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64
-    tar -xzf go${GO123_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64 --strip-components=1
+    tar -xzf /tmp/go${GO123_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64 --strip-components=1
     touch ${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64.complete
-    rm go${GO123_VERSION}.linux-riscv64.tar.gz
 EOF
 
 ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO123_VERSION}/riscv64/bin:${PATH}
@@ -303,19 +289,12 @@ FROM base-builder AS go-1.24
 
 ARG GO124_VERSION=1.24.13
 ARG GO124_SHA256=9a8166261489d3f38c7a568785b7012c123e3561779d282d568a72d58506754f # https://go.dev/dl/go1.24.13.linux-riscv64.tar.gz
+ADD --link --checksum=sha256:${GO124_SHA256} https://go.dev/dl/go${GO124_VERSION}.linux-riscv64.tar.gz /tmp/go${GO124_VERSION}.linux-riscv64.tar.gz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Go 1.24
-    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO124_VERSION}.linux-riscv64.tar.gz \
-        -o go${GO124_VERSION}.linux-riscv64.tar.gz
-
-    # Verify package integrity
-    echo "${GO124_SHA256}  go${GO124_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
-
     # Unpack and install
     mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64
-    tar -xzf go${GO124_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64 --strip-components=1
+    tar -xzf /tmp/go${GO124_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64 --strip-components=1
     touch ${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64.complete
-    rm go${GO124_VERSION}.linux-riscv64.tar.gz
 EOF
 
 ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO124_VERSION}/riscv64/bin:${PATH}
@@ -325,19 +304,12 @@ FROM base-builder AS go-1.25
 
 ARG GO125_VERSION=1.25.14
 ARG GO125_SHA256=c47a1bd1ca1fef087920c9a5d648af77a90071f5af305b6e4c426a3dea982983 # https://dl.google.com/go/go1.25.14.linux-riscv64.tar.gz.sha256
+ADD --link --checksum=sha256:${GO125_SHA256} https://dl.google.com/go/go${GO125_VERSION}.linux-riscv64.tar.gz /tmp/go${GO125_VERSION}.linux-riscv64.tar.gz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Go 1.25
-    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO125_VERSION}.linux-riscv64.tar.gz \
-        -o go${GO125_VERSION}.linux-riscv64.tar.gz
-
-    # Verify package integrity
-    echo "${GO125_SHA256}  go${GO125_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
-
     # Unpack and install
     mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64
-    tar -xzf go${GO125_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64 --strip-components=1
+    tar -xzf /tmp/go${GO125_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64 --strip-components=1
     touch ${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64.complete
-    rm go${GO125_VERSION}.linux-riscv64.tar.gz
 EOF
 
 ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO125_VERSION}/riscv64/bin:${PATH}
@@ -347,19 +319,12 @@ FROM base-builder AS go-1.26
 
 ARG GO126_VERSION=1.26.1
 ARG GO126_SHA256=56f8a63ae986c75e91001d65e17648564a10f0d2b18d696d13c91e459da1abd4 # https://go.dev/dl/go1.26.1.linux-riscv64.tar.gz
+ADD --link --checksum=sha256:${GO126_SHA256} https://go.dev/dl/go${GO126_VERSION}.linux-riscv64.tar.gz /tmp/go${GO126_VERSION}.linux-riscv64.tar.gz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Go 1.26
-    curl -fsSL --retry 12 --retry-all-errors https://go.dev/dl/go${GO126_VERSION}.linux-riscv64.tar.gz \
-        -o go${GO126_VERSION}.linux-riscv64.tar.gz
-
-    # Verify package integrity
-    echo "${GO126_SHA256}  go${GO126_VERSION}.linux-riscv64.tar.gz" | sha256sum --check
-
     # Unpack and install
     mkdir -p ${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64
-    tar -xzf go${GO126_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64 --strip-components=1
+    tar -xzf /tmp/go${GO126_VERSION}.linux-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64 --strip-components=1
     touch ${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64.complete
-    rm go${GO126_VERSION}.linux-riscv64.tar.gz
 EOF
 
 ENV PATH=${RUNNER_TOOL_CACHE}/go/${GO126_VERSION}/riscv64/bin:${PATH}
@@ -370,10 +335,9 @@ FROM go-1.24 AS moby
 WORKDIR /build
 
 ARG MOBY_VERSION=28.0.4
+ADD --link --keep-git-dir https://github.com/moby/moby.git#v${MOBY_VERSION} /tmp/moby
 RUN bash -eux -o pipefail <<'EOF'
-    # Download moby
-    git clone --depth 1 --branch "v${MOBY_VERSION}" https://github.com/moby/moby.git
-    pushd moby
+    cd /tmp/moby
 
     # Build dockerd and docker-proxy
     # hack/make.sh reads VERSION, DOCKER_BUILDTAGS, and DOCKER_GITCOMMIT to
@@ -386,10 +350,6 @@ RUN bash -eux -o pipefail <<'EOF'
     # Install to /usr/local
     install -m 755 -p bundles/binary-daemon/dockerd /usr/local/bin/dockerd
     install -m 755 -p bundles/binary-daemon/docker-proxy /usr/local/bin/docker-proxy
-
-    # Cleanup
-    popd
-    rm -rf moby
 EOF
 
 # Build docker-init (tini) - PID 1 reaper for the entrypoint
@@ -398,19 +358,14 @@ FROM base-builder AS docker-init
 WORKDIR /build
 
 ARG TINI_VERSION=0.19.1
+ADD --link --keep-git-dir https://github.com/riseproject-dev/tini.git#v${TINI_VERSION} /tmp/tini
 RUN bash -eux -o pipefail <<'EOF'
-    # Download tini
-    git clone --depth 1 --branch "v${TINI_VERSION}" https://github.com/riseproject-dev/tini.git
-    pushd tini
+    cd /tmp/tini
 
     # Build & install to /usr/local
     cmake .
     make tini-static
     install -m 755 -p tini-static /usr/local/bin/docker-init
-
-    # Cleanup
-    popd
-    rm -rf tini
 EOF
 
 # Download Node.js 20
@@ -418,19 +373,12 @@ FROM base-builder AS node-20
 
 ARG NODE20_VERSION=20.20.2
 ARG NODE20_SHA256=97a1b381eb457a904973cd3fa7999feb4fded5d286f4da08bbd0bf112601b0f4 # https://unofficial-builds.nodejs.org/download/release/v20.20.2/SHASUMS256.txt
+ADD --link --checksum=sha256:${NODE20_SHA256} https://unofficial-builds.nodejs.org/download/release/v${NODE20_VERSION}/node-v${NODE20_VERSION}-linux-riscv64.tar.xz /tmp/node-v${NODE20_VERSION}-linux-riscv64.tar.xz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Node.js 20
-    curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE20_VERSION}/node-v${NODE20_VERSION}-linux-riscv64.tar.xz" \
-        -o "node-v${NODE20_VERSION}-linux-riscv64.tar.xz"
-
-    # Verify package integrity
-    echo "${NODE20_SHA256}  node-v${NODE20_VERSION}-linux-riscv64.tar.xz" | sha256sum --check
-
     # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64
     mkdir -p ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64
-    tar -xJf "node-v${NODE20_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64 --strip-components 1
+    tar -xJf "/tmp/node-v${NODE20_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64 --strip-components 1
     touch ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64.complete
-    rm "node-v${NODE20_VERSION}-linux-riscv64.tar.xz"
 
     # Smoke test
     ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}/riscv64/bin/node --version
@@ -441,19 +389,12 @@ FROM base-builder AS node-22
 
 ARG NODE22_VERSION=22.23.2
 ARG NODE22_SHA256=d41ba9978e1d267ef7e90c9100f8e390b64fba8b91afb7b4f3bdb32264e00a35 # https://unofficial-builds.nodejs.org/download/release/v22.23.2/SHASUMS256.txt
+ADD --link --checksum=sha256:${NODE22_SHA256} https://unofficial-builds.nodejs.org/download/release/v${NODE22_VERSION}/node-v${NODE22_VERSION}-linux-riscv64.tar.xz /tmp/node-v${NODE22_VERSION}-linux-riscv64.tar.xz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Node.js 22
-    curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE22_VERSION}/node-v${NODE22_VERSION}-linux-riscv64.tar.xz" \
-        -o "node-v${NODE22_VERSION}-linux-riscv64.tar.xz"
-
-    # Verify package integrity
-    echo "${NODE22_SHA256}  node-v${NODE22_VERSION}-linux-riscv64.tar.xz" | sha256sum --check
-
     # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64
     mkdir -p ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64
-    tar -xJf "node-v${NODE22_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64 --strip-components 1
+    tar -xJf "/tmp/node-v${NODE22_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64 --strip-components 1
     touch ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64.complete
-    rm "node-v${NODE22_VERSION}-linux-riscv64.tar.xz"
 
     # Smoke test
     ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}/riscv64/bin/node --version
@@ -464,19 +405,12 @@ FROM base-builder AS node-24
 
 ARG NODE24_VERSION=24.19.0
 ARG NODE24_SHA256=cd1f14af2812148002f58b58a5f9af512a50e3b8e8c148e0db44019dcb68edfd # https://unofficial-builds.nodejs.org/download/release/v24.19.0/SHASUMS256.txt
+ADD --link --checksum=sha256:${NODE24_SHA256} https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/node-v${NODE24_VERSION}-linux-riscv64.tar.xz /tmp/node-v${NODE24_VERSION}-linux-riscv64.tar.xz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Node.js 24
-    curl -fsSL --retry 12 --retry-all-errors "https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/node-v${NODE24_VERSION}-linux-riscv64.tar.xz" \
-        -o "node-v${NODE24_VERSION}-linux-riscv64.tar.xz"
-
-    # Verify package integrity
-    echo "${NODE24_SHA256}  node-v${NODE24_VERSION}-linux-riscv64.tar.xz" | sha256sum --check
-
     # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64
     mkdir -p ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64
-    tar -xJf "node-v${NODE24_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64 --strip-components 1
+    tar -xJf "/tmp/node-v${NODE24_VERSION}-linux-riscv64.tar.xz" -C ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64 --strip-components 1
     touch ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64.complete
-    rm "node-v${NODE24_VERSION}-linux-riscv64.tar.xz"
 
     # Smoke test
     ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64/bin/node --version
@@ -487,35 +421,21 @@ FROM base-builder AS gradle
 
 ARG GRADLE_VERSION=9.7.1
 ARG GRADLE_SHA256=acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a # https://services.gradle.org/distributions/gradle-9.7.1-bin.zip.sha256
+ADD --link --checksum=sha256:${GRADLE_SHA256} https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip /tmp/gradle-${GRADLE_VERSION}-bin.zip
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Gradle
-    curl -fsSL --retry 12 --retry-all-errors https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip \
-        -o gradle-${GRADLE_VERSION}-bin.zip
-
-    # Verify package integrity
-    echo "${GRADLE_SHA256}  gradle-${GRADLE_VERSION}-bin.zip" | sha256sum --check
-
     # Unpack to /usr/share
-    unzip -q gradle-${GRADLE_VERSION}-bin.zip -d /usr/share
-    rm gradle-${GRADLE_VERSION}-bin.zip
+    unzip -q /tmp/gradle-${GRADLE_VERSION}-bin.zip -d /usr/share
 EOF
 
 # Download Apache Maven
 FROM base-builder AS maven
 
 ARG MAVEN_VERSION=3.9.16
-ARG MAVEN_SHA512=831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6 # https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz.sha512
+ARG MAVEN_SHA256=80ffca22aed9e8b9713a232f3394fd81d7f20322df75efdb2b047dbd3e3a23bb
+ADD --link --checksum=sha256:${MAVEN_SHA256} https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz /tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz
 RUN bash -eux -o pipefail <<'EOF'
-    # Download Apache Maven
-    curl -fsSL --retry 12 --retry-all-errors https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
-        -o apache-maven-${MAVEN_VERSION}-bin.tar.gz
-
-    # Verify package integrity
-    echo "${MAVEN_SHA512}  apache-maven-${MAVEN_VERSION}-bin.tar.gz" | sha512sum --check
-
     # Unpack to /usr/share
-    tar -xzf apache-maven-${MAVEN_VERSION}-bin.tar.gz -C /usr/share
-    rm apache-maven-${MAVEN_VERSION}-bin.tar.gz
+    tar -xzf /tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz -C /usr/share
 EOF
 
 # Download Rust
@@ -540,36 +460,14 @@ FROM base-builder AS docker-compose
 
 ARG DOCKERCOMPOSE_VERSION=2.38.2
 ARG DOCKERCOMPOSE_SHA256=67c65c4015db38b526b262cee9d98915f8fcb56b42be7926a21a7ec2ec0c3d2c
-RUN bash -eux -o pipefail <<'EOF'
-    # Download docker-compose v2
-    mkdir -p /usr/local/lib/docker/cli-plugins
-    curl -fsSL --retry 12 --retry-all-errors "https://github.com/docker/compose/releases/download/v${DOCKERCOMPOSE_VERSION}/docker-compose-linux-riscv64" \
-        -o "/usr/local/lib/docker/cli-plugins/docker-compose"
-
-    # Verify package integrity
-    echo "${DOCKERCOMPOSE_SHA256} /usr/local/lib/docker/cli-plugins/docker-compose" | sha256sum --check
-
-    # Fix permissions on the file
-    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-EOF
+ADD --link --checksum=sha256:${DOCKERCOMPOSE_SHA256} --chmod=+x https://github.com/docker/compose/releases/download/v${DOCKERCOMPOSE_VERSION}/docker-compose-linux-riscv64 /usr/local/lib/docker/cli-plugins/docker-compose
 
 # Download docker-buildx
 FROM base-builder AS docker-buildx
 
 ARG DOCKERBUILDX_VERSION=0.36.1
 ARG DOCKERBUILDX_SHA256=5e82f0ada635dabda74f1486dea604e0ea3a1214971ec8c52dcb4db6e08cce26 # https://github.com/docker/buildx/releases/v${DOCKERBUILDX_VERSION}
-RUN bash -eux -o pipefail <<'EOF'
-    # Download docker-buildx
-    mkdir -p /usr/local/lib/docker/cli-plugins
-    curl -fsSL --retry 12 --retry-all-errors "https://github.com/docker/buildx/releases/download/v${DOCKERBUILDX_VERSION}/buildx-v${DOCKERBUILDX_VERSION}.linux-riscv64" \
-        -o "/usr/local/lib/docker/cli-plugins/docker-buildx"
-
-    # Verify package integrity
-    echo "${DOCKERBUILDX_SHA256} /usr/local/lib/docker/cli-plugins/docker-buildx" | sha256sum --check
-
-    # Fix permissions on the file
-    chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
-EOF
+ADD --link --checksum=sha256:${DOCKERBUILDX_SHA256} --chmod=+x https://github.com/docker/buildx/releases/download/v${DOCKERBUILDX_VERSION}/buildx-v${DOCKERBUILDX_VERSION}.linux-riscv64 /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # Build kubernetes
 FROM go-1.26 AS kubernetes
@@ -577,16 +475,13 @@ FROM go-1.26 AS kubernetes
 WORKDIR /build
 
 ARG KUBECTL_VERSION=1.36.4
+ADD --link --keep-git-dir https://github.com/kubernetes/kubernetes.git#v${KUBECTL_VERSION} /tmp/kubernetes
 RUN bash -eux -o pipefail <<'EOF'
-    # Download kubernetes
-    git clone --recurse-submodules --depth 1 https://github.com/kubernetes/kubernetes.git -b v${KUBECTL_VERSION}
-    pushd kubernetes
+    cd /tmp/kubernetes
+
     # Build & Install to /usr/local
     make WHAT="cmd/kubectl"
     install -m 755 -p _output/local/go/bin/kubectl /usr/local/bin/kubectl
-    # Cleanup
-    popd
-    rm -rf kubernetes
 EOF
 
 # Build ninja
@@ -595,17 +490,14 @@ FROM base-builder AS ninja
 WORKDIR /build
 
 ARG NINJA_VERSION=1.13.2
+ADD --link --keep-git-dir https://github.com/ninja-build/ninja.git#v${NINJA_VERSION} /tmp/ninja
 RUN bash -eux -o pipefail <<'EOF'
-    # Download ninja
-    git clone --recurse-submodules --depth 1 https://github.com/ninja-build/ninja.git -b v${NINJA_VERSION}
-    pushd ninja
+    cd /tmp/ninja
+
     # Build & Install to /usr/local
     cmake -Bbuild -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr/local
     cmake --build build --parallel
     cmake --install build
-    # Cleanup
-    popd
-    rm -rf ninja
 EOF
 
 # Download pipx
