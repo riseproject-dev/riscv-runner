@@ -618,8 +618,8 @@ ADD --link --checksum=${PIPX_CHECKSUM} https://github.com/pypa/pipx/releases/dow
 # Download github-action-runner
 FROM scratch AS github-action-runner
 
-ARG RUNNER_VERSION=2.336.0
-ARG RUNNER_CHECKSUM=sha256:404d376f36c38656fa95a155a83cf9387a1612c70c6498fc0e11595f7c9c3238 # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
+ARG RUNNER_VERSION=2.337.0
+ARG RUNNER_CHECKSUM=sha256:ffbd21a732a96883033f855a6f9de3808a46a4077609ae3c808d76407369fc15 # https://github.com/Cloud-V-10xE/github-runner-riscv/releases/tag/${RUNNER_VERSION}-riscv64-net8
 ADD --link --checksum=${RUNNER_CHECKSUM} --unpack=true https://github.com/Cloud-V-10xE/github-runner-riscv/releases/download/v${RUNNER_VERSION}-riscv64-net8/actions-runner-linux-riscv64-${RUNNER_VERSION}.tar.gz /home/runner/actions-runner/cached/${RUNNER_VERSION}
 
 ##########################################
@@ -633,7 +633,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV RUNNER_TOOL_CACHE=/opt/hostedtoolcache
 ENV RUNNER_OS=Linux
 ENV RUNNER_ARCH=RISCV64
-ARG RUNNER_VERSION=2.336.0
+ARG RUNNER_VERSION=2.337.0
 ENV RUNNER_VERSION=${RUNNER_VERSION}
 
 RUN bash -eux -o pipefail <<'EOF'
@@ -979,7 +979,7 @@ WORKDIR /home/runner
 USER runner
 
 # Setup GitHub runner
-ARG RUNNER_VERSION=2.336.0
+ARG RUNNER_VERSION=2.337.0
 COPY --link --from=github-action-runner --chown=1001:1001 --chmod=0777 /home/runner/actions-runner/cached/${RUNNER_VERSION} /home/runner/actions-runner/cached/${RUNNER_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
     # Install dependencies for the runner (if any)
