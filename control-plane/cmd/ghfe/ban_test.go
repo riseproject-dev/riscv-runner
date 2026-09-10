@@ -20,14 +20,15 @@ const (
 )
 
 // bannedJobBody is a queued workflow_job carrying a label that would otherwise
-// match a real pool.
+// match a real pool. visibility is "public" so these cases exercise the ban
+// lists rather than tripping the non-public-repository gate ahead of them.
 func bannedJobBody(entityID, senderID int64) []byte {
 	return mustJSON(map[string]any{
 		"action":       "queued",
 		"installation": map[string]any{"id": float64(1)},
 		"sender":       map[string]any{"id": float64(senderID)},
 		"repository": map[string]any{
-			"id": float64(2), "full_name": "banned/repo",
+			"id": float64(2), "full_name": "banned/repo", "visibility": "public",
 			"owner": map[string]any{"id": float64(entityID), "type": "Organization", "login": "banned-org"},
 		},
 		"workflow_job": map[string]any{
@@ -143,7 +144,7 @@ func TestBanned_OtherActionsDropped(t *testing.T) {
 			"installation": map[string]any{"id": float64(1)},
 			"sender":       map[string]any{"id": float64(cleanSenderID)},
 			"repository": map[string]any{
-				"id": float64(2), "full_name": "banned/repo",
+				"id": float64(2), "full_name": "banned/repo", "visibility": "public",
 				"owner": map[string]any{"id": float64(entityID), "type": "Organization", "login": "banned-org"},
 			},
 			"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},

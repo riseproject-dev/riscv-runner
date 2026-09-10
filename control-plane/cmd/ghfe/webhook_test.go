@@ -175,7 +175,7 @@ func TestWebhook_WorkflowJob_IgnoredAction(t *testing.T) {
 		"installation": map[string]any{"id": float64(1)},
 		"sender":       testSender,
 		"repository": map[string]any{
-			"id": float64(2), "full_name": "x/y",
+			"id": float64(2), "full_name": "x/y", "visibility": "public",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
 		},
 		"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
@@ -196,7 +196,7 @@ func TestIgnoredNoLabel_PayloadMinimized(t *testing.T) {
 		"installation": map[string]any{"id": float64(1)},
 		"sender":       testSender,
 		"repository": map[string]any{
-			"id": float64(2), "full_name": "x/y", "url": "drop",
+			"id": float64(2), "full_name": "x/y", "url": "drop", "visibility": "public",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x", "url": "drop"},
 		},
 		"workflow_job": map[string]any{
@@ -247,7 +247,7 @@ func TestWebhook_QueuedJobStored(t *testing.T) {
 		"installation": map[string]any{"id": float64(1)},
 		"sender":       testSender,
 		"repository": map[string]any{
-			"id": float64(2), "full_name": "x/y",
+			"id": float64(2), "full_name": "x/y", "visibility": "public",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
 		},
 		"workflow_job": map[string]any{
@@ -282,6 +282,64 @@ func TestWebhook_QueuedJobStored(t *testing.T) {
 	}
 	if row.InstallationID == nil || *row.InstallationID != 1 {
 		t.Errorf("installation_id=%v want 1", row.InstallationID)
+	}
+}
+
+// TestWebhook_RepoVisibilityGate covers 4d1e32f: only repository.visibility
+// == "public" reaches job processing. private, internal, and a missing
+// field all fail closed as banned_entity ahead of storage.
+func TestWebhook_RepoVisibilityGate(t *testing.T) {
+	newBody := func(visibility any) []byte {
+		repo := map[string]any{
+			"id": float64(2), "full_name": "x/y",
+			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
+		}
+		if visibility != nil {
+			repo["visibility"] = visibility
+		}
+		return mustJSON(map[string]any{
+			"action":       "queued",
+			"installation": map[string]any{"id": float64(1)},
+			"sender":       testSender,
+			"repository":   repo,
+			"workflow_job": map[string]any{
+				"id":       float64(7),
+				"labels":   []any{"ubuntu-24.04-riscv"},
+				"html_url": "https://example.com",
+			},
+		})
+	}
+
+	for _, tc := range []struct {
+		name       string
+		visibility any
+		wantStored bool
+	}{
+		{"public", "public", true},
+		{"private", "private", false},
+		{"internal", "internal", false},
+		{"missing", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, db := newTestApp()
+			w := httptest.NewRecorder()
+			app.handleWebhook(w, signedRequest(t, newBody(tc.visibility), "workflow_job", "2167633"))
+			if w.Code != 200 {
+				t.Fatalf("status=%d want 200", w.Code)
+			}
+			if stored := len(db.Jobs) == 1; stored != tc.wantStored {
+				t.Fatalf("stored=%v want %v (jobs=%+v)", stored, tc.wantStored, db.Jobs)
+			}
+			if tc.wantStored {
+				return
+			}
+			if len(db.Events) != 1 || db.Events[0].Row.Outcome != string(internal.OutcomeBannedEntity) {
+				t.Fatalf("expected one banned_entity row, got %+v", db.Events)
+			}
+			if !strings.Contains(w.Body.String(), "not public") {
+				t.Errorf("body=%q", w.Body.String())
+			}
+		})
 	}
 }
 
@@ -374,7 +432,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
 				"sender":       testSender,
-				"repository":   map[string]any{"id": float64(2), "full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
+				"repository":   map[string]any{"id": float64(2), "full_name": "x/y", "visibility": "public", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"labels": []any{"ubuntu-24.04-riscv"}},
 			},
 			400,
@@ -385,7 +443,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
 				"sender":       testSender,
-				"repository":   map[string]any{"id": float64(2), "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
+				"repository":   map[string]any{"id": float64(2), "visibility": "public", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
 			},
 			400,
@@ -396,7 +454,7 @@ func TestWebhook_WorkflowJob_MissingPayloadParts(t *testing.T) {
 				"action":       "queued",
 				"installation": map[string]any{"id": float64(1)},
 				"sender":       testSender,
-				"repository":   map[string]any{"full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
+				"repository":   map[string]any{"full_name": "x/y", "visibility": "public", "owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"}},
 				"workflow_job": map[string]any{"id": float64(7), "labels": []any{"ubuntu-24.04-riscv"}},
 			},
 			400,
@@ -455,7 +513,7 @@ func TestWebhook_WorkflowJob_QueuedMissingInstallOrURL(t *testing.T) {
 			"installation": map[string]any{"id": float64(1)},
 			"sender":       testSender,
 			"repository": map[string]any{
-				"id": float64(2), "full_name": "x/y",
+				"id": float64(2), "full_name": "x/y", "visibility": "public",
 				"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
 			},
 			"workflow_job": map[string]any{
@@ -484,7 +542,7 @@ func TestWebhook_WorkflowJob_QueuedMissingInstallOrURL(t *testing.T) {
 		},
 		{
 			"missing entity login",
-			base(map[string]any{"repository": map[string]any{"id": float64(2), "full_name": "x/y", "owner": map[string]any{"id": float64(99), "type": "Organization"}}}),
+			base(map[string]any{"repository": map[string]any{"id": float64(2), "full_name": "x/y", "visibility": "public", "owner": map[string]any{"id": float64(99), "type": "Organization"}}}),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -507,7 +565,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 			"installation": map[string]any{"id": float64(1)},
 			"sender":       testSender,
 			"repository": map[string]any{
-				"id": float64(2), "full_name": "x/y",
+				"id": float64(2), "full_name": "x/y", "visibility": "public",
 				"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
 			},
 			"workflow_job": map[string]any{
@@ -616,7 +674,7 @@ func TestWebhook_QueuedAddJobError(t *testing.T) {
 		"installation": map[string]any{"id": float64(1)},
 		"sender":       testSender,
 		"repository": map[string]any{
-			"id": float64(2), "full_name": "x/y",
+			"id": float64(2), "full_name": "x/y", "visibility": "public",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
 		},
 		"workflow_job": map[string]any{
@@ -643,7 +701,7 @@ func TestWebhook_QueuedAlreadyExists(t *testing.T) {
 		"installation": map[string]any{"id": float64(1)},
 		"sender":       testSender,
 		"repository": map[string]any{
-			"id": float64(2), "full_name": "x/y",
+			"id": float64(2), "full_name": "x/y", "visibility": "public",
 			"owner": map[string]any{"id": float64(99), "type": "Organization", "login": "x"},
 		},
 		"workflow_job": map[string]any{

@@ -184,6 +184,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 	ownerLogin, _ := owner["login"].(string)
 	installID := asInt64(install["id"])
 	repoFullName, _ := repo["full_name"].(string)
+	repoVisibility, _ := repo["visibility"].(string)
 	if ownerID == 0 {
 		httpError(w, 400, "Owner ID is missing in payload")
 		return
@@ -203,6 +204,17 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 		EntityType:     (*string)(&entity.Type),
 		EntityID:       &entity.ID,
 		EntityName:     &entity.Name,
+	}
+
+	// Banning non-public repositories after abusive behaviors
+	if repoVisibility != "public" {
+		base.Event = "workflow_job." + action
+		base.Outcome = internal.OutcomeBannedEntity
+		base.Payload = minimalJobPayload(job, jsonStrings(job["labels"]), repoFullName)
+		a.recordEvent(r, base)
+		slog.Warn("Ignoring job from non-public repository", "entity", entity, "repo", repoFullName, "repo_visibility", repoVisibility)
+		_, _ = w.Write([]byte("Ignoring job: repository is not public"))
+		return
 	}
 
 	// Checked ahead of the staging proxy so a banned entity reaches neither
