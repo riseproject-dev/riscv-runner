@@ -54,9 +54,10 @@ func stagingPayload() []byte {
 		"installation": map[string]any{"id": float64(1)},
 		"sender":       testSender,
 		"repository": map[string]any{
-			"id":        float64(2),
-			"full_name": "riseproject-staging/riscv-runner-sample",
-			"owner":     map[string]any{"id": float64(internal.RiseprojectStagingOrgID), "type": "Organization", "login": "riseproject-staging"},
+			"id":         float64(2),
+			"full_name":  "riseproject-staging/riscv-runner-sample",
+			"visibility": "public",
+			"owner":      map[string]any{"id": float64(internal.RiseprojectStagingOrgID), "type": "Organization", "login": "riseproject-staging"},
 		},
 		"workflow_job": map[string]any{
 			"id":       float64(7),
