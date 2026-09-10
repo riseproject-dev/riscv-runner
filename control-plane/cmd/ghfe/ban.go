@@ -10,5 +10,6 @@ var BannedEntities = []int64{
 }
 
 var BannedSenders = []int64{
-	13410920, // github.com/quoc1506
+	13410920,  // github.com/quoc1506
+	326547083, // github.com/ttaipk0-ctrl
 }
