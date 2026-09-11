@@ -26,7 +26,7 @@ docker buildx build \
   --platform linux/riscv64 \
   --file Dockerfile.ubuntu \
   --build-arg OS_VERSION=24.04 \
-  --tag riscv-runner:ubuntu-24.04-local \
+  --tag ghcr.io/riseproject-dev/riscv-runner:runner-ubuntu-24.04-local \
   .
 ```
 

@@ -28,8 +28,7 @@ const (
 	LuhenryUserID           int64 = 660779    // github.com/luhenry
 	MengZhuoUserID          int64 = 885662    // github.com/mengzhuo
 
-	RunnerRegistry = "rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s"
-	RunnerImage    = "riscv-runner"
+	RunnerRegistry = "ghcr.io/riseproject-dev/riscv-runner"
 
 	// Reconciliation timeouts. Each one watches a different failure mode:
 	RunnerRegistrationTimeout = 120 * time.Second // pod Running but GH never sees the runner
@@ -129,14 +128,14 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		cfg.PostgresSchema = "prod"
 		cfg.RunnerGroup = "RISE RISC-V Runners"
 		cfg.RunnerPrefix = "rise-riscv-runner-"
-		cfg.ImageUbuntu24 = fmt.Sprintf("%s/%s:ubuntu-24.04-prod", RunnerRegistry, RunnerImage)
-		cfg.ImageUbuntu26 = fmt.Sprintf("%s/%s:ubuntu-26.04-prod", RunnerRegistry, RunnerImage)
+		cfg.ImageUbuntu24 = fmt.Sprintf("%s:runner-ubuntu-24.04-prod", RunnerRegistry)
+		cfg.ImageUbuntu26 = fmt.Sprintf("%s:runner-ubuntu-26.04-prod", RunnerRegistry)
 	} else {
 		cfg.PostgresSchema = "staging"
 		cfg.RunnerGroup = "RISE RISC-V Runners (staging)"
 		cfg.RunnerPrefix = "rise-riscv-runner-staging-"
-		cfg.ImageUbuntu24 = fmt.Sprintf("%s/%s:ubuntu-24.04-staging", RunnerRegistry, RunnerImage)
-		cfg.ImageUbuntu26 = fmt.Sprintf("%s/%s:ubuntu-26.04-staging", RunnerRegistry, RunnerImage)
+		cfg.ImageUbuntu24 = fmt.Sprintf("%s:runner-ubuntu-24.04-staging", RunnerRegistry)
+		cfg.ImageUbuntu26 = fmt.Sprintf("%s:runner-ubuntu-26.04-staging", RunnerRegistry)
 	}
 
 	return cfg, nil

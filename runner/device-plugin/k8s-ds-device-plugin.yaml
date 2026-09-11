@@ -56,17 +56,17 @@ spec:
       priorityClassName: system-node-critical
       initContainers:
         - name: ubuntu-2404-image-cache
-          image: rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:ubuntu-24.04-${TAG}
+          image: ghcr.io/riseproject-dev/riscv-runner:runner-ubuntu-24.04-${TAG}
           imagePullPolicy: Always
           command: ["true"]
         # TODO: Enable 26.04 on machines; running out of disk space for now
         # - name: ubuntu-2604-image-cache
-        #   image: rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:ubuntu-26.04-${TAG}
+        #   image: ghcr.io/riseproject-dev/riscv-runner:runner-ubuntu-26.04-${TAG}
         #   imagePullPolicy: Always
         #   command: ["true"]
       containers:
         - name: device-plugin
-          image: rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:device-plugin-${TAG}
+          image: ghcr.io/riseproject-dev/riscv-runner:device-plugin-${TAG}
           imagePullPolicy: Always
           env:
             - name: NODE_NAME
