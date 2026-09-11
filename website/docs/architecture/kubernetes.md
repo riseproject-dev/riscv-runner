@@ -89,7 +89,7 @@ The Scaleway EM-RV1 is a special case: its kernel predates `riscv_hwprobe`, so t
 - **Environment:** `NODE_NAME` from downward API (`spec.nodeName`)
 - **Volume mounts:** `/var/lib/kubelet/device-plugins` (host path), `/sys` (read-only host path)
 - **Privileged:** Yes (device tree access for the Scaleway fallback)
-- **Image:** `rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s/riscv-runner:device-plugin-prod`
+- **Image:** `ghcr.io/riseproject-dev/riscv-runner/device-plugin:prod`
 
 ## Source files
 

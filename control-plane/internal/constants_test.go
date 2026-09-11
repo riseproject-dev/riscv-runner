@@ -39,10 +39,10 @@ func TestLoadConfig_AllRequiredPresentProd(t *testing.T) {
 	if cfg.RunnerPrefix != "rise-riscv-runner-" {
 		t.Errorf("runner prefix: %q", cfg.RunnerPrefix)
 	}
-	if !strings.Contains(cfg.ImageUbuntu24, "ubuntu-24.04-prod") {
+	if !strings.Contains(cfg.ImageUbuntu24, "ubuntu-24.04:prod") {
 		t.Errorf("image24: %q", cfg.ImageUbuntu24)
 	}
-	if !strings.Contains(cfg.ImageUbuntu26, "ubuntu-26.04-prod") {
+	if !strings.Contains(cfg.ImageUbuntu26, "ubuntu-26.04:prod") {
 		t.Errorf("image26: %q", cfg.ImageUbuntu26)
 	}
 	if cfg.LogLevel != "DEBUG" {
@@ -74,7 +74,7 @@ func TestLoadConfig_StagingDefaults(t *testing.T) {
 	if cfg.LogLevel != "INFO" {
 		t.Errorf("default loglevel should be INFO: %q", cfg.LogLevel)
 	}
-	if !strings.Contains(cfg.ImageUbuntu24, "ubuntu-24.04-staging") {
+	if !strings.Contains(cfg.ImageUbuntu24, "ubuntu-24.04:staging") {
 		t.Errorf("staging image24: %q", cfg.ImageUbuntu24)
 	}
 }

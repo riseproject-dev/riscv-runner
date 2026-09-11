@@ -136,7 +136,7 @@ docker buildx build \
   --platform linux/riscv64 \
   --file runner/images/Dockerfile.ubuntu \
   --build-arg OS_VERSION=24.04 \
-  --tag riscv-runner:ubuntu-24.04-local \
+  --tag ghcr.io/riseproject-dev/riscv-runner/runner/ubuntu-24.04:local \
   runner/images
 ```
 
@@ -144,8 +144,8 @@ Best run on a RISC-V host so no emulation is involved. On x86_64, `binfmt_misc` 
 
 ## Rolling out an image update
 
-1. Merge a PR that changes `images/**`. CI builds `:ubuntu-24.04-sha-<sha>` and pushes it.
-2. `deploy-staging` retags as `:ubuntu-24.04-staging`, then `kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system`. The init container in the daemonset pre-pulls the new image to every node.
-3. The `deploy-prod` job waits for an environment-gated approval before retagging as `:ubuntu-24.04-prod`. New runner pods provisioned after that point pull the new image.
+1. Merge a PR that changes `images/**`. CI builds `/runner/ubuntu-24.04:sha-<sha>` and pushes it.
+2. `deploy-staging` retags as `/runner/ubuntu-24.04:staging`, then `kubectl rollout restart daemonset/rise-riscv-runner-device-plugin -n kube-system`. The init container in the daemonset pre-pulls the new image to every node.
+3. The `deploy-prod` job waits for an environment-gated approval before retagging as `/runner/ubuntu-24.04:prod`. New runner pods provisioned after that point pull the new image.
 
 A runner pod that is currently running an old image will keep that image for the duration of its job. Image updates are not retroactive.

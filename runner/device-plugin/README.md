@@ -37,14 +37,11 @@ CI mirrors this in [`../.github/workflows/deploy-runner.yml`](../.github/workflo
 ## Build a local image
 
 ```sh
-REGISTRY=rg.fr-par.scw.cloud/funcscwriseriscvrunnerappqdvknz9s
-IMAGE=riscv-runner
-
 docker buildx build \
   --platform linux/riscv64 \
   --file Dockerfile \
   --target device-plugin \
-  --tag "$REGISTRY/$IMAGE:device-plugin-local" \
+  --tag "ghcr.io/riseproject-dev/riscv-runner/device-plugin:local" \
   .
 ```
 

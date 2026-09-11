@@ -32,7 +32,7 @@ custom:
   # containers
   containers:
     ghfe:
-      registryImage: ${env:REGISTRY}/${env:IMAGE}:ghfe-${self:custom.${self:provider.stage}.container-tag}
+      registryImage: ghcr.io/riseproject-dev/riscv-runner/ghfe:${self:custom.${self:provider.stage}.container-tag}
       port: 8080
       cpuLimit: 250
       memoryLimit: 256
@@ -60,7 +60,7 @@ custom:
       # VPC for PostgreSQL access
       privateNetworkId: "58fa41d0-f6a4-4b6f-8f65-b788563842c1"
     scheduler:
-      registryImage: ${env:REGISTRY}/${env:IMAGE}:scheduler-${self:custom.${self:provider.stage}.container-tag}
+      registryImage: ghcr.io/riseproject-dev/riscv-runner/scheduler:${self:custom.${self:provider.stage}.container-tag}
       port: 8080
       cpuLimit: 250
       memoryLimit: 256
