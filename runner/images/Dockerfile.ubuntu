@@ -196,8 +196,8 @@ EOF
 FROM base-builder AS python-3.14
 
 ARG PYTHON314_VERSION=3.14.7
-ARG PYTHON314_TAG=${PYTHON314_VERSION}-31085547140
-ARG PYTHON314_SHA256=2c401738fa6887d57426ba6d87a6ef5e1169a1348847b13c274cd3328c9e771c # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-34994861977
+ARG PYTHON314_SHA256=3b3a8d513ccad5b88e9d4883f1d4f12bc0606f619556d6df0355826ff9ea32c3 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -227,8 +227,8 @@ EOF
 FROM base-builder AS python-3.14t
 
 ARG PYTHON314_VERSION=3.14.7
-ARG PYTHON314_TAG=${PYTHON314_VERSION}-31085547140
-ARG PYTHON314_SHA256=c35be95694a0cab6d4c700e854b8975f3678b66888d16d1bec7365e70b2122be # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-34994861977
+ARG PYTHON314_SHA256=aa2a7dab2a21cdf51f824acb206361d96eab6f37a99a081b0754183189ca61da # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
