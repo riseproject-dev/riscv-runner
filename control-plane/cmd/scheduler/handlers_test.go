@@ -74,7 +74,7 @@ func TestHandlers_HealthOK(t *testing.T) {
 func TestRoutes_AllPathsServed(t *testing.T) {
 	app, _, _, _ := schedTestApp()
 	mux := app.Routes()
-	for _, path := range []string{"/health", "/usage", "/usage.json", "/history", "/history.json", "/jobs", "/jobs.json", "/workers", "/workers.json"} {
+	for _, path := range []string{"/health", "/usage", "/usage.json", "/history", "/history.json", "/jobs", "/jobs.json", "/workers", "/workers.json", "/stats/weekly-usage", "/stats/weekly-usage.csv"} {
 		r := httptest.NewRequest("GET", path, nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)
@@ -287,6 +287,81 @@ func TestWorkers_InvalidParam(t *testing.T) {
 	app.handleWorkers(w, r)
 	if w.Code != 400 {
 		t.Errorf("status=%d", w.Code)
+	}
+}
+
+// TestStatsWeeklyUsage_CSVRendersRows covers the CSV body and headers.
+func TestStatsWeeklyUsage_CSVRendersRows(t *testing.T) {
+	app, db, _, _ := schedTestApp()
+	week := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+	db.OnGetWeeklyEntityUsage = func() ([]internal.WeeklyEntityUsage, error) {
+		return []internal.WeeklyEntityUsage{
+			{Week: week, EntityName: "acme", TotalDurationMinutes: 42, JobCount: 3},
+		}, nil
+	}
+	r := httptest.NewRequest("GET", "/stats/weekly-usage.csv", nil)
+	w := httptest.NewRecorder()
+	app.handleStatsWeeklyUsage(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status=%d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
+		t.Errorf("content-type=%q", ct)
+	}
+	want := "week,entity_name,total_duration_minutes,job_count\n2026-01-05,acme,42,3\n"
+	if w.Body.String() != want {
+		t.Errorf("body=%q want=%q", w.Body.String(), want)
+	}
+}
+
+// TestStatsWeeklyUsage_HTMLRendersRows covers the HTML branch.
+func TestStatsWeeklyUsage_HTMLRendersRows(t *testing.T) {
+	app, db, _, _ := schedTestApp()
+	week := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+	db.OnGetWeeklyEntityUsage = func() ([]internal.WeeklyEntityUsage, error) {
+		return []internal.WeeklyEntityUsage{
+			{Week: week, EntityName: "acme", TotalDurationMinutes: 42, JobCount: 3},
+		}, nil
+	}
+	r := httptest.NewRequest("GET", "/stats/weekly-usage", nil)
+	w := httptest.NewRecorder()
+	app.handleStatsWeeklyUsage(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status=%d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type=%q", ct)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"2026-01-05", "acme", "42 min", "3 jobs"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in:\n%s", want, body)
+		}
+	}
+}
+
+// TestStatsWeeklyUsage_HTMLEmpty covers the no-rows branch.
+func TestStatsWeeklyUsage_HTMLEmpty(t *testing.T) {
+	app, _, _, _ := schedTestApp()
+	r := httptest.NewRequest("GET", "/stats/weekly-usage", nil)
+	w := httptest.NewRecorder()
+	app.handleStatsWeeklyUsage(w, r)
+	if !strings.Contains(w.Body.String(), "No usage found.") {
+		t.Errorf("body=%q", w.Body.String())
+	}
+}
+
+// TestStatsWeeklyUsage_DBError covers the 500 branch, shared by both renderings.
+func TestStatsWeeklyUsage_DBError(t *testing.T) {
+	app, db, _, _ := schedTestApp()
+	db.OnGetWeeklyEntityUsage = func() ([]internal.WeeklyEntityUsage, error) { return nil, errBoom }
+	for _, path := range []string{"/stats/weekly-usage", "/stats/weekly-usage.csv"} {
+		r := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		app.handleStatsWeeklyUsage(w, r)
+		if w.Code != 500 {
+			t.Errorf("%s: status=%d", path, w.Code)
+		}
 	}
 }
 

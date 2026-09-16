@@ -42,6 +42,7 @@ type FakeDB struct {
 	OnGetActiveJobsAndWorkers func() ([]internal.Job, []internal.Worker, error)
 	OnGetAllJobs              func(start, end string, page, perPage int) ([]internal.Job, int, error)
 	OnGetAllWorkers           func(start, end string, page, perPage int) ([]internal.Worker, int, error)
+	OnGetWeeklyEntityUsage    func() ([]internal.WeeklyEntityUsage, error)
 
 	WorkerStatus map[string]string // last-known status; tests poke this
 	MarkRunning  []string
@@ -179,6 +180,13 @@ func (f *FakeDB) GetAllJobs(ctx context.Context, start, end string, page, perPag
 		return f.OnGetAllJobs(start, end, page, perPage)
 	}
 	return f.Jobs, len(f.Jobs), nil
+}
+
+func (f *FakeDB) GetWeeklyEntityUsage(ctx context.Context) ([]internal.WeeklyEntityUsage, error) {
+	if f.OnGetWeeklyEntityUsage != nil {
+		return f.OnGetWeeklyEntityUsage()
+	}
+	return nil, nil
 }
 
 func (f *FakeDB) GetPoolDemand(ctx context.Context, entityID int64, labels []string) (int, int, error) {

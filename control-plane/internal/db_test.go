@@ -289,6 +289,21 @@ func TestGetAllJobs_WithDateFilter(t *testing.T) {
 	}
 }
 
+func TestGetWeeklyEntityUsage(t *testing.T) {
+	db, mock := newMockDB(t)
+	week := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+	rows := pgxmock.NewRows([]string{"week", "entity_name", "total_duration_minutes", "job_count"}).
+		AddRow(week, "acme", int64(42), int64(3))
+	mock.ExpectQuery(`SELECT date_trunc\('week', job_completed_at\).*FROM jobs`).WillReturnRows(rows)
+	out, err := db.GetWeeklyEntityUsage(context.Background())
+	if err != nil || len(out) != 1 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	if out[0].EntityName != "acme" || out[0].TotalDurationMinutes != 42 || out[0].JobCount != 3 {
+		t.Fatalf("unexpected row: %+v", out[0])
+	}
+}
+
 func TestGetPoolDemand(t *testing.T) {
 	db, mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT.*job_count.*worker_count`).

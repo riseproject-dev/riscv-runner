@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -26,6 +27,8 @@ func (a *App) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /jobs.json", a.handleJobs)
 	mux.HandleFunc("GET /workers", a.handleWorkers)
 	mux.HandleFunc("GET /workers.json", a.handleWorkers)
+	mux.HandleFunc("GET /stats/weekly-usage", a.handleStatsWeeklyUsage)
+	mux.HandleFunc("GET /stats/weekly-usage.csv", a.handleStatsWeeklyUsage)
 	return mux
 }
 
@@ -36,6 +39,10 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func wantsJSON(r *http.Request) bool {
 	return strings.HasSuffix(r.URL.Path, ".json")
+}
+
+func wantsCSV(r *http.Request) bool {
+	return strings.HasSuffix(r.URL.Path, ".csv")
 }
 
 // --- /usage ---
@@ -179,6 +186,40 @@ func (a *App) handleWorkers(w http.ResponseWriter, r *http.Request) {
 		lines = []string{"No workers found."}
 	}
 	a.writePre(w, "Workers", lines)
+}
+
+// --- /stats/weekly-usage ---
+
+func (a *App) handleStatsWeeklyUsage(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.DB.GetWeeklyEntityUsage(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", 500)
+		return
+	}
+	if wantsCSV(r) {
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="weekly-usage.csv"`)
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"week", "entity_name", "total_duration_minutes", "job_count"})
+		for _, row := range rows {
+			_ = cw.Write([]string{
+				row.Week.Format("2006-01-02"),
+				row.EntityName,
+				strconv.FormatInt(row.TotalDurationMinutes, 10),
+				strconv.FormatInt(row.JobCount, 10),
+			})
+		}
+		cw.Flush()
+		return
+	}
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		lines = append(lines, renderWeeklyUsage(row))
+	}
+	if len(lines) == 0 {
+		lines = []string{"No usage found."}
+	}
+	a.writePre(w, "Weekly Usage", lines)
 }
 
 // parsePageParams normalises start/end/page/per_page and returns them parsed,

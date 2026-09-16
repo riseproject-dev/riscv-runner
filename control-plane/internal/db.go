@@ -372,6 +372,30 @@ func (d *pgDB) GetAllJobs(ctx context.Context, start, end string, page, perPage 
 	return jobs, total, err
 }
 
+func (d *pgDB) GetWeeklyEntityUsage(ctx context.Context) ([]WeeklyEntityUsage, error) {
+	rows, err := d.q(ctx).Query(ctx, `
+		SELECT date_trunc('week', job_completed_at)::date AS week, entity_name,
+		       CEIL(EXTRACT(EPOCH FROM SUM(job_completed_at - job_started_at)) / 60)::bigint AS total_duration_minutes,
+		       COUNT(*) AS job_count
+		FROM jobs
+		WHERE job_started_at IS NOT NULL AND job_completed_at IS NOT NULL
+		GROUP BY 1, 2
+		ORDER BY 1, 2`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WeeklyEntityUsage
+	for rows.Next() {
+		var u WeeklyEntityUsage
+		if err := rows.Scan(&u.Week, &u.EntityName, &u.TotalDurationMinutes, &u.JobCount); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // buildDateWhere returns the SQL fragment and args for the optional date filter
 // used by /jobs and /workers paginated endpoints.
 func buildDateWhere(start, end string) (string, []any) {

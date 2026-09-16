@@ -3,7 +3,7 @@
 GitHub App webhook handler (`ghfe`) and demand-matching scheduler. Two Go binaries deployed together as Scaleway Container Functions.
 
 - `cmd/ghfe` — receives `workflow_job` webhooks, writes job state to PostgreSQL, serves `/setup/*` and `/trace/*`. No GitHub API or Kubernetes calls.
-- `cmd/scheduler` — reads job state, provisions runner pods on Kubernetes, reconciles with GitHub, cleans up completed pods. Serves `/usage`, `/history`, `/jobs`, `/workers`.
+- `cmd/scheduler` — reads job state, provisions runner pods on Kubernetes, reconciles with GitHub, cleans up completed pods. Serves `/usage`, `/history`, `/jobs`, `/workers`, `/stats/weekly-usage`.
 
 For architecture, sequence diagrams, the database schema, the demand-matching algorithm, the installation event log, and ops runbooks, see the [website](https://riscv-runners.riseproject.dev/). This README covers only what a contributor working in `control-plane/` needs to know.
 
@@ -15,7 +15,7 @@ Go module: `github.com/riseproject-dev/riscv-runner/control-plane`.
 control-plane/
 ├── cmd/
 │   ├── ghfe/                webhook handler, /setup/*, /trace/*, health
-│   └── scheduler/           reconciler (5 phases), demand match, /usage, /history, /jobs, /workers
+│   └── scheduler/           reconciler (5 phases), demand match, /usage, /history, /jobs, /workers, /stats/weekly-usage
 ├── internal/
 │   ├── constants.go         config, EntityConfigs, timeouts, image tags
 │   ├── contract.go          shared types, WebhookOutcome enum, DB/GitHub/Kube interfaces

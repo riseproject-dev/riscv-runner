@@ -106,6 +106,14 @@ type Job struct {
 	UpdatedAt      time.Time       `db:"updated_at" json:"updated_at"`
 }
 
+// WeeklyEntityUsage is one row of the weekly per-entity job-duration report.
+type WeeklyEntityUsage struct {
+	Week                 time.Time `db:"week" json:"week"`
+	EntityName           string    `db:"entity_name" json:"entity_name"`
+	TotalDurationMinutes int64     `db:"total_duration_minutes" json:"total_duration_minutes"`
+	JobCount             int64     `db:"job_count" json:"job_count"`
+}
+
 // Entity bundles the three identifying fields. Keep the flat DB columns for
 // the SQL roundtrip and JSON shape UI consumers depend on (invariant 1055cc8).
 func (j Job) Entity() Entity {
@@ -415,6 +423,7 @@ type DB interface {
 	GetActiveJobs(ctx context.Context) ([]Job, error)
 	GetPendingJobs(ctx context.Context) ([]Job, error)
 	GetAllJobs(ctx context.Context, start, end string, page, perPage int) ([]Job, int, error)
+	GetWeeklyEntityUsage(ctx context.Context) ([]WeeklyEntityUsage, error)
 
 	// Pool / capacity helpers
 	GetPoolDemand(ctx context.Context, entityID int64, labels []string) (int, int, error)
