@@ -201,12 +201,6 @@ func renderFailureInfo(raw json.RawMessage) []string {
 	return lines
 }
 
-// renderWeeklyUsage formats one row for the /stats/weekly-usage HTML view.
-func renderWeeklyUsage(u internal.WeeklyEntityUsage) string {
-	return fmt.Sprintf("%s  %-30s  %8d min  %5d jobs",
-		u.Week.Format("2006-01-02"), html.EscapeString(u.EntityName), u.TotalDurationMinutes, u.JobCount)
-}
-
 func (a *App) renderLiveEvents(ctx context.Context, podName string) []string {
 	evs, err := a.K8s.GetPodEvents(ctx, podName)
 	if err != nil {

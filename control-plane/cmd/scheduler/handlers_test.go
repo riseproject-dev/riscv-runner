@@ -333,7 +333,7 @@ func TestStatsWeeklyUsage_HTMLRendersRows(t *testing.T) {
 		t.Errorf("content-type=%q", ct)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"2026-01-05", "acme", "42 min", "3 jobs"} {
+	for _, want := range []string{"2026-01-05", "acme", "42", "3", `id="weekly-usage-data"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected %q in:\n%s", want, body)
 		}

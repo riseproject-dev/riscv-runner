@@ -212,14 +212,7 @@ func (a *App) handleStatsWeeklyUsage(w http.ResponseWriter, r *http.Request) {
 		cw.Flush()
 		return
 	}
-	lines := make([]string, 0, len(rows))
-	for _, row := range rows {
-		lines = append(lines, renderWeeklyUsage(row))
-	}
-	if len(lines) == 0 {
-		lines = []string{"No usage found."}
-	}
-	a.writePre(w, "Weekly Usage", lines)
+	a.writeWeeklyUsageHTML(w, rows)
 }
 
 // parsePageParams normalises start/end/page/per_page and returns them parsed,
