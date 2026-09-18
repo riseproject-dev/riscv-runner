@@ -111,9 +111,10 @@ func dropKeys(m map[string]any, drop map[string]struct{}) map[string]any {
 	return out
 }
 
-// matchLabelsToK8s maps a job's labels to (pool, image). Returns
-// ("", "", false) when no rule matches — caller emits IGNORED_NO_LABEL.
-func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, labels []string) (pool, image string, ok bool) {
+// matchLabelsToK8s maps a job's labels to (node selector, image). Returns
+// ok=false with a zero selector when no rule matches; the caller emits
+// IGNORED_NO_LABEL.
+func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, labels []string) (sel internal.NodeSelector, image string, ok bool) {
 	isRiseprojectDevScope := orgID == internal.RiseprojectDevOrgID
 	isLuhenryScope := orgID == internal.LuhenryUserID
 
@@ -122,33 +123,37 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 			(repoFullName == "riseproject-dev/llama.cpp" || repoFullName == "riseproject-dev/llama.cpp-validation"))
 	if isGGMLScope {
 		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
-			return "spacemit-k1", cfg.ImageUbuntu24, true
+			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true
 		}
-		return "", "", false
+		return internal.NodeSelector{}, "", false
 	}
 
 	isMengZhuoScope := orgID == internal.MengZhuoUserID
 	if isMengZhuoScope {
 		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
-			return "spacemit-k1", cfg.ImageUbuntu24, true
+			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true
 		}
 	}
 
 	isRuyiAIScope := orgID == internal.RuyiAIOrgID
 	if isRuyiAIScope || isLuhenryScope {
 		if len(labels) == 3 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") && slices.Contains(labels, "xlarge") {
-			return "spacemit-v100", cfg.ImageUbuntu24, true
+			return nodeSelector(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true
 		}
 	}
 
 	if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
-		return "scaleway-em-rv1", cfg.ImageUbuntu24, true
+		return nodeSelector(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true
 	}
 	if len(labels) == 2 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") {
-		return "spacemit-k3", cfg.ImageUbuntu24, true
+		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true
 	}
 	if len(labels) == 1 && labels[0] == "ubuntu-26.04-riscv" {
-		return "spacemit-k3", cfg.ImageUbuntu26, true
+		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu26, true
 	}
-	return "", "", false
+	return internal.NodeSelector{}, "", false
+}
+
+func nodeSelector(board, provider string) internal.NodeSelector {
+	return internal.NodeSelector{Board: board, Provider: provider}
 }

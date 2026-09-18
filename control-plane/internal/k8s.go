@@ -47,26 +47,35 @@ func NewK8sClientFromInterface(cs kubernetes.Interface) *K8sClient {
 // privileged, two emptyDir volumes, single container, RUNNER_JITCONFIG env,
 // ephemeral-storage limit on scaleway-em-* only) is load-bearing. Don't tweak
 // without a test.
-func (k *K8sClient) ProvisionRunner(ctx context.Context, jitConfig, runnerName, image, pool string, entity Entity) error {
+func (k *K8sClient) ProvisionRunner(ctx context.Context, jitConfig, runnerName, image string, sel NodeSelector, entity Entity) error {
+	if !sel.Valid() {
+		return ErrEmptySelector
+	}
 	limits := corev1.ResourceList{
 		"riseproject.com/runner": resource.MustParse("1"),
 	}
-	if strings.HasPrefix(pool, "scaleway-em-") {
+	if strings.HasPrefix(sel.Board, "scaleway-em-") {
 		limits["ephemeral-storage"] = resource.MustParse("90Gi")
+	}
+
+	// Pod labels mirror the selector so AvailableSlots can count actives with
+	// the same selector it uses for nodes.
+	podLabels := map[string]string{
+		"app":                         "rise-riscv-runner",
+		"riseproject.dev/entity_id":   strconv.FormatInt(entity.ID, 10),
+		"riseproject.dev/entity_name": entity.Name,
+	}
+	for key, v := range sel.Labels() {
+		podLabels[key] = v
 	}
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: runnerName,
-			Labels: map[string]string{
-				"app":                         "rise-riscv-runner",
-				"riseproject.dev/entity_id":   strconv.FormatInt(entity.ID, 10),
-				"riseproject.dev/entity_name": entity.Name,
-				"riseproject.dev/board":       pool,
-			},
+			Name:   runnerName,
+			Labels: podLabels,
 		},
 		Spec: corev1.PodSpec{
-			NodeSelector: map[string]string{"riseproject.dev/board": pool},
+			NodeSelector: sel.Labels(),
 			// 24h queue limit + 5d execution limit + 2h buffer = 525600s.
 			ActiveDeadlineSeconds: ptr.To(int64(525600)),
 			RestartPolicy:         corev1.RestartPolicyNever,
@@ -285,23 +294,38 @@ func (k *K8sClient) KillPod(ctx context.Context, podName string) error {
 	return err
 }
 
-// AvailableSlots returns total allocatable runner capacity on the pool's
-// nodes and the count of currently active runner pods. The pool → node-label
-// mapping is k8s-internal; callers stay in pool-name space.
-func (k *K8sClient) AvailableSlots(ctx context.Context, pool string) (Capacity, error) {
-	labelSelector := "riseproject.dev/board=" + pool
-	nodes, err := k.cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+// AvailableSlots returns total allocatable runner capacity on the selected
+// nodes and the count of currently active runner pods.
+//
+// Capacity is measured per board, ignoring the selector's provider, while pods
+// are still placed with both labels. Every board model currently has a single
+// provider, so the two agree; counting by board additionally covers runners
+// started before riseproject.dev/provider existed, which would otherwise look
+// idle and let the scheduler double-book their nodes. Narrow this to sel.Key()
+// once no board-only pods remain.
+//
+// Actives are counted by the node a pod occupies rather than by the pod's own
+// labels, since a pod consumes its node's slot whatever it is labelled with.
+func (k *K8sClient) AvailableSlots(ctx context.Context, sel NodeSelector) (Capacity, error) {
+	if !sel.Valid() {
+		return Capacity{}, ErrEmptySelector
+	}
+	nodes, err := k.cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+		LabelSelector: LabelBoard + "=" + sel.Board,
+	})
 	if err != nil {
 		return Capacity{}, err
 	}
 	var total int
+	inPool := make(map[string]bool, len(nodes.Items))
 	for _, n := range nodes.Items {
+		inPool[n.Name] = true
 		if q, ok := n.Status.Allocatable["riseproject.com/runner"]; ok {
 			total += int(q.Value())
 		}
 	}
 	pods, err := k.cs.CoreV1().Pods(k.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app=rise-riscv-runner," + labelSelector,
+		LabelSelector: "app=rise-riscv-runner",
 	})
 	if err != nil {
 		return Capacity{}, err
@@ -309,8 +333,25 @@ func (k *K8sClient) AvailableSlots(ctx context.Context, pool string) (Capacity, 
 	active := 0
 	for _, p := range pods.Items {
 		switch p.Status.Phase {
-		case corev1.PodPending, corev1.PodRunning:
-			active++
+		case corev1.PodPending:
+			// A Pending pod may not be scheduled yet. With no node to
+			// attribute it to, trust the board label it was created with.
+			if p.Spec.NodeName == "" {
+				if p.Labels[LabelBoard] == sel.Board {
+					active++
+				}
+				continue
+			}
+			if inPool[p.Spec.NodeName] {
+				active++
+			}
+		case corev1.PodRunning:
+			// A Running pod always has a node.
+			if inPool[p.Spec.NodeName] {
+				active++
+			}
+		default:
+			// Succeeded / Failed / Unknown release their slot.
 		}
 	}
 	return Capacity{Total: total, Active: active, Available: total - active}, nil

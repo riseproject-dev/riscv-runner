@@ -63,6 +63,8 @@ Since only one unit exists per node, the Kubernetes scheduler will never place t
 
 The device plugin detects the SoC on each RISC-V node at startup and applies a `riseproject.dev/board` label. Runner pods use this label in their `nodeSelector` to land on the correct hardware.
 
+The device plugin owns the `board` key **only**. Placement also uses `riseproject.dev/provider`, which records the vendor supplying the machine and is applied by hand when a node joins (see [Cluster Provisioning](../operations/cluster-provisioning#the-provider-label)). The plugin patches just the `board` key, so a hand-applied provider label is preserved across restarts. Nodes are selected on both labels together, so a node missing `provider` accepts no jobs.
+
 ### SoC detection
 
 The primary key is the `riscv_hwprobe(2)` syscall, which returns the hardware identity triple (`mvendorid`, `marchid`, `mimpid`) read from the CPU CSRs.

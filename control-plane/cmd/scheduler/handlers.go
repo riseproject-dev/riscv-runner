@@ -59,10 +59,10 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	// HTML view, grouped by (entity_id, job_labels)
 	type group struct {
-		EntityName string
-		K8sPool    string
-		Jobs       []internal.Job
-		Workers    []internal.Worker
+		EntityName  string
+		K8sSelector string
+		Jobs        []internal.Job
+		Workers     []internal.Worker
 	}
 	type key struct {
 		EntityID int64
@@ -73,7 +73,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		k := key{j.EntityID, string(j.JobLabels)}
 		g, ok := groups[k]
 		if !ok {
-			g = &group{EntityName: j.EntityName, K8sPool: j.K8sPool}
+			g = &group{EntityName: j.EntityName, K8sSelector: j.Selector().Key()}
 			groups[k] = g
 		}
 		g.Jobs = append(g.Jobs, j)
@@ -82,7 +82,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		k := key{wkr.EntityID, string(wkr.JobLabels)}
 		g, ok := groups[k]
 		if !ok {
-			g = &group{EntityName: wkr.EntityName, K8sPool: wkr.K8sPool}
+			g = &group{EntityName: wkr.EntityName, K8sSelector: wkr.Selector().Key()}
 			groups[k] = g
 		}
 		g.Workers = append(g.Workers, wkr)
@@ -104,7 +104,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		g := groups[k]
 		labelsDisplay := formatLabelsRaw(k.Labels)
 		lines = append(lines, fmt.Sprintf("=== %s / %s (%s) ===",
-			html.EscapeString(g.EntityName), labelsDisplay, html.EscapeString(g.K8sPool)))
+			html.EscapeString(g.EntityName), labelsDisplay, html.EscapeString(g.K8sSelector)))
 		if len(g.Jobs) > 0 {
 			lines = append(lines, fmt.Sprintf("  Jobs (%d):", len(g.Jobs)))
 			sort.Slice(g.Jobs, func(i, j int) bool { return g.Jobs[i].CreatedAt.Before(g.Jobs[j].CreatedAt) })

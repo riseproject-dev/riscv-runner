@@ -54,12 +54,27 @@ Unhandled `X-GitHub-Event` headers are recorded with `outcome=unhandled_event` a
 
 `workflow_job.queued` invokes `matchLabelsToK8s(cfg, orgID, repoFullName, labels)` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go). The current routing rules:
 
-| Scope | Label | Pool | Image |
-|---|---|---|---|
-| Default | `ubuntu-24.04-riscv` | `scaleway-em-rv1` | `ghcr.io/riseproject-dev/riscv-runner/runner/ubuntu-24.04:prod` (or `-staging`) |
-| GGML scope: `ggml-org/*`, `riseproject-dev/llama.cpp`, `riseproject-dev/llama.cpp-validation` | `ubuntu-24.04-riscv` | `spacemit-k1` | `ghcr.io/riseproject-dev/riscv-runner/runner/ubuntu-24.04:prod` (or `-staging`) |
+| Scope | Labels (exact set) | Board | Provider | Image |
+|---|---|---|---|---|
+| Default | `ubuntu-24.04-riscv` | `scaleway-em-rv1` | `scaleway` | ubuntu-24.04 |
+| Default | `ubuntu-26.04-riscv` | TBD | TBD | ubuntu-26.04 |
+| GGML scope: `ggml-org/*`, `riseproject-dev/llama.cpp`, `riseproject-dev/llama.cpp-validation` | `ubuntu-24.04-riscv` | `spacemit-k1` | `cloudv10x` | ubuntu-24.04 |
 
-The handler only matches single-label arrays containing `ubuntu-24.04-riscv` today. Anything else returns `(_, _, false)` and is ignored with `outcome=IGNORED_NO_LABEL`. New labels are added by extending `matchLabelsToK8s`.
+Images resolve to `ghcr.io/riseproject-dev/riscv-runner/runner/ubuntu-<version>:prod` (or `:staging`).
+
+## Node selectors
+
+`matchLabelsToK8s` returns a **node selector**, not a single pool name: a set of node labels the runner pod must match.
+
+```json
+{"riseproject.dev/board": "spacemit-k1", "riseproject.dev/provider": "mengzhuo"}
+```
+
+`riseproject.dev/board` is written by the [device plugin](kubernetes) from the detected SoC. `riseproject.dev/provider` identifies which vendor supplies the machine (e.g. `scaleway`, `cloudv10x`, `iscas`) and is applied to nodes **by hand**, because nothing can detect ownership from the hardware. Two providers can supply the same board, so the provider label is what pins a job to one vendor's machines.
+
+The selector is stored in `jobs.k8s_selector` and used directly as the pod's `nodeSelector`. Rows written before the column existed fall back to deriving a selector from `k8s_pool`, so a missing selector never means "any node".
+
+Capacity lookups are currently narrowed to the board only, ignoring the provider. Each board model has a single provider today, and counting per board also accounts for runners started before the provider label existed: those pods carry no provider label, so a provider-scoped count would treat their nodes as idle and double-book them. This narrows to the full selector once no board-only pods remain.
 
 ## Staging proxy
 

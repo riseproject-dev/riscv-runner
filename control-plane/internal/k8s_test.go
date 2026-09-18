@@ -4,6 +4,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func fakePod(t *testing.T, k *K8sClient, runnerName string) *corev1.Pod {
 func TestProvisionRunner_UsesHostNetwork(t *testing.T) {
 	for _, pool := range []string{"scaleway-em-rv1", "spacemit-k1"} {
 		k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-		if err := k.ProvisionRunner(context.Background(), "jit", "runner-"+pool, "img", pool, Entity{ID: 1, Name: "ent"}); err != nil {
+		if err := k.ProvisionRunner(context.Background(), "jit", "runner-"+pool, "img", SelectorForBoard(pool), Entity{ID: 1, Name: "ent"}); err != nil {
 			t.Fatalf("provision: %v", err)
 		}
 		p := fakePod(t, k, "runner-"+pool)
@@ -43,7 +44,7 @@ func TestProvisionRunner_UsesHostNetwork(t *testing.T) {
 // /var/lib/docker and /var/lib/k0s exist on every pool (invariants 0028278/653a5ba).
 func TestProvisionRunner_EmptyDirVolumes(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", SelectorForBoard("scaleway-em-rv1"), Entity{ID: 1, Name: "ent"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -89,7 +90,7 @@ func TestProvisionRunner_DiskLimitsOnlyOnScalewayEM(t *testing.T) {
 	}
 	for _, tc := range tests {
 		k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-		if err := k.ProvisionRunner(context.Background(), "jit", "r-"+tc.pool, "img", tc.pool, Entity{ID: 1, Name: "ent"}); err != nil {
+		if err := k.ProvisionRunner(context.Background(), "jit", "r-"+tc.pool, "img", SelectorForBoard(tc.pool), Entity{ID: 1, Name: "ent"}); err != nil {
 			t.Fatalf("[%s] provision: %v", tc.pool, err)
 		}
 		p := fakePod(t, k, "r-"+tc.pool)
@@ -115,7 +116,7 @@ func TestProvisionRunner_DiskLimitsOnlyOnScalewayEM(t *testing.T) {
 // docker-certs volume, no DOCKER_* env (invariant 5c5004f).
 func TestProvisionRunner_NoSidecar(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", SelectorForBoard("scaleway-em-rv1"), Entity{ID: 1, Name: "ent"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -153,7 +154,7 @@ func mustHaveEnv(t *testing.T, env []corev1.EnvVar, name, value string) {
 // TestProvisionRunner_Labels asserts the four pod labels are set.
 func TestProvisionRunner_Labels(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 42, Name: "pytorch"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", SelectorForBoard("scaleway-em-rv1"), Entity{ID: 42, Name: "pytorch"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -177,7 +178,7 @@ func TestProvisionRunner_Labels(t *testing.T) {
 // activeDeadlineSeconds=525600, restartPolicy=Never, container privileged=true.
 func TestProvisionRunner_TimeoutsAndPrivileged(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", "scaleway-em-rv1", Entity{ID: 1, Name: "ent"}); err != nil {
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", SelectorForBoard("scaleway-em-rv1"), Entity{ID: 1, Name: "ent"}); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	p := fakePod(t, k, "r")
@@ -193,13 +194,14 @@ func TestProvisionRunner_TimeoutsAndPrivileged(t *testing.T) {
 	}
 }
 
-// makeNode returns a fake node with allocatable runner capacity and the
-// given board label.
-func makeNode(name, board string, capacity int64) *corev1.Node {
+// makeNode returns a fake node with allocatable runner capacity, labelled from
+// the given selector the way a real node is (board by the device plugin,
+// provider by hand).
+func makeNode(name string, sel NodeSelector, capacity int64) *corev1.Node {
 	return &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
-			Labels: map[string]string{"riseproject.dev/board": board},
+			Labels: sel.Labels(),
 		},
 		Status: corev1.NodeStatus{
 			Allocatable: corev1.ResourceList{
@@ -209,33 +211,38 @@ func makeNode(name, board string, capacity int64) *corev1.Node {
 	}
 }
 
-// makePod returns a fake runner pod in the given phase on the given board.
-func makePod(name, board string, phase corev1.PodPhase) *corev1.Pod {
+// makePod returns a fake runner pod carrying the selector's labels, mirroring
+// what ProvisionRunner stamps on real pods. nodeName is the node it landed on;
+// "" means not yet scheduled, which only a Pending pod can be.
+func makePod(name string, sel NodeSelector, nodeName string, phase corev1.PodPhase) *corev1.Pod {
+	labels := map[string]string{"app": "rise-riscv-runner"}
+	for k, v := range sel.Labels() {
+		labels[k] = v
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
-			Labels: map[string]string{
-				"app":                   "rise-riscv-runner",
-				"riseproject.dev/board": board,
-			},
+			Labels:    labels,
 		},
+		Spec:   corev1.PodSpec{NodeName: nodeName},
 		Status: corev1.PodStatus{Phase: phase},
 	}
 }
 
 func TestAvailableSlots_TotalMinusActive(t *testing.T) {
+	scw := SelectorForBoard(BoardScalewayEMRV1)
 	cs := fake.NewSimpleClientset(
-		makeNode("n1", "scaleway-em-rv1", 3),
-		makeNode("n2", "scaleway-em-rv1", 2),
-		makeNode("other", "spacemit-k1", 5), // different board, ignored
-		makePod("p1", "scaleway-em-rv1", corev1.PodPending),
-		makePod("p2", "scaleway-em-rv1", corev1.PodRunning),
-		makePod("p3", "scaleway-em-rv1", corev1.PodSucceeded), // terminal, doesn't count
-		makePod("po", "spacemit-k1", corev1.PodRunning),
+		makeNode("n1", scw, 3),
+		makeNode("n2", scw, 2),
+		makeNode("other", SelectorForBoard(BoardSpacemitK1), 5), // different board, ignored
+		makePod("p1", scw, "n1", corev1.PodPending),
+		makePod("p2", scw, "n2", corev1.PodRunning),
+		makePod("p3", scw, "n1", corev1.PodSucceeded), // terminal, doesn't count
+		makePod("po", SelectorForBoard(BoardSpacemitK1), "other", corev1.PodRunning),
 	)
 	k := NewK8sClientFromInterface(cs)
-	cap, err := k.AvailableSlots(context.Background(), "scaleway-em-rv1")
+	cap, err := k.AvailableSlots(context.Background(), SelectorForBoard("scaleway-em-rv1"))
 	if err != nil {
 		t.Fatalf("AvailableSlots: %v", err)
 	}
@@ -244,9 +251,70 @@ func TestAvailableSlots_TotalMinusActive(t *testing.T) {
 	}
 }
 
+// TestAvailableSlots_MeasuredPerBoard pins the transitional behaviour:
+// capacity is summed across the whole board, ignoring the selector's provider,
+// so board-only pods from before the provider label are still counted. Each
+// board model has one provider today, so this matches reality. Flip this test
+// to per-provider expectations when AvailableSlots narrows to sel.Key().
+func TestAvailableSlots_MeasuredPerBoard(t *testing.T) {
+	cloudv := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x}
+	mengzhuo := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderMengZhuo}
+	cs := fake.NewSimpleClientset(
+		makeNode("c1", cloudv, 4),
+		makeNode("m1", mengzhuo, 1),
+		makePod("cp1", cloudv, "c1", corev1.PodRunning),
+	)
+	k := NewK8sClientFromInterface(cs)
+
+	// Both selectors see the board total (4+1) minus the one running pod.
+	want := Capacity{Total: 5, Active: 1, Available: 4}
+	for _, sel := range []NodeSelector{mengzhuo, cloudv} {
+		got, err := k.AvailableSlots(context.Background(), sel)
+		if err != nil {
+			t.Fatalf("AvailableSlots(%+v): %v", sel, err)
+		}
+		if got != want {
+			t.Errorf("%+v: got %+v, want %+v", sel, got, want)
+		}
+	}
+}
+
+// Another board's capacity and pods stay excluded: only the provider dimension
+// is ignored, not the board.
+func TestAvailableSlots_OtherBoardExcluded(t *testing.T) {
+	k1 := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x}
+	k3 := NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS}
+	cs := fake.NewSimpleClientset(
+		makeNode("k1n", k1, 4),
+		makeNode("k3n", k3, 2),
+		makePod("k3p", k3, "k3n", corev1.PodRunning),
+	)
+	k := NewK8sClientFromInterface(cs)
+
+	got, err := k.AvailableSlots(context.Background(), k1)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if want := (Capacity{Total: 4, Active: 0, Available: 4}); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// TestEmptySelectorRejected: an empty selector matches every node, so both
+// entry points must refuse it rather than place a runner anywhere.
+func TestEmptySelectorRejected(t *testing.T) {
+	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
+	if _, err := k.AvailableSlots(context.Background(), NodeSelector{}); !errors.Is(err, ErrEmptySelector) {
+		t.Errorf("AvailableSlots(nil) err=%v, want ErrEmptySelector", err)
+	}
+	if err := k.ProvisionRunner(context.Background(), "jit", "r", "img", NodeSelector{}, Entity{ID: 1}); !errors.Is(err, ErrEmptySelector) {
+		t.Errorf("ProvisionRunner(empty) err=%v, want ErrEmptySelector", err)
+	}
+}
+
 func TestAvailableSlots_NoMatchingNodes(t *testing.T) {
 	k := NewK8sClientFromInterface(fake.NewSimpleClientset())
-	cap, err := k.AvailableSlots(context.Background(), "scaleway-em-rv1")
+	cap, err := k.AvailableSlots(context.Background(), SelectorForBoard("scaleway-em-rv1"))
 	if err != nil {
 		t.Fatalf("AvailableSlots: %v", err)
 	}
@@ -257,7 +325,7 @@ func TestAvailableSlots_NoMatchingNodes(t *testing.T) {
 
 func TestListPods_FiltersByAppLabel(t *testing.T) {
 	cs := fake.NewSimpleClientset(
-		makePod("r1", "scaleway-em-rv1", corev1.PodRunning),
+		makePod("r1", SelectorForBoard(BoardScalewayEMRV1), "n1", corev1.PodRunning),
 		&corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "noise", Namespace: "default",
@@ -284,7 +352,7 @@ func TestDeletePod_404IsSilentSuccess(t *testing.T) {
 }
 
 func TestDeletePod_Deletes(t *testing.T) {
-	cs := fake.NewSimpleClientset(makePod("p", "scaleway-em-rv1", corev1.PodSucceeded))
+	cs := fake.NewSimpleClientset(makePod("p", SelectorForBoard(BoardScalewayEMRV1), "n1", corev1.PodSucceeded))
 	k := NewK8sClientFromInterface(cs)
 	if err := k.DeletePod(context.Background(), "p"); err != nil {
 		t.Fatalf("DeletePod: %v", err)
@@ -295,7 +363,7 @@ func TestDeletePod_Deletes(t *testing.T) {
 }
 
 func TestKillPod_PatchesActiveDeadlineSeconds(t *testing.T) {
-	cs := fake.NewSimpleClientset(makePod("p", "scaleway-em-rv1", corev1.PodRunning))
+	cs := fake.NewSimpleClientset(makePod("p", SelectorForBoard(BoardScalewayEMRV1), "n1", corev1.PodRunning))
 	k := NewK8sClientFromInterface(cs)
 	if err := k.KillPod(context.Background(), "p"); err != nil {
 		t.Fatalf("KillPod: %v", err)
@@ -545,5 +613,92 @@ func TestEventTime_FirstWhenLastNil(t *testing.T) {
 func TestEventTime_NilWhenBothMissing(t *testing.T) {
 	if eventTime(PodEvent{}) != nil {
 		t.Error("expected nil")
+	}
+}
+
+// legacyPod is a runner pod as the pre-selector binary created it: board label
+// only, no riseproject.dev/provider.
+func legacyPod(name, board, nodeName string, phase corev1.PodPhase) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Labels:    map[string]string{"app": "rise-riscv-runner", "riseproject.dev/board": board},
+		},
+		Spec:   corev1.PodSpec{NodeName: nodeName},
+		Status: corev1.PodStatus{Phase: phase},
+	}
+}
+
+// TestAvailableSlots_CountsLegacyPods: runners started before the provider
+// label existed still occupy their node, so they must count as active or the
+// scheduler will try to double-book that node.
+func TestAvailableSlots_CountsLegacyPods(t *testing.T) {
+	sel := SelectorForBoard(BoardSpacemitK3)
+	cs := fake.NewSimpleClientset(
+		makeNode("n1", sel, 1),
+		legacyPod("old-runner", BoardSpacemitK3, "n1", corev1.PodRunning),
+	)
+	k := NewK8sClientFromInterface(cs)
+
+	got, err := k.AvailableSlots(context.Background(), sel)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if got.Total != 1 || got.Active != 1 || got.Available != 0 {
+		t.Errorf("got %+v, want {Total:1 Active:1 Available:0}", got)
+	}
+}
+
+// A legacy pod on another pool's node must not be counted here.
+func TestAvailableSlots_LegacyPodOnOtherPoolIgnored(t *testing.T) {
+	k3 := SelectorForBoard(BoardSpacemitK3)
+	cs := fake.NewSimpleClientset(
+		makeNode("k3-node", k3, 1),
+		makeNode("k1-node", SelectorForBoard(BoardSpacemitK1), 1),
+		legacyPod("old-runner", BoardSpacemitK1, "k1-node", corev1.PodRunning),
+	)
+	k := NewK8sClientFromInterface(cs)
+
+	got, err := k.AvailableSlots(context.Background(), k3)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if got.Total != 1 || got.Active != 0 || got.Available != 1 {
+		t.Errorf("got %+v, want {Total:1 Active:0 Available:1}", got)
+	}
+}
+
+// A board-only pod that has not been scheduled yet has no node to attribute it
+// to, so it must be counted via its labels despite lacking the provider label.
+func TestAvailableSlots_CountsUnscheduledLegacyPod(t *testing.T) {
+	sel := SelectorForBoard(BoardSpacemitK3)
+	cs := fake.NewSimpleClientset(
+		makeNode("n1", sel, 1),
+		legacyPod("old-pending", BoardSpacemitK3, "", corev1.PodPending),
+	)
+	k := NewK8sClientFromInterface(cs)
+
+	got, err := k.AvailableSlots(context.Background(), sel)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if want := (Capacity{Total: 1, Active: 1, Available: 0}); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// An unscheduled pod has no node yet, so it is counted via its labels.
+func TestAvailableSlots_CountsUnscheduledPod(t *testing.T) {
+	sel := SelectorForBoard(BoardSpacemitK3)
+	cs := fake.NewSimpleClientset(makeNode("n1", sel, 1), makePod("new", sel, "", corev1.PodPending))
+	k := NewK8sClientFromInterface(cs)
+
+	got, err := k.AvailableSlots(context.Background(), sel)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if got.Active != 1 || got.Available != 0 {
+		t.Errorf("got %+v, want Active:1 Available:0", got)
 	}
 }

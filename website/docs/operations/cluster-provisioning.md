@@ -66,8 +66,25 @@ Expected:
 ```
   kubernetes.io/arch=riscv64
   riseproject.dev/board=scaleway-em-rv1       # or spacemit-k1, spacemit-k3, spacemit-v100
+  riseproject.dev/provider=scaleway           # or cloudv10x, iscas
   riseproject.com/runner:  1                  # under "Allocatable"
 ```
+
+### The provider label
+
+`riseproject.dev/board` is applied automatically by the device plugin. `riseproject.dev/provider` is **not**: nothing in the hardware says who owns the machine, so it is applied by hand when a node joins:
+
+```sh
+kubectl label node <node-name> riseproject.dev/provider=<scaleway|cloudv10x|iscas|mengzhuo>
+```
+
+This matters because jobs are scheduled against both labels. A node missing the provider label matches no selector, so it silently accepts no work. To find any such node:
+
+```sh
+kubectl get nodes -l 'riseproject.dev/board,!riseproject.dev/provider'
+```
+
+That query should return nothing. The device plugin patches only the `board` key, so a hand-applied provider label survives plugin restarts.
 
 ## Kubernetes RBAC
 
@@ -84,5 +101,6 @@ When new RISC-V hardware enters the fleet:
 
 1. Deploy the device plugin to a node of the new board and read the `riscv_hwprobe IDs: mvendorid=0x... marchid=0x... mimpid=0x...` line from its logs. Until the board is known, `Detect` errors and the plugin exits, which is expected.
 2. Add an entry to the `socs` list in [`runner/device-plugin/pkg/soc/detect.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/runner/device-plugin/pkg/soc/detect.go) with that triple and the board label. (A board whose kernel lacks `riscv_hwprobe`, like the Scaleway EM-RV1, is instead special-cased against the device tree in the same file.)
-3. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels).
-4. Push and let the device-plugin deploy workflow roll out the new labeller.
+3. Label the node with its provider by hand (see [The provider label](#the-provider-label)). A node without it accepts no jobs.
+4. If the new board needs a dedicated label, extend `matchLabelsToK8s` in [`control-plane/cmd/ghfe/payload.go`](https://github.com/riseproject-dev/riscv-runner/blob/main/control-plane/cmd/ghfe/payload.go) and add the label to [Runner Labels](../getting-started/labels). Board and provider names live in `control-plane/internal/selector.go`; board values must match the SoC names in `detect.go`.
+5. Push and let the device-plugin deploy workflow roll out the new labeller.

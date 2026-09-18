@@ -14,10 +14,10 @@ import (
 	"github.com/riseproject-dev/riscv-runner/control-plane/internal"
 )
 
-// demandMatch iterates pending jobs FIFO, groups by k8s_pool, and provisions
-// runners until demand is met or pool capacity runs out. Capacity is fetched
-// once per pool per iteration and decremented locally (invariants 4232868,
-// 40476b8).
+// demandMatch iterates pending jobs FIFO, groups by node selector, and
+// provisions runners until demand is met or pool capacity runs out. Capacity is
+// fetched once per selector per iteration and decremented locally (invariants
+// 4232868, 40476b8).
 func (a *App) demandMatch(ctx context.Context) error {
 	pending, err := a.DB.GetPendingJobs(ctx)
 	if err != nil {
@@ -34,9 +34,10 @@ func (a *App) demandMatch(ctx context.Context) error {
 	}
 	slog.Info("Processing pending jobs", "count", len(pending), "job_ids", ids)
 
-	byPool := map[string][]internal.Job{}
+	jobsBySel := map[internal.NodeSelector][]internal.Job{}
 	for _, j := range pending {
-		byPool[j.K8sPool] = append(byPool[j.K8sPool], j)
+		sel := j.Selector()
+		jobsBySel[sel] = append(jobsBySel[sel], j)
 	}
 
 	// Rate limits are scoped per entity (each installation authenticates with
@@ -45,21 +46,21 @@ func (a *App) demandMatch(ctx context.Context) error {
 	// starve the others nor keep hammering an endpoint that's already 403ing.
 	rateLimited := map[int64]bool{}
 
-	for pool, jobs := range byPool {
-		cap, err := a.K8s.AvailableSlots(ctx, pool)
+	for sel, jobs := range jobsBySel {
+		cap, err := a.K8s.AvailableSlots(ctx, sel)
 		if err != nil {
-			slog.Error("AvailableSlots failed", "k8s_pool", pool, "err", err)
+			slog.Error("AvailableSlots failed", "k8s_selector", sel, "err", err)
 			continue
 		}
-		slog.Info("Capacity for k8s_pool",
-			"k8s_pool", pool, "total", cap.Total, "active", cap.Active, "available", cap.Available)
+		slog.Info("Capacity for k8s_selector",
+			"k8s_selector", sel, "total", cap.Total, "active", cap.Active, "available", cap.Available)
 		slots := cap.Available
 		if slots <= 0 {
 			continue
 		}
 		for _, j := range jobs {
 			if slots <= 0 {
-				slog.Debug("Capacity for k8s_pool is now 0", "k8s_pool", pool)
+				slog.Debug("Capacity for k8s_selector is now 0", "k8s_selector", sel)
 				break
 			}
 			if rateLimited[j.EntityID] {
@@ -124,21 +125,21 @@ func (a *App) tryProvision(ctx context.Context, j internal.Job) (bool, error) {
 	runnerName, err := a.reserveRunnerName(ctx, j, labels)
 	if err != nil {
 		slog.Error("Failed to generate unique runner name",
-			"entity", e, "k8s_pool", j.K8sPool, "err", err)
+			"entity", e, "k8s_selector", j.Selector(), "err", err)
 		return false, nil
 	}
 
 	if err := a.provisionRunner(ctx, j, runnerName, labels); err != nil {
 		if internal.IsRateLimited(err) {
 			slog.Warn("Provisioning hit GitHub rate limit; backing off entity for this iteration",
-				"entity", e, "runner_name", runnerName, "k8s_pool", j.K8sPool, "err", err)
+				"entity", e, "runner_name", runnerName, "k8s_selector", j.Selector(), "err", err)
 			info := internal.FailureInfoV2{Reason: internal.ReasonRateLimited}
 			_ = a.DB.MarkWorkerFailed(ctx, runnerName, "", info, nil)
 			// Row was created, slot is not consumed.
 			return false, err
 		}
 		slog.Error("Failed to provision runner",
-			"entity", e, "runner_name", runnerName, "k8s_pool", j.K8sPool, "err", err)
+			"entity", e, "runner_name", runnerName, "k8s_selector", j.Selector(), "err", err)
 		info := internal.FailureInfoV2{Reason: internal.ReasonPodAllocationFailure}
 		_ = a.DB.MarkWorkerFailed(ctx, runnerName, "", info, nil)
 		// Row was created, slot is consumed.
@@ -146,7 +147,7 @@ func (a *App) tryProvision(ctx context.Context, j internal.Job) (bool, error) {
 	}
 
 	slog.Info("Provisioned runner",
-		"entity", e, "runner_name", runnerName, "k8s_pool", j.K8sPool)
+		"entity", e, "runner_name", runnerName, "k8s_selector", j.Selector())
 	return true, nil
 }
 
@@ -174,6 +175,7 @@ func (a *App) reserveRunnerName(ctx context.Context, j internal.Job, labels []st
 			InstallationID: j.InstallationID,
 			RepoFullName:   repoPtr,
 			K8sPool:        j.K8sPool,
+			K8sSelector:    j.Selector(),
 			K8sImage:       j.K8sImage,
 		}
 		err := a.DB.AddWorker(ctx, w, labels)
@@ -223,7 +225,7 @@ func (a *App) provisionRunner(ctx context.Context, j internal.Job, runnerName st
 		panic("unhandled EntityType: " + string(e.Type))
 	}
 	slog.Debug("Created JIT runner config", "entity", e, "runner_name", runnerName)
-	return a.K8s.ProvisionRunner(ctx, jitConfig, runnerName, j.K8sImage, j.K8sPool, e)
+	return a.K8s.ProvisionRunner(ctx, jitConfig, runnerName, j.K8sImage, j.Selector(), e)
 }
 
 func parseLabels(raw json.RawMessage) []string {
