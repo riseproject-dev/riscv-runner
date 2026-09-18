@@ -666,7 +666,7 @@ func TestWebhook_InProgressAndCompleted(t *testing.T) {
 // TestWebhook_QueuedAddJobError covers the AddJob DB-error branch.
 func TestWebhook_QueuedAddJobError(t *testing.T) {
 	app, db := newTestApp()
-	db.OnAddJob = func(internal.GHJob, internal.Entity, string, string, int64, string, string, string, []string) (bool, error) {
+	db.OnAddJob = func(internal.GHJob, internal.Entity, string, string, int64, string, internal.NodeSelector, string, string, []string) (bool, error) {
 		return false, errBoom
 	}
 	body := mustJSON(map[string]any{
@@ -693,7 +693,7 @@ func TestWebhook_QueuedAddJobError(t *testing.T) {
 // TestWebhook_QueuedAlreadyExists covers the stored=false branch.
 func TestWebhook_QueuedAlreadyExists(t *testing.T) {
 	app, db := newTestApp()
-	db.OnAddJob = func(internal.GHJob, internal.Entity, string, string, int64, string, string, string, []string) (bool, error) {
+	db.OnAddJob = func(internal.GHJob, internal.Entity, string, string, int64, string, internal.NodeSelector, string, string, []string) (bool, error) {
 		return false, nil
 	}
 	body := mustJSON(map[string]any{

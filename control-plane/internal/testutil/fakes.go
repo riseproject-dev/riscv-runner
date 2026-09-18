@@ -25,7 +25,7 @@ type FakeDB struct {
 	EntityWorkerCnt map[int64]int
 	JobExistsByPod  map[string]bool
 
-	OnAddJob          func(internal.GHJob, internal.Entity, string, string, int64, string, string, string, []string) (bool, error)
+	OnAddJob          func(internal.GHJob, internal.Entity, string, string, int64, string, internal.NodeSelector, string, string, []string) (bool, error)
 	OnAddWorker       func(internal.Worker, []string) error
 	OnAddEvent        func(internal.InstallationEvent, []byte) (int64, error)
 	OnMarkJobRunning  func(internal.GHJob) (string, error)
@@ -95,11 +95,12 @@ func (f *FakeDB) WaitForJob(ctx context.Context, t time.Duration) error { return
 
 func (f *FakeDB) AddJob(ctx context.Context, gh internal.GHJob, entity internal.Entity,
 	provider, repoFullName string, installationID int64,
-	k8sPool, k8sImage, htmlURL string, labels []string) (bool, error) {
+	k8sPool string, k8sSelector internal.NodeSelector, k8sImage, htmlURL string,
+	labels []string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.OnAddJob != nil {
-		return f.OnAddJob(gh, entity, provider, repoFullName, installationID, k8sPool, k8sImage, htmlURL, labels)
+		return f.OnAddJob(gh, entity, provider, repoFullName, installationID, k8sPool, k8sSelector, k8sImage, htmlURL, labels)
 	}
 	for _, e := range f.Jobs {
 		if e.JobID == gh.ID {
@@ -115,6 +116,7 @@ func (f *FakeDB) AddJob(ctx context.Context, gh internal.GHJob, entity internal.
 		RepoFullName:   repoFullName,
 		InstallationID: installationID,
 		K8sPool:        k8sPool,
+		K8sSelector:    k8sSelector,
 		K8sImage:       k8sImage,
 		JobCreatedAt:   gh.CreatedAt,
 	}
@@ -423,7 +425,8 @@ func (g *FakeGH) GetRunInfo(ctx context.Context, token, repo string, runID int64
 // --- FakeKube ---
 
 // FakeKube satisfies internal.KubeClient with in-memory state. Pods are
-// addressable by name; the SlotsByPool map drives AvailableSlots.
+// addressable by name; the SlotsByPool map drives AvailableSlots, keyed by
+// NodeSelector.Key().
 type FakeKube struct {
 	mu sync.Mutex
 
@@ -434,12 +437,15 @@ type FakeKube struct {
 	SlotsByPool map[string]int
 	SlotCalls   map[string]int
 
+	// ProvisionSelectors records the selector each runner was placed with.
+	ProvisionSelectors map[string]internal.NodeSelector
+
 	ProvisionCalls   []string
 	DeleteCalls      []string
 	ForceDeleteCalls []string
 	KillCalls        []string
 
-	OnProvisionRunner func(jit, name, image, pool string, entity internal.Entity) error
+	OnProvisionRunner func(jit, name, image string, sel internal.NodeSelector, entity internal.Entity) error
 	OnGetPodEvents    func(podName string) ([]internal.PodEvent, error)
 	OnListNodes       func() ([]internal.Node, error)
 }
@@ -447,21 +453,26 @@ type FakeKube struct {
 // NewFakeKube allocates the maps so callers can mutate them directly.
 func NewFakeKube() *FakeKube {
 	return &FakeKube{
-		PodsByName:  map[string]internal.Pod{},
-		NodesByName: map[string]internal.Node{},
-		EventsByPod: map[string][]internal.PodEvent{},
-		LogsByPod:   map[string]string{},
-		SlotsByPool: map[string]int{},
-		SlotCalls:   map[string]int{},
+		PodsByName:         map[string]internal.Pod{},
+		NodesByName:        map[string]internal.Node{},
+		EventsByPod:        map[string][]internal.PodEvent{},
+		LogsByPod:          map[string]string{},
+		SlotsByPool:        map[string]int{},
+		SlotCalls:          map[string]int{},
+		ProvisionSelectors: map[string]internal.NodeSelector{},
 	}
 }
 
-func (f *FakeKube) ProvisionRunner(ctx context.Context, jit, name, image, pool string, entity internal.Entity) error {
+func (f *FakeKube) ProvisionRunner(ctx context.Context, jit, name, image string, sel internal.NodeSelector, entity internal.Entity) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if !sel.Valid() {
+		return internal.ErrEmptySelector
+	}
 	f.ProvisionCalls = append(f.ProvisionCalls, name)
+	f.ProvisionSelectors[name] = sel
 	if f.OnProvisionRunner != nil {
-		return f.OnProvisionRunner(jit, name, image, pool, entity)
+		return f.OnProvisionRunner(jit, name, image, sel, entity)
 	}
 	return nil
 }
@@ -523,11 +534,19 @@ func (f *FakeKube) KillPod(ctx context.Context, podName string) error {
 	return nil
 }
 
-func (f *FakeKube) AvailableSlots(ctx context.Context, pool string) (internal.Capacity, error) {
+// AvailableSlots keys on the full selector so tests can give each selector its
+// own budget. The real client measures capacity per board while the provider
+// label is still being rolled out, so per-provider budgets here are a test
+// convenience, not a statement about production behaviour.
+func (f *FakeKube) AvailableSlots(ctx context.Context, sel internal.NodeSelector) (internal.Capacity, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.SlotCalls[pool]++
-	return internal.Capacity{Available: f.SlotsByPool[pool]}, nil
+	if !sel.Valid() {
+		return internal.Capacity{}, internal.ErrEmptySelector
+	}
+	key := sel.Key()
+	f.SlotCalls[key]++
+	return internal.Capacity{Available: f.SlotsByPool[key]}, nil
 }
 
 func (f *FakeKube) CollectPodFailureInfo(ctx context.Context, p internal.Pod, reason internal.FailureReason) internal.FailureInfoV2 {

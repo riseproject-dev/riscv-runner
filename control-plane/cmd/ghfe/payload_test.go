@@ -73,35 +73,53 @@ func TestMatchLabelsToK8s(t *testing.T) {
 		ImageUbuntu26: "img26",
 	}
 
+	sel := func(board, provider string) internal.NodeSelector {
+		return internal.NodeSelector{Board: board, Provider: provider}
+	}
+
 	tests := []struct {
 		name      string
 		orgID     int64
 		repo      string
 		labels    []string
-		wantPool  string
+		wantSel   internal.NodeSelector
 		wantImage string
 		wantOK    bool
 	}{
-		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, "scaleway-em-rv1", cfg.ImageUbuntu24, true},
-		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, "spacemit-k3", cfg.ImageUbuntu26, true},
-		{"general no labels", 999, "x/y", []string{}, "", "", false},
-		{"general other", 999, "x/y", []string{"ubuntu-98.04-riscv"}, "", "", false},
+		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
+		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu26, true},
+		{"general rva23", 999, "x/y", []string{"ubuntu-24.04-riscv", "rva23"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"general rva23 reversed order", 999, "x/y", []string{"rva23", "ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"general no labels", 999, "x/y", []string{}, internal.NodeSelector{}, "", false},
+		{"general other", 999, "x/y", []string{"ubuntu-98.04-riscv"}, internal.NodeSelector{}, "", false},
 
-		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv"}, "spacemit-k1", cfg.ImageUbuntu24, true},
-		{"ggml with extra label", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv", "extra"}, "", "", false},
-		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{"ubuntu-24.04-riscv"}, "spacemit-k1", cfg.ImageUbuntu24, true},
+		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
+		{"ggml with extra label", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv", "extra"}, internal.NodeSelector{}, "", false},
+		{"ggml scope blocks ubuntu-26", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-26.04-riscv"}, internal.NodeSelector{}, "", false},
+		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
+		{"riseproject llama.cpp-validation ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp-validation", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
+
+		// Same board as ggml, different provider.
+		{"mengzhuo ubuntu-24", internal.MengZhuoUserID, "mengzhuo/r", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true},
+
+		{"ruyiai xlarge", internal.RuyiAIOrgID, "ruyi/r", []string{"ubuntu-24.04-riscv", "rva23", "xlarge"}, sel(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"luhenry xlarge", internal.LuhenryUserID, "luhenry/r", []string{"xlarge", "rva23", "ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"ruyiai falls through to default", internal.RuyiAIOrgID, "ruyi/r", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pool, image, ok := matchLabelsToK8s(cfg, tc.orgID, tc.repo, tc.labels)
+			got, image, ok := matchLabelsToK8s(cfg, tc.orgID, tc.repo, tc.labels)
 			if ok != tc.wantOK {
 				t.Fatalf("ok=%v want=%v", ok, tc.wantOK)
 			}
-			if ok && pool != tc.wantPool {
-				t.Fatalf("pool=%q want=%q", pool, tc.wantPool)
+			if !ok {
+				return
 			}
-			if ok && image != tc.wantImage {
+			if got != tc.wantSel {
+				t.Fatalf("selector=%v want=%v", got, tc.wantSel)
+			}
+			if image != tc.wantImage {
 				t.Fatalf("image=%q want=%q", image, tc.wantImage)
 			}
 		})

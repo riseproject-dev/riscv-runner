@@ -10,22 +10,25 @@ Each label maps to a specific hardware configuration, OS version, and Kubernetes
 
 ## Labels
 
-| Label | OS | Board | Status |
-|-------|-----|-------|--------|
-| `ubuntu-24.04-riscv` | Ubuntu 24.04 | Scaleway EM-RV1 | Generally available |
-| `ubuntu-26.04-riscv` | Ubuntu 26.04 | Spacemit K3 | Early Access |
+| Label | OS | Status |
+|-------|-----|--------|
+| `ubuntu-24.04-riscv` | Ubuntu 24.04 | Generally available |
+| `ubuntu-26.04-riscv` | Ubuntu 26.04 | Early Access |
 
-The webhook handler only recognises single-label arrays; jobs using multiple `runs-on` labels (other than via `[self-hosted, ...]` matrix combinations) will not be picked up. See the routing table in [Webhook Handler § Label matching](../architecture/ghfe#label-matching).
+Matching is on the exact set of `runs-on` labels. Order does not matter, but an unrecognised extra label means no rule matches and the job is ignored.
 
-## Label-to-Kubernetes mapping
+## Label-to-hardware mapping
 
-Each label maps to a Kubernetes node pool, selected by the `riseproject.dev/board` node label.
+Each label maps to a **node selector**: a board plus the provider that supplies the machine.
 
-| Label | Default pool | GGML scope pool |
-|-------|--------------|-----------------|
-| `ubuntu-24.04-riscv` | `scaleway-em-rv1` | `spacemit-k1` |
+| Label | Board | Provider |
+|-------|-------|----------|
+| `ubuntu-24.04-riscv` | `scaleway-em-rv1` | `scaleway` |
+| `ubuntu-26.04-riscv` | TBD | TBD |
 
-"GGML scope" means jobs running in `ggml-org/*`, `riseproject-dev/llama.cpp`, or `riseproject-dev/llama.cpp-validation`. Those workloads are routed to `spacemit-k1` (CloudV 10xE Jupiter, SpacemiT K1) hardware.
+Some organizations are routed to dedicated hardware instead.
+
+Routing is decided by the organization and repository, not by the workflow. There is no label that selects a provider directly.
 
 ## Runner exclusivity
 
@@ -33,4 +36,4 @@ Each RISC-V node runs at most one job at a time. This is enforced by the [device
 
 ## Choosing a label
 
-Today there is only one user-facing label: `ubuntu-24.04-riscv`. Use it for any RISC-V CI workload. The board you actually land on depends on the routing rules above; you do not pick a board directly.
+Use `ubuntu-24.04-riscv` for any RISC-V CI workload. The board and provider you land on depend on the routing rules above; you do not pick hardware directly.

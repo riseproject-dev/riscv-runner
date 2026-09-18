@@ -99,6 +99,7 @@ type Job struct {
 	InstallationID int64           `db:"installation_id" json:"installation_id"`
 	JobLabels      json.RawMessage `db:"job_labels" json:"job_labels"`
 	K8sPool        string          `db:"k8s_pool" json:"k8s_pool"`
+	K8sSelector    NodeSelector    `db:"k8s_selector" json:"k8s_selector"`
 	K8sImage       string          `db:"k8s_image" json:"k8s_image"`
 	K8sPod         *string         `db:"k8s_pod" json:"k8s_pod,omitempty"`
 	HTMLURL        *string         `db:"html_url" json:"html_url,omitempty"`
@@ -118,6 +119,16 @@ type WeeklyEntityUsage struct {
 // the SQL roundtrip and JSON shape UI consumers depend on (invariant 1055cc8).
 func (j Job) Entity() Entity {
 	return Entity{Type: EntityType(j.EntityType), Name: j.EntityName, ID: j.EntityID}
+}
+
+// Selector returns the node labels this job must be placed on. Rows written
+// before k8s_selector existed fall back to deriving it from k8s_pool: an empty
+// selector would otherwise match every node in the cluster.
+func (j Job) Selector() NodeSelector {
+	if j.K8sSelector.Valid() {
+		return j.K8sSelector
+	}
+	return SelectorForBoard(j.K8sPool)
 }
 
 // LogValue groups the identifying GitHub-side facts so callers log `"job", j`
@@ -144,6 +155,7 @@ type Worker struct {
 	RepoFullName   *string         `db:"repo_full_name" json:"repo_full_name,omitempty"`
 	JobLabels      json.RawMessage `db:"job_labels" json:"job_labels"`
 	K8sPool        string          `db:"k8s_pool" json:"k8s_pool"`
+	K8sSelector    NodeSelector    `db:"k8s_selector" json:"k8s_selector"`
 	K8sImage       string          `db:"k8s_image" json:"k8s_image"`
 	K8sNode        *string         `db:"k8s_node" json:"k8s_node,omitempty"`
 	Status         string          `db:"status" json:"status"`
@@ -156,6 +168,14 @@ type Worker struct {
 
 func (w Worker) Entity() Entity {
 	return Entity{Type: EntityType(w.EntityType), Name: w.EntityName, ID: w.EntityID}
+}
+
+// Selector mirrors Job.Selector for rows predating k8s_selector.
+func (w Worker) Selector() NodeSelector {
+	if w.K8sSelector.Valid() {
+		return w.K8sSelector
+	}
+	return SelectorForBoard(w.K8sPool)
 }
 
 // InstallationEvent is one row of installation_events (read shape).
@@ -413,7 +433,8 @@ type DB interface {
 
 	// Job writes
 	AddJob(ctx context.Context, gh GHJob, entity Entity, provider, repoFullName string,
-		installationID int64, k8sPool, k8sImage, htmlURL string, labels []string) (bool, error)
+		installationID int64, k8sPool string, k8sSelector NodeSelector, k8sImage, htmlURL string,
+		labels []string) (bool, error)
 	MarkJobRunning(ctx context.Context, gh GHJob) (string, error)
 	MarkJobCompleted(ctx context.Context, gh GHJob) (string, error)
 	MarkJobFailed(ctx context.Context, jobID int64, info FailureInfo) (string, error)
@@ -504,7 +525,7 @@ type Capacity struct {
 
 // KubeClient is the Kubernetes surface used by the scheduler.
 type KubeClient interface {
-	ProvisionRunner(ctx context.Context, jitConfig, runnerName, image, pool string, entity Entity) error
+	ProvisionRunner(ctx context.Context, jitConfig, runnerName, image string, sel NodeSelector, entity Entity) error
 	ListPods(ctx context.Context) ([]Pod, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	GetPodEvents(ctx context.Context, podName string) ([]PodEvent, error)
@@ -512,7 +533,7 @@ type KubeClient interface {
 	DeletePod(ctx context.Context, podName string) error
 	ForceDeletePod(ctx context.Context, podName string) error
 	KillPod(ctx context.Context, podName string) error
-	AvailableSlots(ctx context.Context, pool string) (Capacity, error)
+	AvailableSlots(ctx context.Context, sel NodeSelector) (Capacity, error)
 	CollectPodFailureInfo(ctx context.Context, pod Pod, reason FailureReason) FailureInfoV2
 }
 

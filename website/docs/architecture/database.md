@@ -41,7 +41,8 @@ CREATE TABLE jobs (
     repo_full_name    TEXT NOT NULL,
     installation_id   BIGINT NOT NULL,
     job_labels        JSONB NOT NULL DEFAULT '[]',-- sorted at write time
-    k8s_pool          TEXT NOT NULL,
+    k8s_pool          TEXT NOT NULL,              -- board name; superseded by k8s_selector, still dual-written
+    k8s_selector      JSONB NOT NULL DEFAULT '{}',-- node labels the runner pod must match
     k8s_image         TEXT NOT NULL,
     k8s_pod           TEXT,
     html_url          TEXT,
@@ -72,7 +73,8 @@ CREATE TABLE workers (
     installation_id BIGINT NOT NULL,              -- GitHub App installation
     repo_full_name  TEXT,                         -- set only for User entities; NULL for Organization
     job_labels      JSONB NOT NULL DEFAULT '[]',
-    k8s_pool        TEXT NOT NULL,
+    k8s_pool        TEXT NOT NULL,                -- board name; superseded by k8s_selector, still dual-written
+    k8s_selector    JSONB NOT NULL DEFAULT '{}',  -- node labels the runner pod must match
     k8s_image       TEXT NOT NULL,
     k8s_node        TEXT,
     status          status_enum NOT NULL DEFAULT 'pending',

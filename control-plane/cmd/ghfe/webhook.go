@@ -271,7 +271,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 
 	base.Event = "workflow_job." + action
 
-	pool, image, matched := matchLabelsToK8s(a.Config, entity.ID, repoFullName, labels)
+	sel, image, matched := matchLabelsToK8s(a.Config, entity.ID, repoFullName, labels)
 	if !matched {
 		base.Payload = minimalJobPayload(job, labels, repoFullName)
 		base.Outcome = internal.OutcomeIgnoredNoLabel
@@ -317,7 +317,8 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 			httpError(w, 400, "HTML URL is missing in payload")
 			return
 		}
-		stored, err := a.DB.AddJob(r.Context(), ghJob, entity, "github", repoFullName, installID, pool, image, htmlURL, labels)
+		stored, err := a.DB.AddJob(r.Context(), ghJob, entity, "github", repoFullName, installID,
+			sel.Board, sel, image, htmlURL, labels)
 		if err != nil {
 			slog.Error("AddJob failed", "entity", entity, "job", ghJob, "err", err)
 			httpError(w, 500, "internal error")
@@ -326,7 +327,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 		base.Outcome = internal.OutcomeJobStored
 		msg := "Job " + i64s(jobID) + " stored."
 		if stored {
-			slog.Info("Stored job", "entity", entity, "job", ghJob, "k8s_pool", pool)
+			slog.Info("Stored job", "entity", entity, "job", ghJob, "k8s_selector", sel)
 		} else {
 			base.Outcome = internal.OutcomeJobAlreadyExists
 			msg = "Job " + i64s(jobID) + " already exists."
