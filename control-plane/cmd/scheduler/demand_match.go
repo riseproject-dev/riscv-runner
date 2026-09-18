@@ -174,7 +174,6 @@ func (a *App) reserveRunnerName(ctx context.Context, j internal.Job, labels []st
 			EntityType:     j.EntityType,
 			InstallationID: j.InstallationID,
 			RepoFullName:   repoPtr,
-			K8sPool:        j.K8sPool,
 			K8sSelector:    j.Selector(),
 			K8sImage:       j.K8sImage,
 		}

@@ -177,7 +177,7 @@ func TestWorkers_FieldNames(t *testing.T) {
 		`"pod_name"`,
 		`"status"`,
 		`"job_labels"`,
-		`"k8s_pool"`,
+		`"k8s_selector"`,
 		`"k8s_image"`,
 		`"entity_id"`,
 		`"entity_name"`,

@@ -23,9 +23,9 @@ func schedTestApp() (*App, *testutil.FakeDB, *testutil.FakeGH, *testutil.FakeKub
 	return app, db, gh, kube
 }
 
-// scwKey is the selector key for jobs carrying only K8sPool, i.e. resolved
-// through the pre-k8s_selector fallback.
-var scwKey = internal.SelectorForBoard(internal.BoardScalewayEMRV1).Key()
+var scwSel = internal.NodeSelector{Board: internal.BoardScalewayEMRV1, Provider: internal.ProviderScaleway}
+
+var scwKey = scwSel.Key()
 
 // TestDemandMatch_SkipsWhenSlotsNonPositive locks invariant 40476b8: skip on
 // available_slots <= 0, never go negative.
@@ -35,7 +35,7 @@ func TestDemandMatch_SkipsWhenSlotsNonPositive(t *testing.T) {
 		JobID: 1, Status: "pending", Provider: "github",
 		EntityID: 1, EntityName: "e", EntityType: "Organization",
 		RepoFullName: "e/r", InstallationID: 9,
-		K8sPool: "scaleway-em-rv1", K8sImage: "img",
+		K8sSelector: scwSel, K8sImage: "img",
 	}}
 	db.SetPoolDemand(1, nil, 5, 0) // demand > supply
 
@@ -64,7 +64,7 @@ func TestDemandMatch_CapacityFetchedOncePerPool(t *testing.T) {
 			JobID: i, Status: "pending", Provider: "github",
 			EntityID: 1, EntityName: "e", EntityType: "Organization",
 			RepoFullName: "e/r", InstallationID: 9,
-			K8sPool: "scaleway-em-rv1", K8sImage: "img",
+			K8sSelector: scwSel, K8sImage: "img",
 		})
 	}
 	db.SetPoolDemand(1, nil, 3, 0)
@@ -86,7 +86,7 @@ func TestProvisionRunner_FailureMarksWorker(t *testing.T) {
 		JobID: 1, Status: "pending", Provider: "github",
 		EntityID: 1, EntityName: "e", EntityType: "Organization",
 		RepoFullName: "e/r", InstallationID: 9,
-		K8sPool: "scaleway-em-rv1", K8sImage: "img",
+		K8sSelector: scwSel, K8sImage: "img",
 	}}
 	db.SetPoolDemand(1, nil, 1, 0)
 	kube.SlotsByPool[scwKey] = 1
@@ -112,7 +112,7 @@ func TestDemandMatch_RespectsEntityMaxWorkers(t *testing.T) {
 		JobID: 1, Status: "pending", Provider: "github",
 		EntityID: internal.PyTorchOrgID, EntityName: "pytorch", EntityType: "Organization",
 		RepoFullName: "pytorch/pytorch", InstallationID: 9,
-		K8sPool: "scaleway-em-rv1", K8sImage: "img",
+		K8sSelector: scwSel, K8sImage: "img",
 	}}
 	db.SetPoolDemand(internal.PyTorchOrgID, nil, 1, 0)
 	db.EntityWorkerCnt[internal.PyTorchOrgID] = 20 // at cap
@@ -137,14 +137,14 @@ func TestDemandMatch_RateLimitedEntityBacksOffButOthersProceed(t *testing.T) {
 			JobID: i, Status: "pending", Provider: "github",
 			EntityID: 1, EntityName: "orga", EntityType: "Organization",
 			RepoFullName: "orga/r", InstallationID: 9,
-			K8sPool: "scaleway-em-rv1", K8sImage: "img",
+			K8sSelector: scwSel, K8sImage: "img",
 		})
 	}
 	db.Jobs = append(db.Jobs, internal.Job{
 		JobID: 4, Status: "pending", Provider: "github",
 		EntityID: 2, EntityName: "orgb", EntityType: "Organization",
 		RepoFullName: "orgb/r", InstallationID: 10,
-		K8sPool: "scaleway-em-rv1", K8sImage: "img",
+		K8sSelector: scwSel, K8sImage: "img",
 	})
 	db.SetPoolDemand(1, nil, 3, 0)
 	db.SetPoolDemand(2, nil, 1, 0)
@@ -198,7 +198,7 @@ func TestDemandMatch_GroupsPerProviderOnSameBoard(t *testing.T) {
 			JobID: entityID, Status: "pending", Provider: "github",
 			EntityID: entityID, EntityName: "e", EntityType: "Organization",
 			RepoFullName: "e/r", InstallationID: 9,
-			K8sPool: internal.BoardSpacemitK1, K8sSelector: sel, K8sImage: "img",
+			K8sSelector: sel, K8sImage: "img",
 		})
 		db.SetPoolDemand(entityID, nil, 1, 0)
 	}
@@ -231,7 +231,7 @@ func TestDemandMatch_FallbackSelectorForLegacyJob(t *testing.T) {
 		JobID: 1, Status: "pending", Provider: "github",
 		EntityID: 1, EntityName: "e", EntityType: "Organization",
 		RepoFullName: "e/r", InstallationID: 9,
-		K8sPool: internal.BoardSpacemitK3, K8sImage: "img",
+		K8sSelector: internal.NodeSelector{Board: internal.BoardSpacemitK3, Provider: internal.ProviderISCAS}, K8sImage: "img",
 	}}
 	db.SetPoolDemand(1, nil, 1, 0)
 	want := internal.NodeSelector{Board: internal.BoardSpacemitK3, Provider: internal.ProviderISCAS}

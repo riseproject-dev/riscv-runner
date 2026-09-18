@@ -72,7 +72,7 @@ Images resolve to `ghcr.io/riseproject-dev/riscv-runner/runner/ubuntu-<version>:
 
 `riseproject.dev/board` is written by the [device plugin](kubernetes) from the detected SoC. `riseproject.dev/provider` identifies which vendor supplies the machine (e.g. `scaleway`, `cloudv10x`, `iscas`) and is applied to nodes **by hand**, because nothing can detect ownership from the hardware. Two providers can supply the same board, so the provider label is what pins a job to one vendor's machines.
 
-The selector is stored in `jobs.k8s_selector` and used directly as the pod's `nodeSelector`. Rows written before the column existed fall back to deriving a selector from `k8s_pool`, so a missing selector never means "any node".
+The selector is stored in `jobs.k8s_selector` and used directly as the pod's `nodeSelector`. A selector without a board is rejected, since an empty label selector would match every node in the cluster.
 
 Capacity lookups are currently narrowed to the board only, ignoring the provider. Each board model has a single provider today, and counting per board also accounts for runners started before the provider label existed: those pods carry no provider label, so a provider-scoped count would treat their nodes as idle and double-book them. This narrows to the full selector once no board-only pods remain.
 

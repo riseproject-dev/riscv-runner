@@ -98,7 +98,6 @@ type Job struct {
 	RepoFullName   string          `db:"repo_full_name" json:"repo_full_name"`
 	InstallationID int64           `db:"installation_id" json:"installation_id"`
 	JobLabels      json.RawMessage `db:"job_labels" json:"job_labels"`
-	K8sPool        string          `db:"k8s_pool" json:"k8s_pool"`
 	K8sSelector    NodeSelector    `db:"k8s_selector" json:"k8s_selector"`
 	K8sImage       string          `db:"k8s_image" json:"k8s_image"`
 	K8sPod         *string         `db:"k8s_pod" json:"k8s_pod,omitempty"`
@@ -121,15 +120,8 @@ func (j Job) Entity() Entity {
 	return Entity{Type: EntityType(j.EntityType), Name: j.EntityName, ID: j.EntityID}
 }
 
-// Selector returns the node labels this job must be placed on. Rows written
-// before k8s_selector existed fall back to deriving it from k8s_pool: an empty
-// selector would otherwise match every node in the cluster.
-func (j Job) Selector() NodeSelector {
-	if j.K8sSelector.Valid() {
-		return j.K8sSelector
-	}
-	return SelectorForBoard(j.K8sPool)
-}
+// Selector returns the node labels this job must be placed on.
+func (j Job) Selector() NodeSelector { return j.K8sSelector }
 
 // LogValue groups the identifying GitHub-side facts so callers log `"job", j`
 // once instead of repeating id/name/conclusion attrs at every call site.
@@ -154,7 +146,6 @@ type Worker struct {
 	InstallationID int64           `db:"installation_id" json:"installation_id"`
 	RepoFullName   *string         `db:"repo_full_name" json:"repo_full_name,omitempty"`
 	JobLabels      json.RawMessage `db:"job_labels" json:"job_labels"`
-	K8sPool        string          `db:"k8s_pool" json:"k8s_pool"`
 	K8sSelector    NodeSelector    `db:"k8s_selector" json:"k8s_selector"`
 	K8sImage       string          `db:"k8s_image" json:"k8s_image"`
 	K8sNode        *string         `db:"k8s_node" json:"k8s_node,omitempty"`
@@ -170,13 +161,8 @@ func (w Worker) Entity() Entity {
 	return Entity{Type: EntityType(w.EntityType), Name: w.EntityName, ID: w.EntityID}
 }
 
-// Selector mirrors Job.Selector for rows predating k8s_selector.
-func (w Worker) Selector() NodeSelector {
-	if w.K8sSelector.Valid() {
-		return w.K8sSelector
-	}
-	return SelectorForBoard(w.K8sPool)
-}
+// Selector returns the node labels this worker's pod was placed on.
+func (w Worker) Selector() NodeSelector { return w.K8sSelector }
 
 // InstallationEvent is one row of installation_events (read shape).
 type InstallationEvent struct {
@@ -433,7 +419,7 @@ type DB interface {
 
 	// Job writes
 	AddJob(ctx context.Context, gh GHJob, entity Entity, provider, repoFullName string,
-		installationID int64, k8sPool string, k8sSelector NodeSelector, k8sImage, htmlURL string,
+		installationID int64, k8sSelector NodeSelector, k8sImage, htmlURL string,
 		labels []string) (bool, error)
 	MarkJobRunning(ctx context.Context, gh GHJob) (string, error)
 	MarkJobCompleted(ctx context.Context, gh GHJob) (string, error)

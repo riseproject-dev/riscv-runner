@@ -318,7 +318,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 			return
 		}
 		stored, err := a.DB.AddJob(r.Context(), ghJob, entity, "github", repoFullName, installID,
-			sel.Board, sel, image, htmlURL, labels)
+			sel, image, htmlURL, labels)
 		if err != nil {
 			slog.Error("AddJob failed", "entity", entity, "job", ghJob, "err", err)
 			httpError(w, 500, "internal error")
