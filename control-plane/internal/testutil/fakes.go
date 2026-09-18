@@ -25,7 +25,7 @@ type FakeDB struct {
 	EntityWorkerCnt map[int64]int
 	JobExistsByPod  map[string]bool
 
-	OnAddJob          func(internal.GHJob, internal.Entity, string, string, int64, string, internal.NodeSelector, string, string, []string) (bool, error)
+	OnAddJob          func(internal.GHJob, internal.Entity, string, string, int64, internal.NodeSelector, string, string, []string) (bool, error)
 	OnAddWorker       func(internal.Worker, []string) error
 	OnAddEvent        func(internal.InstallationEvent, []byte) (int64, error)
 	OnMarkJobRunning  func(internal.GHJob) (string, error)
@@ -95,12 +95,12 @@ func (f *FakeDB) WaitForJob(ctx context.Context, t time.Duration) error { return
 
 func (f *FakeDB) AddJob(ctx context.Context, gh internal.GHJob, entity internal.Entity,
 	provider, repoFullName string, installationID int64,
-	k8sPool string, k8sSelector internal.NodeSelector, k8sImage, htmlURL string,
+	k8sSelector internal.NodeSelector, k8sImage, htmlURL string,
 	labels []string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.OnAddJob != nil {
-		return f.OnAddJob(gh, entity, provider, repoFullName, installationID, k8sPool, k8sSelector, k8sImage, htmlURL, labels)
+		return f.OnAddJob(gh, entity, provider, repoFullName, installationID, k8sSelector, k8sImage, htmlURL, labels)
 	}
 	for _, e := range f.Jobs {
 		if e.JobID == gh.ID {
@@ -115,7 +115,6 @@ func (f *FakeDB) AddJob(ctx context.Context, gh internal.GHJob, entity internal.
 		EntityType:     string(entity.Type),
 		RepoFullName:   repoFullName,
 		InstallationID: installationID,
-		K8sPool:        k8sPool,
 		K8sSelector:    k8sSelector,
 		K8sImage:       k8sImage,
 		JobCreatedAt:   gh.CreatedAt,

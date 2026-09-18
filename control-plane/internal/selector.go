@@ -37,27 +37,11 @@ const (
 // place a runner on arbitrary hardware.
 var ErrEmptySelector = fmt.Errorf("node selector has no board")
 
-// defaultProviderForBoard is the provider each board ran on before
-// riseproject.dev/provider existed. It mirrors the backfill UPDATE and only
-// serves rows written before k8s_selector.
-var defaultProviderForBoard = map[string]string{
-	BoardScalewayEMRV1: ProviderScaleway,
-	BoardSpacemitK1:    ProviderCloudV10x,
-	BoardSpacemitK3:    ProviderISCAS,
-	BoardSpacemitV100:  ProviderISCAS,
-}
-
 // NodeSelector is the node labels a runner pod must match. Board is mandatory.
 // Provider is optional: empty means any vendor's machine of that board.
 type NodeSelector struct {
-	Board    string
-	Provider string
-}
-
-// SelectorForBoard derives a selector from a bare board name, applying the
-// board's historical provider. Only rows predating k8s_selector need this.
-func SelectorForBoard(board string) NodeSelector {
-	return NodeSelector{Board: board, Provider: defaultProviderForBoard[board]}
+	Board    string `json:"board"`
+	Provider string `json:"provider,omitempty"`
 }
 
 // Valid reports whether this selector constrains placement at all. An invalid

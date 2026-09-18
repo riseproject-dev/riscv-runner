@@ -104,8 +104,8 @@ func TestWantsJSON(t *testing.T) {
 // TestUsage_JSONReturnsActiveJobsAndWorkers covers the JSON branch.
 func TestUsage_JSONReturnsActiveJobsAndWorkers(t *testing.T) {
 	app, db, _, _ := schedTestApp()
-	db.Jobs = []internal.Job{{JobID: 1, EntityID: 9, EntityName: "acme", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sPool: "scw"}}
-	db.Workers = []internal.Worker{{PodName: "p", EntityID: 9, EntityName: "acme", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sPool: "scw"}}
+	db.Jobs = []internal.Job{{JobID: 1, EntityID: 9, EntityName: "acme", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sSelector: internal.NodeSelector{Board: "scw"}}}
+	db.Workers = []internal.Worker{{PodName: "p", EntityID: 9, EntityName: "acme", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sSelector: internal.NodeSelector{Board: "scw"}}}
 	r := httptest.NewRequest("GET", "/usage.json", nil)
 	w := httptest.NewRecorder()
 	app.handleUsage(w, r)
@@ -129,12 +129,12 @@ func TestUsage_HTMLGroupsAndOrdering(t *testing.T) {
 	app, db, _, _ := schedTestApp()
 	now := time.Now().UTC()
 	db.Jobs = []internal.Job{
-		{JobID: 2, EntityID: 1, EntityName: "a", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sPool: "p1", CreatedAt: now.Add(-time.Minute)},
-		{JobID: 1, EntityID: 1, EntityName: "a", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sPool: "p1", CreatedAt: now.Add(-2 * time.Minute)},
+		{JobID: 2, EntityID: 1, EntityName: "a", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sSelector: internal.NodeSelector{Board: "p1"}, CreatedAt: now.Add(-time.Minute)},
+		{JobID: 1, EntityID: 1, EntityName: "a", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sSelector: internal.NodeSelector{Board: "p1"}, CreatedAt: now.Add(-2 * time.Minute)},
 	}
 	db.Workers = []internal.Worker{
-		{PodName: "p1", EntityID: 1, EntityName: "a", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sPool: "p1", Status: "running", CreatedAt: now},
-		{PodName: "p2", EntityID: 2, EntityName: "b", EntityType: "Organization", JobLabels: []byte(`["y"]`), K8sPool: "p2", Status: "completed", CreatedAt: now},
+		{PodName: "p1", EntityID: 1, EntityName: "a", EntityType: "Organization", JobLabels: []byte(`["x"]`), K8sSelector: internal.NodeSelector{Board: "p1"}, Status: "running", CreatedAt: now},
+		{PodName: "p2", EntityID: 2, EntityName: "b", EntityType: "Organization", JobLabels: []byte(`["y"]`), K8sSelector: internal.NodeSelector{Board: "p2"}, Status: "completed", CreatedAt: now},
 	}
 	r := httptest.NewRequest("GET", "/usage", nil)
 	w := httptest.NewRecorder()
@@ -180,7 +180,7 @@ func TestUsage_DBError(t *testing.T) {
 // TestHistory_RendersJobs covers /history HTML + the no-jobs branch.
 func TestHistory_RendersJobs(t *testing.T) {
 	app, db, _, _ := schedTestApp()
-	db.Jobs = []internal.Job{{JobID: 7, Status: "completed", EntityName: "acme", RepoFullName: "acme/r", K8sPool: "scaleway-em-rv1"}}
+	db.Jobs = []internal.Job{{JobID: 7, Status: "completed", EntityName: "acme", RepoFullName: "acme/r", K8sSelector: internal.NodeSelector{Board: "scaleway-em-rv1"}}}
 
 	r := httptest.NewRequest("GET", "/history", nil)
 	w := httptest.NewRecorder()

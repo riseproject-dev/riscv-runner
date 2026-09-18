@@ -40,7 +40,7 @@ func anyN(n int) []any {
 func jobScanRow() []any {
 	return []any{
 		int64(1), "pending", []byte(`{}`), "github", int64(99), "acme",
-		"Organization", "acme/r", int64(7), []byte(`["x"]`), "scaleway-em-rv1",
+		"Organization", "acme/r", int64(7), []byte(`["x"]`),
 		[]byte(`{"riseproject.dev/board":"scaleway-em-rv1","riseproject.dev/provider":"scaleway"}`),
 		"img", nil, nil, time.Now(), time.Now(),
 		nil, nil, nil, nil, nil,
@@ -50,7 +50,7 @@ func jobScanRow() []any {
 func workerScanRow(name string, status string) []any {
 	return []any{
 		name, "github", int64(99), "acme", "Organization", int64(7), nil,
-		[]byte(`["x"]`), "scaleway-em-rv1",
+		[]byte(`["x"]`),
 		[]byte(`{"riseproject.dev/board":"scaleway-em-rv1","riseproject.dev/provider":"scaleway"}`),
 		"img", nil, status, nil,
 		time.Now(), nil, nil, time.Now(),
@@ -60,27 +60,27 @@ func workerScanRow(name string, status string) []any {
 func jobColumns() []string {
 	return []string{"job_id", "status", "failure_info", "provider", "entity_id",
 		"entity_name", "entity_type", "repo_full_name", "installation_id",
-		"job_labels", "k8s_pool", "k8s_selector", "k8s_image", "k8s_pod", "html_url",
+		"job_labels", "k8s_selector", "k8s_image", "k8s_pod", "html_url",
 		"created_at", "updated_at",
 		"job_name", "job_conclusion", "job_created_at", "job_started_at", "job_completed_at"}
 }
 
 func workerColumns() []string {
 	return []string{"pod_name", "provider", "entity_id", "entity_name", "entity_type",
-		"installation_id", "repo_full_name", "job_labels", "k8s_pool", "k8s_selector", "k8s_image", "k8s_node",
+		"installation_id", "repo_full_name", "job_labels", "k8s_selector", "k8s_image", "k8s_node",
 		"status", "failure_info", "created_at", "running_at", "completed_at", "updated_at"}
 }
 
 func TestAddJob_InsertedAndNotifies(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(15)...).
+	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(14)...).
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 	mock.ExpectExec(`NOTIFY staging_queue_event`).WithArgs(pgxmock.AnyArg()).
 		WillReturnResult(pgxmock.NewResult("NOTIFY", 0))
 
 	got, err := db.AddJob(context.Background(), GHJob{ID: 1},
 		Entity{Type: EntityOrganization, Name: "acme", ID: 99},
-		"github", "acme/r", 7, "scaleway-em-rv1", SelectorForBoard("scaleway-em-rv1"), "img", "", []string{"x"})
+		"github", "acme/r", 7, NodeSelector{Board: BoardScalewayEMRV1, Provider: ProviderScaleway}, "img", "", []string{"x"})
 	if err != nil || !got {
 		t.Fatalf("AddJob: got=%v err=%v", got, err)
 	}
@@ -91,9 +91,9 @@ func TestAddJob_InsertedAndNotifies(t *testing.T) {
 
 func TestAddJob_DuplicateReturnsFalse(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(15)...).WillReturnResult(pgxmock.NewResult("INSERT", 0))
+	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(14)...).WillReturnResult(pgxmock.NewResult("INSERT", 0))
 	got, err := db.AddJob(context.Background(), GHJob{ID: 1},
-		Entity{Type: EntityUser}, "github", "", 0, "", NodeSelector{}, "", "", nil)
+		Entity{Type: EntityUser}, "github", "", 0, NodeSelector{}, "", "", nil)
 	if err != nil || got {
 		t.Fatalf("AddJob duplicate: got=%v err=%v", got, err)
 	}
@@ -104,8 +104,8 @@ func TestAddJob_DuplicateReturnsFalse(t *testing.T) {
 
 func TestAddJob_PropagatesError(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(15)...).WillReturnError(errors.New("dial"))
-	_, err := db.AddJob(context.Background(), GHJob{ID: 1}, Entity{}, "", "", 0, "", NodeSelector{}, "", "", nil)
+	mock.ExpectExec(`INSERT INTO jobs`).WithArgs(anyN(14)...).WillReturnError(errors.New("dial"))
+	_, err := db.AddJob(context.Background(), GHJob{ID: 1}, Entity{}, "", "", 0, NodeSelector{}, "", "", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -331,7 +331,7 @@ func TestGetTotalWorkersForEntity(t *testing.T) {
 
 func TestAddWorker_DuplicateError(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO workers`).WithArgs(anyN(11)...).
+	mock.ExpectExec(`INSERT INTO workers`).WithArgs(anyN(10)...).
 		WillReturnResult(pgxmock.NewResult("INSERT", 0))
 	err := db.AddWorker(context.Background(), Worker{PodName: "p"}, nil)
 	if !errors.Is(err, ErrDuplicatePodName) {
@@ -341,7 +341,7 @@ func TestAddWorker_DuplicateError(t *testing.T) {
 
 func TestAddWorker_Success(t *testing.T) {
 	db, mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO workers`).WithArgs(anyN(11)...).
+	mock.ExpectExec(`INSERT INTO workers`).WithArgs(anyN(10)...).
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 	if err := db.AddWorker(context.Background(), Worker{PodName: "p"}, nil); err != nil {
 		t.Fatalf("AddWorker: %v", err)

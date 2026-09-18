@@ -155,7 +155,7 @@ func (d *pgDB) WithWorkerLock(ctx context.Context, fn func(ctx context.Context) 
 // write time so demand-match's equality query matches regardless of input
 // order.
 func (d *pgDB) AddJob(ctx context.Context, gh GHJob, entity Entity, provider, repoFullName string,
-	installationID int64, k8sPool string, k8sSelector NodeSelector, k8sImage, htmlURL string,
+	installationID int64, k8sSelector NodeSelector, k8sImage, htmlURL string,
 	labels []string) (bool, error) {
 	j := Job{
 		JobID:          gh.ID,
@@ -167,7 +167,6 @@ func (d *pgDB) AddJob(ctx context.Context, gh GHJob, entity Entity, provider, re
 		EntityType:     string(entity.Type),
 		RepoFullName:   repoFullName,
 		InstallationID: installationID,
-		K8sPool:        k8sPool,
 		K8sSelector:    k8sSelector,
 		K8sImage:       k8sImage,
 	}
@@ -178,14 +177,14 @@ func (d *pgDB) AddJob(ctx context.Context, gh GHJob, entity Entity, provider, re
 	now := time.Now().UTC()
 	tag, err := d.q(ctx).Exec(ctx, `
 		INSERT INTO jobs (job_id, status, provider, entity_id, entity_name, entity_type,
-		                  repo_full_name, installation_id, job_labels, k8s_pool, k8s_selector,
+		                  repo_full_name, installation_id, job_labels, k8s_selector,
 		                  k8s_image, html_url, created_at, updated_at,
 		                  job_name, job_created_at)
-		VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11, $12, $13, $13,
-		        $14, $15)
+		VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $12,
+		        $13, $14)
 		ON CONFLICT (job_id) DO NOTHING
 	`, j.JobID, j.Provider, j.EntityID, j.EntityName, j.EntityType,
-		j.RepoFullName, j.InstallationID, sortedLabels, j.K8sPool, j.K8sSelector, j.K8sImage, htmlURL, now,
+		j.RepoFullName, j.InstallationID, sortedLabels, j.K8sSelector, j.K8sImage, htmlURL, now,
 		j.JobName, j.JobCreatedAt)
 	if err != nil {
 		return false, err
@@ -320,7 +319,7 @@ func (d *pgDB) scanJobs(rows pgx.Rows) ([]Job, error) {
 	for rows.Next() {
 		var j Job
 		if err := rows.Scan(&j.JobID, &j.Status, &j.FailureInfo, &j.Provider, &j.EntityID, &j.EntityName,
-			&j.EntityType, &j.RepoFullName, &j.InstallationID, &j.JobLabels, &j.K8sPool, &j.K8sSelector,
+			&j.EntityType, &j.RepoFullName, &j.InstallationID, &j.JobLabels, &j.K8sSelector,
 			&j.K8sImage, &j.K8sPod, &j.HTMLURL, &j.CreatedAt, &j.UpdatedAt,
 			&j.JobName, &j.JobConclusion, &j.JobCreatedAt, &j.JobStartedAt, &j.JobCompletedAt); err != nil {
 			return nil, err
@@ -332,7 +331,7 @@ func (d *pgDB) scanJobs(rows pgx.Rows) ([]Job, error) {
 
 func (d *pgDB) GetActiveJobs(ctx context.Context) ([]Job, error) {
 	rows, err := d.q(ctx).Query(ctx, `SELECT job_id, status, failure_info, provider, entity_id, entity_name,
-			entity_type, repo_full_name, installation_id, job_labels, k8s_pool, k8s_selector,
+			entity_type, repo_full_name, installation_id, job_labels, k8s_selector,
 			k8s_image, k8s_pod, html_url, created_at, updated_at,
 			job_name, job_conclusion, job_created_at, job_started_at, job_completed_at FROM jobs
 		WHERE status = 'pending' OR status = 'running' ORDER BY created_at`)
@@ -344,7 +343,7 @@ func (d *pgDB) GetActiveJobs(ctx context.Context) ([]Job, error) {
 
 func (d *pgDB) GetPendingJobs(ctx context.Context) ([]Job, error) {
 	rows, err := d.q(ctx).Query(ctx, `SELECT job_id, status, failure_info, provider, entity_id, entity_name,
-			entity_type, repo_full_name, installation_id, job_labels, k8s_pool, k8s_selector,
+			entity_type, repo_full_name, installation_id, job_labels, k8s_selector,
 			k8s_image, k8s_pod, html_url, created_at, updated_at,
 			job_name, job_conclusion, job_created_at, job_started_at, job_completed_at FROM jobs
 		WHERE status = 'pending' ORDER BY created_at`)
@@ -362,7 +361,7 @@ func (d *pgDB) GetAllJobs(ctx context.Context, start, end string, page, perPage 
 	}
 	pageArgs := append(append([]any{}, args...), perPage, page*perPage)
 	rows, err := d.q(ctx).Query(ctx, `SELECT job_id, status, failure_info, provider, entity_id, entity_name,
-			entity_type, repo_full_name, installation_id, job_labels, k8s_pool, k8s_selector,
+			entity_type, repo_full_name, installation_id, job_labels, k8s_selector,
 			k8s_image, k8s_pod, html_url, created_at, updated_at,
 			job_name, job_conclusion, job_created_at, job_started_at, job_completed_at FROM jobs `+where+`
 		ORDER BY created_at DESC LIMIT $`+fmt.Sprint(len(args)+1)+` OFFSET $`+fmt.Sprint(len(args)+2),
@@ -449,12 +448,12 @@ func (d *pgDB) AddWorker(ctx context.Context, w Worker, labels []string) error {
 	sortedLabels := SortedJSON(labels)
 	tag, err := d.q(ctx).Exec(ctx, `
 		INSERT INTO workers (pod_name, provider, entity_id, entity_name, entity_type,
-		                     installation_id, repo_full_name, k8s_pool, k8s_selector, job_labels,
+		                     installation_id, repo_full_name, k8s_selector, job_labels,
 		                     k8s_image, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, 'pending', now(), now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, 'pending', now(), now())
 		ON CONFLICT (pod_name) DO NOTHING
 	`, w.PodName, w.Provider, w.EntityID, w.EntityName, w.EntityType,
-		w.InstallationID, w.RepoFullName, w.K8sPool, w.K8sSelector, sortedLabels, w.K8sImage)
+		w.InstallationID, w.RepoFullName, w.K8sSelector, sortedLabels, w.K8sImage)
 	if err != nil {
 		return err
 	}
@@ -525,7 +524,7 @@ func (d *pgDB) scanWorkers(rows pgx.Rows) ([]Worker, error) {
 	for rows.Next() {
 		var w Worker
 		if err := rows.Scan(&w.PodName, &w.Provider, &w.EntityID, &w.EntityName, &w.EntityType,
-			&w.InstallationID, &w.RepoFullName, &w.JobLabels, &w.K8sPool, &w.K8sSelector, &w.K8sImage, &w.K8sNode,
+			&w.InstallationID, &w.RepoFullName, &w.JobLabels, &w.K8sSelector, &w.K8sImage, &w.K8sNode,
 			&w.Status, &w.FailureInfo, &w.CreatedAt, &w.RunningAt, &w.CompletedAt, &w.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -545,7 +544,7 @@ func (d *pgDB) GetActiveJobsAndWorkers(ctx context.Context) ([]Job, []Worker, er
 
 func (d *pgDB) GetActiveWorkers(ctx context.Context) ([]Worker, error) {
 	rows, err := d.q(ctx).Query(ctx, `SELECT pod_name, provider, entity_id, entity_name, entity_type,
-			installation_id, repo_full_name, job_labels, k8s_pool, k8s_selector, k8s_image, k8s_node,
+			installation_id, repo_full_name, job_labels, k8s_selector, k8s_image, k8s_node,
 			status, failure_info, created_at, running_at, completed_at, updated_at FROM workers
 		WHERE status = 'pending' OR status = 'running' ORDER BY created_at`)
 	if err != nil {
@@ -562,7 +561,7 @@ func (d *pgDB) GetAllWorkers(ctx context.Context, start, end string, page, perPa
 	}
 	pageArgs := append(append([]any{}, args...), perPage, page*perPage)
 	rows, err := d.q(ctx).Query(ctx, `SELECT pod_name, provider, entity_id, entity_name, entity_type,
-			installation_id, repo_full_name, job_labels, k8s_pool, k8s_selector, k8s_image, k8s_node,
+			installation_id, repo_full_name, job_labels, k8s_selector, k8s_image, k8s_node,
 			status, failure_info, created_at, running_at, completed_at, updated_at FROM workers `+where+`
 		ORDER BY created_at DESC LIMIT $`+fmt.Sprint(len(args)+1)+` OFFSET $`+fmt.Sprint(len(args)+2),
 		pageArgs...)
@@ -576,7 +575,7 @@ func (d *pgDB) GetAllWorkers(ctx context.Context, start, end string, page, perPa
 func (d *pgDB) GetWorkersForReconcile(ctx context.Context, terminalLookback time.Duration) ([]Worker, error) {
 	rows, err := d.q(ctx).Query(ctx, `
 		SELECT pod_name, provider, entity_id, entity_name, entity_type,
-			installation_id, repo_full_name, job_labels, k8s_pool, k8s_selector, k8s_image, k8s_node,
+			installation_id, repo_full_name, job_labels, k8s_selector, k8s_image, k8s_node,
 			status, failure_info, created_at, running_at, completed_at, updated_at FROM workers
 		WHERE status IN ('pending', 'running')
 		   OR (status IN ('completed', 'failed')

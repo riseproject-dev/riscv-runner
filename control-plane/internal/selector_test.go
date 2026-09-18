@@ -4,6 +4,7 @@ package internal
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"maps"
 	"strings"
@@ -62,51 +63,6 @@ func TestNodeSelectorLabels(t *testing.T) {
 	}
 }
 
-func TestSelectorForBoard(t *testing.T) {
-	tests := []struct {
-		board string
-		want  NodeSelector
-	}{
-		{BoardScalewayEMRV1, NodeSelector{Board: BoardScalewayEMRV1, Provider: ProviderScaleway}},
-		{BoardSpacemitK1, NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x}},
-		{BoardSpacemitK3, NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS}},
-		{BoardSpacemitV100, NodeSelector{Board: BoardSpacemitV100, Provider: ProviderISCAS}},
-		// An unrecognised board stays board-only rather than becoming unconstrained.
-		{"future-soc", NodeSelector{Board: "future-soc"}},
-		{"", NodeSelector{}},
-	}
-	for _, tc := range tests {
-		if got := SelectorForBoard(tc.board); got != tc.want {
-			t.Errorf("SelectorForBoard(%q)=%+v want %+v", tc.board, got, tc.want)
-		}
-	}
-}
-
-// A job or worker predating k8s_selector must never yield an unconstrained
-// selector, which would match every node in the cluster.
-func TestSelectorFallback_NeverEmptyForKnownBoard(t *testing.T) {
-	j := Job{K8sPool: BoardSpacemitK3}
-	want := NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS}
-	if got := j.Selector(); got != want {
-		t.Errorf("Job.Selector()=%+v want %+v", got, want)
-	}
-	w := Worker{K8sPool: BoardSpacemitK1}
-	wantW := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x}
-	if got := w.Selector(); got != wantW {
-		t.Errorf("Worker.Selector()=%+v want %+v", got, wantW)
-	}
-}
-
-// A stored selector wins over the k8s_pool-derived default: mengzhuo runs on
-// spacemit-k1 whose historical provider is cloudv10x.
-func TestSelectorFallback_StoredSelectorWins(t *testing.T) {
-	stored := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderMengZhuo}
-	j := Job{K8sPool: BoardSpacemitK1, K8sSelector: stored}
-	if got := j.Selector(); got != stored {
-		t.Errorf("Job.Selector()=%+v want %+v", got, stored)
-	}
-}
-
 func TestNodeSelector_JSONRoundTrip(t *testing.T) {
 	for _, sel := range []NodeSelector{
 		{Board: BoardSpacemitK3, Provider: ProviderISCAS},
@@ -153,10 +109,6 @@ func TestNodeSelector_ScanEmptyObject(t *testing.T) {
 	if sel.Valid() {
 		t.Errorf("got %+v, want invalid", sel)
 	}
-	j := Job{K8sPool: BoardSpacemitK3, K8sSelector: sel}
-	if got := j.Selector().Key(); got == "" {
-		t.Error("empty stored selector must fall back, not stay unconstrained")
-	}
 }
 
 func TestNodeSelector_ScanNull(t *testing.T) {
@@ -186,14 +138,41 @@ func TestNodeSelector_LogValue(t *testing.T) {
 	}
 }
 
-// A selector resolved through the fallback logs the derived provider, so a
-// legacy row is not silently indistinguishable from a modern one.
-func TestNodeSelector_LogValueFromFallback(t *testing.T) {
-	var buf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{}))
-	log.Info("legacy", "k8s_selector", Job{K8sPool: BoardSpacemitK3}.Selector())
+// The DB column keeps the Kubernetes label form. JSON uses the struct's field
+// names, which is what /jobs.json and /workers.json now expose.
+func TestNodeSelector_ValueUsesLabelKeysJSONUsesFields(t *testing.T) {
+	sel := NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS}
 
-	if got := buf.String(); !strings.Contains(got, "k8s_selector.provider=iscas") {
-		t.Errorf("log %q missing derived provider", got)
+	v, err := sel.Value()
+	if err != nil {
+		t.Fatalf("Value: %v", err)
+	}
+	wantDB := `{"riseproject.dev/board":"spacemit-k3","riseproject.dev/provider":"iscas"}`
+	if got := v.(string); got != wantDB {
+		t.Errorf("Value()=%s want %s", got, wantDB)
+	}
+
+	b, err := json.Marshal(sel)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if want := `{"board":"spacemit-k3","provider":"iscas"}`; string(b) != want {
+		t.Errorf("Marshal()=%s want %s", b, want)
+	}
+}
+
+// A board-only selector omits provider in both forms.
+func TestNodeSelector_BoardOnlyOmitsProvider(t *testing.T) {
+	sel := NodeSelector{Board: BoardSpacemitK3}
+	v, err := sel.Value()
+	if err != nil {
+		t.Fatalf("Value: %v", err)
+	}
+	if got := v.(string); got != `{"riseproject.dev/board":"spacemit-k3"}` {
+		t.Errorf("Value()=%s", got)
+	}
+	b, _ := json.Marshal(sel)
+	if want := `{"board":"spacemit-k3"}`; string(b) != want {
+		t.Errorf("Marshal()=%s want %s", b, want)
 	}
 }

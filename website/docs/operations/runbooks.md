@@ -61,7 +61,7 @@ WHERE entity_id = :entity_id
 SELECT * FROM staging.jobs WHERE job_id = :job_id;
 
 -- Recent failed workers
-SELECT pod_name, entity_id, k8s_pool, failure_info
+SELECT pod_name, entity_id, k8s_selector, failure_info
 FROM staging.workers
 WHERE status = 'failed'
 ORDER BY completed_at DESC

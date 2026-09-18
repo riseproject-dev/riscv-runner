@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -45,7 +44,7 @@ func NewK8sClientFromInterface(cs kubernetes.Interface) *K8sClient {
 
 // ProvisionRunner creates the runner pod. The exact shape (host-network,
 // privileged, two emptyDir volumes, single container, RUNNER_JITCONFIG env,
-// ephemeral-storage limit on scaleway-em-* only) is load-bearing. Don't tweak
+// ephemeral-storage limit on scaleway-em-rv1 only) is load-bearing. Don't tweak
 // without a test.
 func (k *K8sClient) ProvisionRunner(ctx context.Context, jitConfig, runnerName, image string, sel NodeSelector, entity Entity) error {
 	if !sel.Valid() {
@@ -54,7 +53,7 @@ func (k *K8sClient) ProvisionRunner(ctx context.Context, jitConfig, runnerName, 
 	limits := corev1.ResourceList{
 		"riseproject.com/runner": resource.MustParse("1"),
 	}
-	if strings.HasPrefix(sel.Board, "scaleway-em-") {
+	if sel.Board == BoardScalewayEMRV1 {
 		limits["ephemeral-storage"] = resource.MustParse("90Gi")
 	}
 
