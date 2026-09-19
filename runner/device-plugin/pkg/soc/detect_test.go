@@ -67,3 +67,25 @@ func TestMatchScaleway(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchZhihe(t *testing.T) {
+	tests := []struct {
+		name       string
+		compatible string
+		want       bool
+	}{
+		{"exact match", "zhihe,a210", true},
+		{"trailing entries", "zhihe,a210\x00riscv", true},
+		{"leading whitespace", "  zhihe,a210  ", true},
+		{"other board", "spacemit,k1-x", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchZhihe(tt.compatible); got != tt.want {
+				t.Errorf("matchZhihe(%q) = %v, want %v", tt.compatible, got, tt.want)
+			}
+		})
+	}
+}

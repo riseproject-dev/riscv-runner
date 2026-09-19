@@ -77,10 +77,11 @@ The primary key is the `riscv_hwprobe(2)` syscall, which returns the hardware id
 | `0x710` | `0x8000000058000001` | `0x1000000049772200` | `spacemit-k1` |
 | `0x710` | `0x8000000058000002` | `0x33d8a600` | `spacemit-k3` |
 | `0x710` | `0x8000000058000002` | `0x4c4d900` | `spacemit-v100` |
+| `0x5b7` | `0x8000000009140d00` | `0x100d000` | `zhihe-a210` |
 
 3. If the triple matches no entry, `Detect` returns an error and the plugin exits. An unrecognized node fails loudly rather than mislabelling itself. To add the board, read the logged triple and append an entry to the list.
 
-The Scaleway EM-RV1 is a special case: its kernel predates `riscv_hwprobe`, so the syscall fails. Only on that failure does detection fall back to reading `/sys/firmware/devicetree/base/compatible`; a `scaleway,em-rv1` prefix yields the `scaleway-em-rv1` label. Any other board on a kernel without the syscall is treated as the original probe failure.
+The Scaleway EM-RV1 and Zhihe A210 support device tree fallback: if `riscv_hwprobe` fails (or for vendor kernels without the syscall), detection falls back to reading `/sys/firmware/devicetree/base/compatible`; a `scaleway,em-rv1` prefix yields `scaleway-em-rv1`, and `zhihe,a210` yields `zhihe-a210`. On heterogeneous multi-cluster RISC-V SoCs like the Zhihe A210 (ESWIN EIC7700X, 4x P550 cores 0-3 + 4x custom cores 4-7), an all-CPU `riscv_hwprobe(2)` query returns `-1` for keys that differ across clusters; `probeHWID` automatically queries CPU 0 to obtain the primary cluster triple. Any other board on a kernel without the syscall is treated as the original probe failure.
 
 ### DaemonSet configuration
 
