@@ -29,6 +29,9 @@ var socs = []SoC{
 	{Name: "spacemit-k1", ID: SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000001, MImpID: 0x1000000049772200}},
 	{Name: "spacemit-k3", ID: SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000002, MImpID: 0x0000000033d8a600}},
 	{Name: "spacemit-v100", ID: SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000002, MImpID: 0x0000000004c4d900}},
+	// zhihe-a210 has two heterogeneous 4-core clusters: primary cluster cores 0-3 (SiFive P550)
+	// and secondary cores 4-7. probeHWID automatically queries CPU 0 if all-CPU probe detects heterogeneity.
+	{Name: "zhihe-a210", ID: SoCID{MVendorID: 0x00000000000005b7, MArchID: 0x8000000009140d00, MImpID: 0x000000000100d000}},
 }
 
 // scalewayEMRV1 is identified by device tree, not hwprobe: its kernel lacks the
@@ -36,6 +39,11 @@ var socs = []SoC{
 var scalewayEMRV1 = SoC{
 	Name: "scaleway-em-rv1",
 	ID:   SoCID{MVendorID: 0x0, MArchID: 0x0, MImpID: 0x0},
+}
+
+var zhiheA210 = SoC{
+	Name: "zhihe-a210",
+	ID:   SoCID{MVendorID: 0x00000000000005b7, MArchID: 0x8000000009140d00, MImpID: 0x000000000100d000},
 }
 
 // Detect identifies the SoC from the riscv_hwprobe (mvendorid, marchid, mimpid)
@@ -52,6 +60,11 @@ func Detect() (SoC, error) {
 		id.MVendorID, id.MArchID, id.MImpID)
 	s, ok := match(id)
 	if !ok {
+		klog.Warningf("no known SoC for riscv_hwprobe IDs (mvendorid=%#x marchid=%#x mimpid=%#x), falling back to device tree",
+			id.MVendorID, id.MArchID, id.MImpID)
+		if dtSoC, dtErr := detectFromDeviceTree(nil); dtErr == nil {
+			return dtSoC, nil
+		}
 		return SoC{}, fmt.Errorf("no known SoC for riscv_hwprobe IDs "+
 			"mvendorid=%#x marchid=%#x mimpid=%#x", id.MVendorID, id.MArchID, id.MImpID)
 	}
@@ -67,14 +80,20 @@ func match(id SoCID) (SoC, bool) {
 	return SoC{}, false
 }
 
-// detectFromDeviceTree recognizes only the Scaleway EM-RV1. Any other board is
-// reported as the original probe failure.
+// detectFromDeviceTree recognizes the Scaleway EM-RV1 and Zhihe A210.
+// Any other board is reported as the original probe failure.
 func detectFromDeviceTree(probeErr error) (SoC, error) {
 	compatible := readCompatible()
 	if matchScaleway(compatible) {
 		return scalewayEMRV1, nil
 	}
-	return SoC{}, fmt.Errorf("riscv_hwprobe failed and device tree is not a known board: %w", probeErr)
+	if matchZhihe(compatible) {
+		return zhiheA210, nil
+	}
+	if probeErr != nil {
+		return SoC{}, fmt.Errorf("riscv_hwprobe failed and device tree is not a known board: %w", probeErr)
+	}
+	return SoC{}, fmt.Errorf("device tree is not a known board: %q", compatible)
 }
 
 // matchScaleway reports whether a device tree "compatible" property (a set of
@@ -83,6 +102,18 @@ func matchScaleway(compatible string) bool {
 	const scalewayCompatible = "scaleway,em-rv1"
 	for _, entry := range strings.Split(compatible, "\x00") {
 		if strings.HasPrefix(strings.TrimSpace(entry), scalewayCompatible) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchZhihe reports whether a device tree "compatible" property identifies a
+// Zhihe A210 board.
+func matchZhihe(compatible string) bool {
+	const zhiheCompatible = "zhihe,a210"
+	for _, entry := range strings.Split(compatible, "\x00") {
+		if strings.HasPrefix(strings.TrimSpace(entry), zhiheCompatible) {
 			return true
 		}
 	}
