@@ -1,4 +1,31 @@
 ---
+- name: Configure k8s modules to load at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      {{ modules_to_load_k8s | join('\n') }}
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Load required k8s kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ modules_to_load_k8s }}"
+
+- name: Configure sysctl for Kubernetes networking
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/k8s.conf
+    state: present
+    reload: true
+  loop:
+    - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { key: 'net.ipv4.ip_forward', value: '1' }
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true

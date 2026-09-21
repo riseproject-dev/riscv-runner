@@ -109,14 +109,6 @@
       args:
         chdir: "/usr/lib/modules/{{ ansible_facts['kernel'] }}/source"
 
-- name: Configure k8s modules to load at boot
-  ansible.builtin.copy:
-    dest: /etc/modules-load.d/k8s.conf
-    content: |
-      {{ modules_to_load_k8s | join('\n') }}
-    owner: root
-    group: root
-    mode: '0644'
 
 - name: Configure user modules to load at boot
   ansible.builtin.copy:
@@ -126,12 +118,6 @@
     owner: root
     group: root
     mode: '0644'
-
-- name: Load required k8s kernel modules
-  community.general.modprobe:
-    name: "{{ item }}"
-    state: present
-  loop: "{{ modules_to_load_k8s }}"
 
 - name: Configure modprobe blacklist for algif_aead
   ansible.builtin.copy:

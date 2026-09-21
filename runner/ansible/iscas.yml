@@ -1,6 +1,7 @@
 ---
 - name: Configure ISCAS Runners
   hosts: iscas
+  serial: 16
   become: true
   gather_facts: true
   gather_subset: min
