@@ -1,17 +1,3 @@
 ---
-- name: Configure RISC-V Baremetal Runner
-  hosts: all
-  become: true
-  gather_facts: true
-  gather_subset: min
-
-  roles:
-    - role: kernelspace
-      tags:
-        - kernelspace
-        - kernel
-
-    - role: userspace
-      tags:
-        - userspace
-        - user
+- import_playbook: scaleway.yml
+- import_playbook: iscas.yml

@@ -1,0 +1,12 @@
+---
+- name: Configure ISCAS Runners
+  hosts: iscas
+  become: true
+  gather_facts: true
+  gather_subset: min
+
+  roles:
+    - role: userspace
+      tags:
+        - userspace
+        - user
