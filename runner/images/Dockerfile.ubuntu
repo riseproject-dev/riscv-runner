@@ -404,7 +404,7 @@ EOF
 FROM base-builder AS node-24
 
 ARG NODE24_VERSION=24.20.0
-ARG NODE24_SHA256=cd1f14af2812148002f58b58a5f9af512a50e3b8e8c148e0db44019dcb68edfd # https://unofficial-builds.nodejs.org/download/release/v24.19.0/SHASUMS256.txt
+ARG NODE24_SHA256=a149c5bf85f98ff10a01456af884061e32ff671677e72f650d4e2169f8b39467   # https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/SHASUMS256.txt
 ADD --link --checksum=sha256:${NODE24_SHA256} https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/node-v${NODE24_VERSION}-linux-riscv64.tar.xz /tmp/node-v${NODE24_VERSION}-linux-riscv64.tar.xz
 RUN bash -eux -o pipefail <<'EOF'
     # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64
@@ -466,7 +466,7 @@ ADD --link --checksum=sha256:${DOCKERCOMPOSE_SHA256} --chmod=+x https://github.c
 FROM base-builder AS docker-buildx
 
 ARG DOCKERBUILDX_VERSION=0.37.0
-ARG DOCKERBUILDX_SHA256=5e82f0ada635dabda74f1486dea604e0ea3a1214971ec8c52dcb4db6e08cce26 # https://github.com/docker/buildx/releases/v${DOCKERBUILDX_VERSION}
+ARG DOCKERBUILDX_SHA256=8de7783c3dae7b14b361a20d35b15d9368a31a85791da53e4e96e146c7ab120a # https://github.com/docker/buildx/releases/v${DOCKERBUILDX_VERSION}
 ADD --link --checksum=sha256:${DOCKERBUILDX_SHA256} --chmod=+x https://github.com/docker/buildx/releases/download/v${DOCKERBUILDX_VERSION}/buildx-v${DOCKERBUILDX_VERSION}.linux-riscv64 /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # Build kubernetes
