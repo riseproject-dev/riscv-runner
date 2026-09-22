@@ -25,6 +25,7 @@ const (
 	PyTorchOrgID            int64 = 21003710  // github.com/pytorch
 	GGMLOrgID               int64 = 134263123 // github.com/ggml-org (for llama.cpp)
 	RuyiAIOrgID             int64 = 257673382 // github.com/RuyiAI-Stack
+	CondaForgeOrgID         int64 = 11897326  // github.com/conda-forge
 	LuhenryUserID           int64 = 660779    // github.com/luhenry
 	MengZhuoUserID          int64 = 885662    // github.com/mengzhuo
 
@@ -59,11 +60,12 @@ type EntityConfig struct {
 
 // EntityConfigs is keyed by entity id (org id or user id).
 var EntityConfigs = map[int64]EntityConfig{
-	RiseprojectDevOrgID:     {MaxWorkers: intPtr(40)},
-	RiseprojectStagingOrgID: {MaxWorkers: intPtr(40), Staging: true},
+	RiseprojectDevOrgID:     {MaxWorkers: intPtr(30)},
+	RiseprojectStagingOrgID: {MaxWorkers: intPtr(20), Staging: true},
 	PyTorchOrgID:            {MaxWorkers: intPtr(20)},
 	GGMLOrgID:               {MaxWorkers: intPtr(20)},
-	LuhenryUserID:           {MaxWorkers: intPtr(40)},
+	CondaForgeOrgID:         {MaxWorkers: intPtr(30)},
+	LuhenryUserID:           {MaxWorkers: intPtr(20)},
 }
 
 // DefaultMaxWorkers applies when an entity has no entry in EntityConfigs.
