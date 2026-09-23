@@ -30,6 +30,7 @@ const (
 	ProviderCloudV10x = "cloudv10x"
 	ProviderISCAS     = "iscas"
 	ProviderMengZhuo  = "mengzhuo"
+	ProviderRISE      = "rise"
 )
 
 // ErrEmptySelector guards the node queries: a selector without a board would

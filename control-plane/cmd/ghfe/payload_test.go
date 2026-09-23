@@ -87,7 +87,7 @@ func TestMatchLabelsToK8s(t *testing.T) {
 		wantOK    bool
 	}{
 		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
-		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu26, true},
+		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, sel(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true},
 		{"general rva23", 999, "x/y", []string{"ubuntu-24.04-riscv", "rva23"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
 		{"general rva23 reversed order", 999, "x/y", []string{"rva23", "ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
 		{"general no labels", 999, "x/y", []string{}, internal.NodeSelector{}, "", false},

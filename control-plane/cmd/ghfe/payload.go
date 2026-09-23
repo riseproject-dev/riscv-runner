@@ -149,7 +149,7 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true
 	}
 	if len(labels) == 1 && labels[0] == "ubuntu-26.04-riscv" {
-		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu26, true
+		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true
 	}
 	return internal.NodeSelector{}, "", false
 }
