@@ -22,18 +22,6 @@ type SoC struct {
 	Name string
 }
 
-// socs is the hand-maintained list of known SoCs, keyed by the riscv_hwprobe
-// identity triple. Read the "riscv_hwprobe IDs: ..." log line on a node to add
-// an entry.
-var socs = []SoC{
-	{Name: "spacemit-k1", ID: SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000001, MImpID: 0x1000000049772200}},
-	{Name: "spacemit-k3", ID: SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000002, MImpID: 0x0000000033d8a600}},
-	{Name: "spacemit-v100", ID: SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000002, MImpID: 0x0000000004c4d900}},
-	// zhihe-a210 has two heterogeneous 4-core clusters: primary cluster cores 0-3 (SiFive P550)
-	// and secondary cores 4-7. probeHWID automatically queries CPU 0 if all-CPU probe detects heterogeneity.
-	{Name: "zhihe-a210", ID: SoCID{MVendorID: 0x00000000000005b7, MArchID: 0x8000000009140d00, MImpID: 0x000000000100d000}},
-}
-
 // scalewayEMRV1 is identified by device tree, not hwprobe: its kernel lacks the
 // syscall. The ID triple is known and filled in by hand for observability.
 var scalewayEMRV1 = SoC{
@@ -41,9 +29,33 @@ var scalewayEMRV1 = SoC{
 	ID:   SoCID{MVendorID: 0x0, MArchID: 0x0, MImpID: 0x0},
 }
 
+var spacemitK1 = SoC{
+	Name: "spacemit-k1",
+	ID:   SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000001, MImpID: 0x1000000049772200},
+}
+var spacemitK3 = SoC{
+	Name: "spacemit-k3",
+	ID:   SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000002, MImpID: 0x0000000033d8a600},
+}
+var spacemitV100 = SoC{
+	Name: "spacemit-v100",
+	ID:   SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000002, MImpID: 0x0000000004c4d900},
+}
+
+// zhihe-a210 has two heterogeneous 4-core clusters: primary cluster cores 0-3 (SiFive P550)
+// and secondary cores 4-7. probeHWID automatically queries CPU 0 if all-CPU probe detects heterogeneity.
 var zhiheA210 = SoC{
 	Name: "zhihe-a210",
 	ID:   SoCID{MVendorID: 0x00000000000005b7, MArchID: 0x8000000009140d00, MImpID: 0x000000000100d000},
+}
+
+// socs is the hand-maintained list of known SoCs, keyed by the riscv_hwprobe
+// identity triple. Read the "riscv_hwprobe IDs: ..." log line on a node to add
+// an entry.
+var socs = []SoC{
+	spacemitK1,
+	spacemitK3,
+	spacemitV100,
 }
 
 // Detect identifies the SoC from the riscv_hwprobe (mvendorid, marchid, mimpid)
@@ -87,7 +99,10 @@ func detectFromDeviceTree(probeErr error) (SoC, error) {
 	if matchScaleway(compatible) {
 		return scalewayEMRV1, nil
 	}
-	if matchZhihe(compatible) {
+	if matchSpacemitK3(compatible) {
+		return spacemitK3, nil
+	}
+	if matchZhiheA210(compatible) {
 		return zhiheA210, nil
 	}
 	if probeErr != nil {
@@ -108,12 +123,22 @@ func matchScaleway(compatible string) bool {
 	return false
 }
 
-// matchZhihe reports whether a device tree "compatible" property identifies a
+// matchZhiheA210 reports whether a device tree "compatible" property identifies a
 // Zhihe A210 board.
-func matchZhihe(compatible string) bool {
-	const zhiheCompatible = "zhihe,a210"
+func matchZhiheA210(compatible string) bool {
+	const zhiheA210Compatible = "zhihe,a210"
 	for _, entry := range strings.Split(compatible, "\x00") {
-		if strings.HasPrefix(strings.TrimSpace(entry), zhiheCompatible) {
+		if strings.HasPrefix(strings.TrimSpace(entry), zhiheA210Compatible) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchSpacemitK3(compatible string) bool {
+	const spacemitK3Compatible = "spacemit,k3"
+	for _, entry := range strings.Split(compatible, "\x00") {
+		if strings.HasPrefix(strings.TrimSpace(entry), spacemitK3Compatible) {
 			return true
 		}
 	}

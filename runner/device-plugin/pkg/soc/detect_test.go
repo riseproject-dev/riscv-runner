@@ -68,7 +68,7 @@ func TestMatchScaleway(t *testing.T) {
 	}
 }
 
-func TestMatchZhihe(t *testing.T) {
+func TestMatchZhiheA210(t *testing.T) {
 	tests := []struct {
 		name       string
 		compatible string
@@ -83,8 +83,31 @@ func TestMatchZhihe(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := matchZhihe(tt.compatible); got != tt.want {
-				t.Errorf("matchZhihe(%q) = %v, want %v", tt.compatible, got, tt.want)
+			if got := matchZhiheA210(tt.compatible); got != tt.want {
+				t.Errorf("matchZhiheA210(%q) = %v, want %v", tt.compatible, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMatchSpacemitK3(t *testing.T) {
+	tests := []struct {
+		name       string
+		compatible string
+		want       bool
+	}{
+		{"exact match", "spacemit,k3", true},
+		{"prefix match", "spacemit,k3-pico-itx", true},
+		{"trailing entries", "spacemit,k3-pico-itx\x00riscv", true},
+		{"leading whitespace", "  spacemit,k3-pico-itx  ", true},
+		{"other board", "spacemit,k1-x", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchSpacemitK3(tt.compatible); got != tt.want {
+				t.Errorf("matchSpacemitK3(%q) = %v, want %v", tt.compatible, got, tt.want)
 			}
 		})
 	}
