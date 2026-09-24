@@ -122,7 +122,7 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 		(isRiseprojectDevScope &&
 			(repoFullName == "riseproject-dev/llama.cpp" || repoFullName == "riseproject-dev/llama.cpp-validation"))
 	if isGGMLScope {
-		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
+		if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu24 {
 			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true
 		}
 		return internal.NodeSelector{}, "", false
@@ -130,25 +130,31 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 
 	isMengZhuoScope := orgID == internal.MengZhuoUserID
 	if isMengZhuoScope {
-		if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
+		if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu24 {
 			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true
 		}
 	}
 
 	isRuyiAIScope := orgID == internal.RuyiAIOrgID
 	if isRuyiAIScope || isLuhenryScope {
-		if len(labels) == 3 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") && slices.Contains(labels, "xlarge") {
+		if len(labels) == 3 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVA23) && slices.Contains(labels, internal.GitHubLabelXL) {
 			return nodeSelector(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true
+		}
+		if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVA23) {
+			return nodeSelector(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true
+		}
+		if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVV) {
+			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderISCAS), cfg.ImageUbuntu24, true
 		}
 	}
 
-	if len(labels) == 1 && labels[0] == "ubuntu-24.04-riscv" {
+	if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu24 {
 		return nodeSelector(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true
 	}
-	if len(labels) == 2 && slices.Contains(labels, "ubuntu-24.04-riscv") && slices.Contains(labels, "rva23") {
-		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true
+	if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVA23) {
+		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu24, true
 	}
-	if len(labels) == 1 && labels[0] == "ubuntu-26.04-riscv" {
+	if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu26 {
 		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true
 	}
 	return internal.NodeSelector{}, "", false

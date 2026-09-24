@@ -14,6 +14,14 @@ const (
 	LabelProvider = "riseproject.dev/provider"
 )
 
+const (
+	GitHubLabelUbuntu24 = "ubuntu-24.04-riscv"
+	GitHubLabelUbuntu26 = "ubuntu-26.04-riscv"
+	GitHubLabelRVV      = "rvv"
+	GitHubLabelRVA23    = "rva23"
+	GitHubLabelXL       = "xlarge"
+)
+
 // Board values must match the SoC names the device plugin writes to
 // riseproject.dev/board (runner/device-plugin/pkg/soc/detect.go). A rename on
 // either side strands jobs at available=0.

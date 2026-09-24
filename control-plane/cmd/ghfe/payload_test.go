@@ -86,25 +86,25 @@ func TestMatchLabelsToK8s(t *testing.T) {
 		wantImage string
 		wantOK    bool
 	}{
-		{"general ubuntu-24", 999, "x/y", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
-		{"general ubuntu-26", 999, "x/y", []string{"ubuntu-26.04-riscv"}, sel(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true},
-		{"general rva23", 999, "x/y", []string{"ubuntu-24.04-riscv", "rva23"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
-		{"general rva23 reversed order", 999, "x/y", []string{"rva23", "ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"general ubuntu-24", 999, "x/y", []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
+		{"general ubuntu-26", 999, "x/y", []string{internal.GitHubLabelUbuntu26}, sel(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true},
+		{"general rva23", 999, "x/y", []string{internal.GitHubLabelUbuntu24, internal.GitHubLabelRVA23}, sel(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu24, true},
+		{"general rva23 reversed order", 999, "x/y", []string{internal.GitHubLabelRVA23, internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu24, true},
 		{"general no labels", 999, "x/y", []string{}, internal.NodeSelector{}, "", false},
 		{"general other", 999, "x/y", []string{"ubuntu-98.04-riscv"}, internal.NodeSelector{}, "", false},
 
-		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
-		{"ggml with extra label", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-24.04-riscv", "extra"}, internal.NodeSelector{}, "", false},
-		{"ggml scope blocks ubuntu-26", internal.GGMLOrgID, "ggml/llama.cpp", []string{"ubuntu-26.04-riscv"}, internal.NodeSelector{}, "", false},
-		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
-		{"riseproject llama.cpp-validation ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp-validation", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
+		{"ggml ubuntu-24", internal.GGMLOrgID, "ggml/llama.cpp", []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
+		{"ggml with extra label", internal.GGMLOrgID, "ggml/llama.cpp", []string{internal.GitHubLabelUbuntu24, "extra"}, internal.NodeSelector{}, "", false},
+		{"ggml scope blocks ubuntu-26", internal.GGMLOrgID, "ggml/llama.cpp", []string{internal.GitHubLabelUbuntu26}, internal.NodeSelector{}, "", false},
+		{"riseproject llama.cpp ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp", []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
+		{"riseproject llama.cpp-validation ubuntu-24", internal.RiseprojectDevOrgID, "riseproject-dev/llama.cpp-validation", []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true},
 
 		// Same board as ggml, different provider.
-		{"mengzhuo ubuntu-24", internal.MengZhuoUserID, "mengzhuo/r", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true},
+		{"mengzhuo ubuntu-24", internal.MengZhuoUserID, "mengzhuo/r", []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true},
 
-		{"ruyiai xlarge", internal.RuyiAIOrgID, "ruyi/r", []string{"ubuntu-24.04-riscv", "rva23", "xlarge"}, sel(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
-		{"luhenry xlarge", internal.LuhenryUserID, "luhenry/r", []string{"xlarge", "rva23", "ubuntu-24.04-riscv"}, sel(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
-		{"ruyiai falls through to default", internal.RuyiAIOrgID, "ruyi/r", []string{"ubuntu-24.04-riscv"}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
+		{"ruyiai xlarge", internal.RuyiAIOrgID, "ruyi/r", []string{internal.GitHubLabelUbuntu24, internal.GitHubLabelRVA23, internal.GitHubLabelXL}, sel(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"luhenry xlarge", internal.LuhenryUserID, "luhenry/r", []string{internal.GitHubLabelXL, internal.GitHubLabelRVA23, internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"ruyiai falls through to default", internal.RuyiAIOrgID, "ruyi/r", []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
 	}
 
 	for _, tc := range tests {
