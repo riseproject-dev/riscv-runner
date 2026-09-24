@@ -113,8 +113,7 @@
 - name: Configure user modules to load at boot
   ansible.builtin.copy:
     dest: /etc/modules-load.d/users.conf
-    content: |
-      {{ modules_to_load_users | join('\n') }}
+    content: "{{ modules_to_load_users | join('\n') }}\n"
     owner: root
     group: root
     mode: '0644'

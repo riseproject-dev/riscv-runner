@@ -2,8 +2,7 @@
 - name: Configure k8s modules to load at boot
   ansible.builtin.copy:
     dest: /etc/modules-load.d/k8s.conf
-    content: |
-      {{ modules_to_load_k8s | join('\n') }}
+    content: "{{ modules_to_load_k8s | join('\n') }}\n"
     owner: root
     group: root
     mode: '0644'
