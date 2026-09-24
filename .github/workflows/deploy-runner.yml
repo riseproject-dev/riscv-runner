@@ -89,9 +89,9 @@ jobs:
             ghcr.io/${{ github.repository }}/runner/${{ matrix.os }}-${{ matrix.os-version }}:sha-${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
-            ${{ format('type=gha,scope=runner-{0}-{1}', matrix.os, matrix.os-version) }}
+            ${{ format('type=registry,ref=ghcr.io/{0}/runner/{1}-{2}:buildcache', github.repository, matrix.os, matrix.os-version) }}
           cache-to: |
-            ${{ github.ref_name == github.event.repository.default_branch && format('type=gha,scope=runner-{0}-{1},mode=max', matrix.os, matrix.os-version) || '' }}
+            ${{ github.ref_name == github.event.repository.default_branch && format('type=registry,ref=ghcr.io/{0}/runner/{1}-{2}:buildcache,mode=max', github.repository, matrix.os, matrix.os-version) || '' }}
           push: ${{ needs.setup.outputs.push-images == 'true' }}
           pull: ${{ github.ref_name == github.event.repository.default_branch }}
 
@@ -158,9 +158,9 @@ jobs:
             ghcr.io/${{ github.repository }}/device-plugin:sha-${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
-            type=gha,scope=docker
+            ${{ format('type=registry,ref=ghcr.io/{0}/device-plugin:buildcache', github.repository) }}
           cache-to: |
-            ${{ github.ref_name == github.event.repository.default_branch && 'type=gha,scope=docker' || '' }}
+            ${{ github.ref_name == github.event.repository.default_branch && format('type=registry,ref=ghcr.io/{0}/device-plugin:buildcache', github.repository) || '' }}
           push: ${{ needs.setup.outputs.push-images == 'true' }}
           pull: ${{ github.ref_name == github.event.repository.default_branch }}
 
