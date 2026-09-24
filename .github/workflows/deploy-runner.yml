@@ -224,6 +224,7 @@ jobs:
             kubectl get pods -o wide -n kube-system \
               -l app.kubernetes.io/name=riscv-runner-device-plugin \
               -l app.kubernetes.io/component=device-plugin \
+              -L riseproject.dev/provider -L riseproject.dev/board \
               --sort-by=.spec.nodeName 2>/dev/null
           done
 
@@ -297,6 +298,7 @@ jobs:
             kubectl get pods -o wide -n kube-system \
               -l app.kubernetes.io/name=riscv-runner-device-plugin \
               -l app.kubernetes.io/component=device-plugin \
+              -L riseproject.dev/provider -L riseproject.dev/board \
               --sort-by=.spec.nodeName 2>/dev/null
           done
 
