@@ -9,6 +9,8 @@ For the full image inventory (every preinstalled tool with its version), the bui
 ```
 runner/images/
 ├── Dockerfile.ubuntu              Runner image (multi-stage, parameterised by OS_VERSION)
+├── Dockerfile.kube-proxy          Multi-architecture Kubernetes kube-proxy image
+├── Dockerfile.pause               Multi-architecture Kubernetes pause image
 └── riscv-runner-entrypoint.sh     PID-1 entrypoint, exec's run.sh --jitconfig "$RUNNER_JITCONFIG"
 ```
 
@@ -31,6 +33,28 @@ docker buildx build \
 ```
 
 Best run on a RISC-V host so no emulation is involved. On x86_64, `binfmt_misc` with QEMU will let the build complete, slowly.
+
+Build the Debian trixie-based kube-proxy image for all supported architectures:
+
+```sh
+docker buildx build \
+  --platform linux/amd64,linux/arm64,linux/riscv64 \
+  --file Dockerfile.kube-proxy \
+  --tag ghcr.io/riseproject-dev/riscv-runner/kube-proxy:v1.35.0 \
+  --push \
+  .
+```
+
+Build the pause image for the same architectures:
+
+```sh
+docker buildx build \
+  --platform linux/amd64,linux/arm64,linux/riscv64 \
+  --file Dockerfile.pause \
+  --tag ghcr.io/riseproject-dev/riscv-runner/pause:3.10 \
+  --push \
+  .
+```
 
 ## Updating pinned versions
 

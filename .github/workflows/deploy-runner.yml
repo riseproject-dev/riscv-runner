@@ -22,6 +22,9 @@ permissions:
   contents: write
   packages: write
 
+env:
+  KUBERNETES_VERSION: v1.35.9
+
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -92,6 +95,98 @@ jobs:
             ${{ format('type=registry,ref=ghcr.io/{0}/runner/{1}-{2}:buildcache', github.repository, matrix.os, matrix.os-version) }}
           cache-to: |
             ${{ github.ref_name == github.event.repository.default_branch && format('type=registry,ref=ghcr.io/{0}/runner/{1}-{2}:buildcache,mode=max', github.repository, matrix.os, matrix.os-version) || '' }}
+          push: ${{ needs.setup.outputs.push-images == 'true' }}
+          pull: ${{ github.ref_name == github.event.repository.default_branch }}
+
+  build-kube-proxy:
+    runs-on: ubuntu-latest
+    needs: [setup]
+    permissions:
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Login to Container Registry
+        if: ${{ needs.setup.outputs.push-images == 'true' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # 4.3.0
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+
+      - name: Build kube-proxy image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          SOURCE_DATE_EPOCH: 0
+        with:
+          context: runner/images
+          file: runner/images/Dockerfile.kube-proxy
+          platforms: linux/amd64,linux/arm64,linux/riscv64
+          build-args: |
+            KUBERNETES_VERSION=${{ env.KUBERNETES_VERSION }}
+          tags: ghcr.io/${{ github.repository }}/kube-proxy:${{ env.KUBERNETES_VERSION }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            ${{ format('type=registry,ref=ghcr.io/{0}/kube-proxy:buildcache', github.repository) }}
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && format('type=registry,ref=ghcr.io/{0}/kube-proxy:buildcache,mode=max', github.repository) || '' }}
+          push: ${{ needs.setup.outputs.push-images == 'true' }}
+          pull: ${{ github.ref_name == github.event.repository.default_branch }}
+
+  build-pause:
+    runs-on: ubuntu-latest
+    needs: [setup]
+    permissions:
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Login to Container Registry
+        if: ${{ needs.setup.outputs.push-images == 'true' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # 4.3.0
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+
+      - name: Build pause image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          SOURCE_DATE_EPOCH: 0
+        with:
+          context: runner/images
+          file: runner/images/Dockerfile.pause
+          platforms: linux/amd64,linux/arm64,linux/riscv64
+          build-args: |
+            KUBERNETES_VERSION=${{ env.KUBERNETES_VERSION }}
+          tags: ghcr.io/${{ github.repository }}/pause:3.10
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            ${{ format('type=registry,ref=ghcr.io/{0}/pause:buildcache', github.repository) }}
+          cache-to: |
+            ${{ github.ref_name == github.event.repository.default_branch && format('type=registry,ref=ghcr.io/{0}/pause:buildcache,mode=max', github.repository) || '' }}
           push: ${{ needs.setup.outputs.push-images == 'true' }}
           pull: ${{ github.ref_name == github.event.repository.default_branch }}
 
@@ -167,7 +262,7 @@ jobs:
   deploy-staging:
     if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
     name: "deploy to staging"
-    needs: [setup, build-images, build-device-plugin]
+    needs: [setup, build-images, build-kube-proxy, build-pause, build-device-plugin]
     runs-on: ubuntu-latest
     environment: staging
     concurrency:

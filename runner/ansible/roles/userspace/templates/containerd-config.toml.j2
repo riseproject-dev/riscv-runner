@@ -10,7 +10,7 @@ version = 2
 
 [plugins]
   [plugins."io.containerd.grpc.v1.cri"]
-    sandbox_image = "cloudv10x/pause:3.10"
+    sandbox_image = "ghcr.io/riseproject-dev/riscv-runner/pause:3.10"
     [plugins."io.containerd.grpc.v1.cri".containerd]
       [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
         [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
