@@ -1355,7 +1355,7 @@ runcmd:
     mkdir -p /etc/containerd
     containerd config default > /etc/containerd/config.toml
     sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
-    sed -i 's|sandbox_image = ".*"|sandbox_image = "cloudv10x/pause:3.10"|' /etc/containerd/config.toml
+    sed -i 's|sandbox_image = ".*"|sandbox_image = "ghcr.io/riseproject-dev/riscv-runner/pause:3.10"|' /etc/containerd/config.toml
     systemctl restart containerd
 
   # Install kubelet, kubeadm, kubectl from official apt-get repo
@@ -1394,7 +1394,7 @@ runcmd:
     kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
 
     # Switch kube-proxy to the multi-arch compatible image
-    kubectl set image daemonset/kube-proxy -n kube-system kube-proxy=cloudv10x/kube-proxy:1.35.0
+    kubectl set image daemonset/kube-proxy -n kube-system kube-proxy=ghcr.io/riseproject-dev/riscv-runner/kube-proxy:v1.35.0
 
     # Create user kubeconfigs (these will use the private IP as server address;
     # the script replaces it with the public IP when printing)

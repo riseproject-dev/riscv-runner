@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+
+ARG BUILDARCH
+FROM --platform=linux/${BUILDARCH} golang:1.25.5-trixie AS build
+
+ARG KUBERNETES_VERSION=v1.35.0
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends rsync
+
+ENV GOTOOLCHAIN=local
+
+ADD https://github.com/kubernetes/kubernetes.git#${KUBERNETES_VERSION} /src/kubernetes
+
+WORKDIR /src/kubernetes
+
+RUN KUBE_BUILD_PLATFORMS="linux/${TARGETARCH}" make WHAT=cmd/kube-proxy \
+    && find _output -type f -name kube-proxy -perm /111 -exec cp {} /kube-proxy \; -quit \
+    && test -x /kube-proxy
+
+FROM debian:trixie-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      conntrack \
+      iproute2 \
+      ipset \
+      iptables \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build --chmod=755 /kube-proxy /usr/local/bin/kube-proxy
+
+ENTRYPOINT ["/usr/local/bin/kube-proxy"]

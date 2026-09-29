@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+
+FROM debian:trixie AS build
+
+ARG KUBERNETES_VERSION=v1.35.0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD --checksum=sha256:14a3fe21ab5f8e62937a2b453e76f3b94b0d3c7c04c3d09bc37195f54c1695ea \
+    https://raw.githubusercontent.com/kubernetes/kubernetes/${KUBERNETES_VERSION}/build/pause/linux/pause.c /pause.c
+
+RUN gcc -Os -Wall -Werror -static -o /pause /pause.c && strip /pause
+
+FROM scratch
+
+COPY --from=build --chmod=755 /pause /pause
+
+USER 65535:65535
+ENTRYPOINT ["/pause"]
