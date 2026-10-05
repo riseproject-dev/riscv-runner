@@ -387,7 +387,7 @@ EOF
 # Download Node.js 22
 FROM base-builder AS node-22
 
-ARG NODE22_VERSION=22.23.2
+ARG NODE22_VERSION=22.23.3
 ARG NODE22_SHA256=d41ba9978e1d267ef7e90c9100f8e390b64fba8b91afb7b4f3bdb32264e00a35 # https://unofficial-builds.nodejs.org/download/release/v22.23.2/SHASUMS256.txt
 ADD --link --checksum=sha256:${NODE22_SHA256} https://unofficial-builds.nodejs.org/download/release/v${NODE22_VERSION}/node-v${NODE22_VERSION}-linux-riscv64.tar.xz /tmp/node-v${NODE22_VERSION}-linux-riscv64.tar.xz
 RUN bash -eux -o pipefail <<'EOF'
@@ -419,7 +419,7 @@ EOF
 # Download Gradle
 FROM base-builder AS gradle
 
-ARG GRADLE_VERSION=9.7.1
+ARG GRADLE_VERSION=9.8.0
 ARG GRADLE_SHA256=acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a # https://services.gradle.org/distributions/gradle-9.7.1-bin.zip.sha256
 ADD --link --checksum=sha256:${GRADLE_SHA256} https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip /tmp/gradle-${GRADLE_VERSION}-bin.zip
 RUN bash -eux -o pipefail <<'EOF'
@@ -474,7 +474,7 @@ FROM go-1.26 AS kubernetes
 
 WORKDIR /build
 
-ARG KUBECTL_VERSION=1.37.0
+ARG KUBECTL_VERSION=1.37.1
 ADD --link --keep-git-dir https://github.com/kubernetes/kubernetes.git#v${KUBECTL_VERSION} /tmp/kubernetes
 RUN bash -eux -o pipefail <<'EOF'
     cd /tmp/kubernetes
@@ -796,7 +796,7 @@ EOF
 # Install Node
 ARG NODE20_VERSION=20.20.2
 COPY --link --from=node-20 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}
-ARG NODE22_VERSION=22.23.2
+ARG NODE22_VERSION=22.23.3
 COPY --link --from=node-22 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}
 ARG NODE24_VERSION=24.21.0
 COPY --link --from=node-24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}
@@ -815,7 +815,7 @@ ENV CARGO_HOME=/home/runner/.cargo
 ENV PATH=${RUSTUP_HOME}/bin:${CARGO_HOME}/bin:${PATH}
 
 # Install Gradle
-ARG GRADLE_VERSION=9.7.1
+ARG GRADLE_VERSION=9.8.0
 COPY --link --from=gradle --chmod=0777 /usr/share/gradle-${GRADLE_VERSION} /usr/share/gradle-${GRADLE_VERSION}
 ENV GRADLE_HOME=/usr/share/gradle-${GRADLE_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
