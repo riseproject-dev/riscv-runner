@@ -296,21 +296,17 @@ func (k *K8sClient) KillPod(ctx context.Context, podName string) error {
 // AvailableSlots returns total allocatable runner capacity on the selected
 // nodes and the count of currently active runner pods.
 //
-// Capacity is measured per board, ignoring the selector's provider, while pods
-// are still placed with both labels. Every board model currently has a single
-// provider, so the two agree; counting by board additionally covers runners
-// started before riseproject.dev/provider existed, which would otherwise look
-// idle and let the scheduler double-book their nodes. Narrow this to sel.Key()
-// once no board-only pods remain.
-//
 // Actives are counted by the node a pod occupies rather than by the pod's own
 // labels, since a pod consumes its node's slot whatever it is labelled with.
+// Empty and Unknown phases count until Kubernetes confirms the pod is terminal.
+// Unscheduled legacy pods without a provider count conservatively against each
+// matching board pool until Kubernetes schedules them.
 func (k *K8sClient) AvailableSlots(ctx context.Context, sel NodeSelector) (Capacity, error) {
 	if !sel.Valid() {
 		return Capacity{}, ErrEmptySelector
 	}
 	nodes, err := k.cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{
-		LabelSelector: LabelBoard + "=" + sel.Board,
+		LabelSelector: sel.Key(),
 	})
 	if err != nil {
 		return Capacity{}, err
@@ -330,30 +326,32 @@ func (k *K8sClient) AvailableSlots(ctx context.Context, sel NodeSelector) (Capac
 		return Capacity{}, err
 	}
 	active := 0
+	activeByEntity := make(map[int64]int)
 	for _, p := range pods.Items {
-		switch p.Status.Phase {
-		case corev1.PodPending:
-			// A Pending pod may not be scheduled yet. With no node to
-			// attribute it to, trust the board label it was created with.
-			if p.Spec.NodeName == "" {
-				if p.Labels[LabelBoard] == sel.Board {
-					active++
-				}
-				continue
-			}
-			if inPool[p.Spec.NodeName] {
-				active++
-			}
-		case corev1.PodRunning:
-			// A Running pod always has a node.
-			if inPool[p.Spec.NodeName] {
-				active++
-			}
-		default:
-			// Succeeded / Failed / Unknown release their slot.
+		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+			continue
 		}
+		counts := false
+		if p.Spec.NodeName == "" {
+			counts = p.Labels[LabelBoard] == sel.Board &&
+				(sel.Provider == "" || p.Labels[LabelProvider] == sel.Provider || p.Labels[LabelProvider] == "")
+		} else {
+			counts = inPool[p.Spec.NodeName]
+		}
+		if !counts {
+			continue
+		}
+		active++
+		entityID, err := strconv.ParseInt(p.Labels["riseproject.dev/entity_id"], 10, 64)
+		if err != nil {
+			continue
+		}
+		activeByEntity[entityID]++
 	}
-	return Capacity{Total: total, Active: active, Available: total - active}, nil
+	return Capacity{
+		Total: total, Active: active, Available: total - active,
+		ActiveByEntity: activeByEntity,
+	}, nil
 }
 
 // CollectPodFailureInfo builds the FailureInfoV2 shape: container exit

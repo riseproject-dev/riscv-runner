@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/riseproject-dev/riscv-runner/control-plane/internal"
 	"github.com/riseproject-dev/riscv-runner/control-plane/internal/testutil"
@@ -26,6 +27,216 @@ func schedTestApp() (*App, *testutil.FakeDB, *testutil.FakeGH, *testutil.FakeKub
 var scwSel = internal.NodeSelector{Board: internal.BoardScalewayEMRV1, Provider: internal.ProviderScaleway}
 
 var scwKey = scwSel.Key()
+
+func TestFairJobQueue_Empty(t *testing.T) {
+	queue := newFairJobQueue(nil)
+	if queue.len != 0 || len(queue.byEntity) != 0 {
+		t.Fatalf("got %+v, want empty queue", queue)
+	}
+}
+
+func TestRoundRobinByEntity(t *testing.T) {
+	jobs := []internal.Job{
+		{JobID: 1, EntityID: 1},
+		{JobID: 2, EntityID: 2},
+		{JobID: 3, EntityID: 2},
+		{JobID: 4, EntityID: 2},
+		{JobID: 5, EntityID: 2},
+		{JobID: 6, EntityID: 2},
+		{JobID: 7, EntityID: 3},
+		{JobID: 8, EntityID: 3},
+	}
+
+	ordered := drainFairJobQueue(jobs, nil)
+	want := []int64{1, 2, 7, 3, 8, 4, 5, 6}
+	for i, jobID := range want {
+		if ordered[i].JobID != jobID {
+			t.Fatalf("job at position %d = %d, want %d", i, ordered[i].JobID, jobID)
+		}
+	}
+}
+
+func TestRoundRobinByEntity_ReordersEntitiesEachRound(t *testing.T) {
+	t0 := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	at := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Minute) }
+	jobs := []internal.Job{
+		{JobID: 1, EntityID: 3, CreatedAt: at(0)},
+		{JobID: 2, EntityID: 2, CreatedAt: at(1)},
+		{JobID: 3, EntityID: 2, CreatedAt: at(2)},
+		{JobID: 4, EntityID: 2, CreatedAt: at(3)},
+		{JobID: 5, EntityID: 2, CreatedAt: at(4)},
+		{JobID: 6, EntityID: 1, CreatedAt: at(5)},
+		{JobID: 7, EntityID: 3, CreatedAt: at(5)},
+		{JobID: 8, EntityID: 2, CreatedAt: at(6)},
+	}
+
+	ordered := drainFairJobQueue(jobs, nil)
+	want := []int64{1, 2, 6, 3, 7, 4, 5, 8}
+	for i, jobID := range want {
+		if ordered[i].JobID != jobID {
+			t.Fatalf("job at position %d = %d, want %d", i, ordered[i].JobID, jobID)
+		}
+	}
+}
+
+func TestFairJobQueue_EqualTimestampsUseJobID(t *testing.T) {
+	timestamp := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	jobs := []internal.Job{
+		{JobID: 20, EntityID: 2, CreatedAt: timestamp},
+		{JobID: 10, EntityID: 1, CreatedAt: timestamp},
+	}
+
+	ordered := drainFairJobQueue(jobs, nil)
+	if ordered[0].JobID != 10 || ordered[1].JobID != 20 {
+		t.Fatalf("got job order [%d %d], want [10 20]", ordered[0].JobID, ordered[1].JobID)
+	}
+}
+
+func TestFairJobQueue_AccountsForExistingAllocations(t *testing.T) {
+	t0 := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	jobs := []internal.Job{
+		{JobID: 1, EntityID: 1, CreatedAt: t0},
+		{JobID: 2, EntityID: 2, CreatedAt: t0.Add(time.Minute)},
+		{JobID: 3, EntityID: 3, CreatedAt: t0.Add(2 * time.Minute)},
+	}
+
+	ordered := drainFairJobQueue(jobs, map[int64]int{1: 5, 2: 0, 3: 1})
+	want := []int64{2, 3, 1}
+	for i, jobID := range want {
+		if ordered[i].JobID != jobID {
+			t.Fatalf("job at position %d = %d, want %d", i, ordered[i].JobID, jobID)
+		}
+	}
+}
+
+func TestFairJobQueue_LeastAllocatedEntityCatchesUp(t *testing.T) {
+	t0 := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	jobs := []internal.Job{{JobID: 1, EntityID: 1, CreatedAt: t0}}
+	for i := int64(2); i <= 6; i++ {
+		jobs = append(jobs, internal.Job{JobID: i, EntityID: 2, CreatedAt: t0.Add(time.Duration(i) * time.Minute)})
+	}
+
+	ordered := drainFairJobQueue(jobs, map[int64]int{1: 5})
+	wantEntities := []int64{2, 2, 2, 2, 2, 1}
+	for i, entityID := range wantEntities {
+		if ordered[i].EntityID != entityID {
+			t.Fatalf("entity at position %d = %d, want %d", i, ordered[i].EntityID, entityID)
+		}
+	}
+}
+
+func drainFairJobQueue(jobs []internal.Job, active map[int64]int) []internal.Job {
+	if active == nil {
+		active = make(map[int64]int)
+	}
+	queue := newFairJobQueue(jobs)
+	ordered := make([]internal.Job, 0, len(jobs))
+	for queue.len > 0 {
+		job := queue.pop(active)
+		ordered = append(ordered, job)
+		active[job.EntityID]++
+	}
+	return ordered
+}
+
+func TestDemandMatch_LimitedCapacityPrefersLeastAllocatedEntity(t *testing.T) {
+	app, db, _, kube := schedTestApp()
+	t0 := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	db.Jobs = []internal.Job{
+		{
+			JobID: 1, Status: "pending", Provider: "github", CreatedAt: t0,
+			EntityID: 1, EntityName: "orga", EntityType: "Organization",
+			RepoFullName: "orga/r", InstallationID: 9, K8sSelector: scwSel, K8sImage: "img",
+		},
+		{
+			JobID: 2, Status: "pending", Provider: "github", CreatedAt: t0.Add(time.Minute),
+			EntityID: 2, EntityName: "orgb", EntityType: "Organization",
+			RepoFullName: "orgb/r", InstallationID: 10, K8sSelector: scwSel, K8sImage: "img",
+		},
+	}
+	db.SetPoolDemand(1, nil, 1, 0)
+	db.SetPoolDemand(2, nil, 1, 0)
+	kube.SlotsByPool[scwKey] = 1
+	kube.ActiveByEntityByPool[scwKey] = map[int64]int{1: 1}
+	var provisioned internal.Entity
+	kube.OnProvisionRunner = func(_, _, _ string, _ internal.NodeSelector, entity internal.Entity) error {
+		provisioned = entity
+		return nil
+	}
+
+	if err := app.demandMatch(context.Background()); err != nil {
+		t.Fatalf("demandMatch: %v", err)
+	}
+	if provisioned.ID != 2 {
+		t.Fatalf("provisioned entity %d, want 2", provisioned.ID)
+	}
+}
+
+func TestDemandMatch_FailedProvisionUpdatesLocalAllocation(t *testing.T) {
+	app, db, _, kube := schedTestApp()
+	t0 := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	db.Jobs = []internal.Job{
+		{
+			JobID: 1, Status: "pending", Provider: "github", CreatedAt: t0,
+			EntityID: 1, EntityName: "orga", EntityType: "Organization",
+			RepoFullName: "orga/r", InstallationID: 1, K8sSelector: scwSel, K8sImage: "img",
+		},
+		{
+			JobID: 2, Status: "pending", Provider: "github", CreatedAt: t0.Add(time.Minute),
+			EntityID: 1, EntityName: "orga", EntityType: "Organization",
+			RepoFullName: "orga/r", InstallationID: 1, K8sSelector: scwSel, K8sImage: "img",
+		},
+		{
+			JobID: 3, Status: "pending", Provider: "github", CreatedAt: t0.Add(2 * time.Minute),
+			EntityID: 2, EntityName: "orgb", EntityType: "Organization",
+			RepoFullName: "orgb/r", InstallationID: 2, K8sSelector: scwSel, K8sImage: "img",
+		},
+	}
+	db.SetPoolDemand(1, nil, 2, 0)
+	db.SetPoolDemand(2, nil, 1, 0)
+	kube.SlotsByPool[scwKey] = 2
+	var attempted []int64
+	kube.OnProvisionRunner = func(_, _, _ string, _ internal.NodeSelector, entity internal.Entity) error {
+		attempted = append(attempted, entity.ID)
+		if len(attempted) == 1 {
+			return errors.New("boom")
+		}
+		return nil
+	}
+
+	if err := app.demandMatch(context.Background()); err != nil {
+		t.Fatalf("demandMatch: %v", err)
+	}
+	if len(attempted) != 2 || attempted[0] != 1 || attempted[1] != 2 {
+		t.Fatalf("attempted entities %v, want [1 2]", attempted)
+	}
+}
+
+func TestDemandMatch_SatisfiedDemandDoesNotConsumeCapacity(t *testing.T) {
+	app, db, _, kube := schedTestApp()
+	for i := int64(1); i <= 2; i++ {
+		db.Jobs = append(db.Jobs, internal.Job{
+			JobID: i, Status: "pending", Provider: "github", EntityID: i,
+			EntityName: "org", EntityType: "Organization", RepoFullName: "org/r",
+			InstallationID: i, K8sSelector: scwSel, K8sImage: "img",
+		})
+	}
+	db.SetPoolDemand(1, nil, 1, 1)
+	db.SetPoolDemand(2, nil, 1, 0)
+	kube.SlotsByPool[scwKey] = 1
+	var provisioned int64
+	kube.OnProvisionRunner = func(_, _, _ string, _ internal.NodeSelector, entity internal.Entity) error {
+		provisioned = entity.ID
+		return nil
+	}
+
+	if err := app.demandMatch(context.Background()); err != nil {
+		t.Fatalf("demandMatch: %v", err)
+	}
+	if provisioned != 2 {
+		t.Fatalf("provisioned entity %d, want 2", provisioned)
+	}
+}
 
 // TestDemandMatch_SkipsWhenSlotsNonPositive locks invariant 40476b8: skip on
 // available_slots <= 0, never go negative.
@@ -126,6 +337,38 @@ func TestDemandMatch_RespectsEntityMaxWorkers(t *testing.T) {
 	}
 }
 
+func TestDemandMatch_EntityAtMaxDoesNotBlockOthers(t *testing.T) {
+	app, db, _, kube := schedTestApp()
+	db.Jobs = []internal.Job{
+		{
+			JobID: 1, Status: "pending", Provider: "github",
+			EntityID: internal.PyTorchOrgID, EntityName: "pytorch", EntityType: "Organization",
+			RepoFullName: "pytorch/pytorch", InstallationID: 1, K8sSelector: scwSel, K8sImage: "img",
+		},
+		{
+			JobID: 2, Status: "pending", Provider: "github",
+			EntityID: 2, EntityName: "orgb", EntityType: "Organization",
+			RepoFullName: "orgb/r", InstallationID: 2, K8sSelector: scwSel, K8sImage: "img",
+		},
+	}
+	db.SetPoolDemand(internal.PyTorchOrgID, nil, 1, 0)
+	db.SetPoolDemand(2, nil, 1, 0)
+	db.EntityWorkerCnt[internal.PyTorchOrgID] = 20
+	kube.SlotsByPool[scwKey] = 1
+	var provisioned int64
+	kube.OnProvisionRunner = func(_, _, _ string, _ internal.NodeSelector, entity internal.Entity) error {
+		provisioned = entity.ID
+		return nil
+	}
+
+	if err := app.demandMatch(context.Background()); err != nil {
+		t.Fatalf("demandMatch: %v", err)
+	}
+	if provisioned != 2 {
+		t.Fatalf("provisioned entity %d, want 2", provisioned)
+	}
+}
+
 // TestDemandMatch_RateLimitedEntityBacksOffButOthersProceed locks the incident
 // fix: when one entity's token is rate limited, we stop trying to provision for
 // that entity this iteration (no repeated 403s) yet still handle other entities
@@ -185,8 +428,8 @@ func TestDemandMatch_RateLimitedEntityBacksOffButOthersProceed(t *testing.T) {
 // TestDemandMatch_GroupsPerProviderOnSameBoard: jobs differing only by
 // provider form separate groups, each getting its own capacity lookup and
 // budget, and each runner is provisioned with its own selector. Whether those
-// budgets are actually distinct in the cluster is AvailableSlots' business
-// (see TestAvailableSlots_MeasuredPerBoard).
+// budgets are distinct in the cluster is AvailableSlots' business
+// (see TestAvailableSlots_MeasuredPerSelector).
 func TestDemandMatch_GroupsPerProviderOnSameBoard(t *testing.T) {
 	app, db, _, kube := schedTestApp()
 	cloudv := internal.NodeSelector{Board: internal.BoardSpacemitK1, Provider: internal.ProviderCloudV10x}

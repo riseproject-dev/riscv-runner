@@ -346,7 +346,7 @@ func (d *pgDB) GetPendingJobs(ctx context.Context) ([]Job, error) {
 			entity_type, repo_full_name, installation_id, job_labels, k8s_selector,
 			k8s_image, k8s_pod, html_url, created_at, updated_at,
 			job_name, job_conclusion, job_created_at, job_started_at, job_completed_at FROM jobs
-		WHERE status = 'pending' ORDER BY created_at`)
+		WHERE status = 'pending' ORDER BY created_at, job_id`)
 	if err != nil {
 		return nil, err
 	}

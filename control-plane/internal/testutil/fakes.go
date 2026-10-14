@@ -429,12 +429,13 @@ func (g *FakeGH) GetRunInfo(ctx context.Context, token, repo string, runID int64
 type FakeKube struct {
 	mu sync.Mutex
 
-	PodsByName  map[string]internal.Pod
-	NodesByName map[string]internal.Node
-	EventsByPod map[string][]internal.PodEvent
-	LogsByPod   map[string]string
-	SlotsByPool map[string]int
-	SlotCalls   map[string]int
+	PodsByName           map[string]internal.Pod
+	NodesByName          map[string]internal.Node
+	EventsByPod          map[string][]internal.PodEvent
+	LogsByPod            map[string]string
+	SlotsByPool          map[string]int
+	ActiveByEntityByPool map[string]map[int64]int
+	SlotCalls            map[string]int
 
 	// ProvisionSelectors records the selector each runner was placed with.
 	ProvisionSelectors map[string]internal.NodeSelector
@@ -452,13 +453,14 @@ type FakeKube struct {
 // NewFakeKube allocates the maps so callers can mutate them directly.
 func NewFakeKube() *FakeKube {
 	return &FakeKube{
-		PodsByName:         map[string]internal.Pod{},
-		NodesByName:        map[string]internal.Node{},
-		EventsByPod:        map[string][]internal.PodEvent{},
-		LogsByPod:          map[string]string{},
-		SlotsByPool:        map[string]int{},
-		SlotCalls:          map[string]int{},
-		ProvisionSelectors: map[string]internal.NodeSelector{},
+		PodsByName:           map[string]internal.Pod{},
+		NodesByName:          map[string]internal.Node{},
+		EventsByPod:          map[string][]internal.PodEvent{},
+		LogsByPod:            map[string]string{},
+		SlotsByPool:          map[string]int{},
+		ActiveByEntityByPool: map[string]map[int64]int{},
+		SlotCalls:            map[string]int{},
+		ProvisionSelectors:   map[string]internal.NodeSelector{},
 	}
 }
 
@@ -545,7 +547,9 @@ func (f *FakeKube) AvailableSlots(ctx context.Context, sel internal.NodeSelector
 	}
 	key := sel.Key()
 	f.SlotCalls[key]++
-	return internal.Capacity{Available: f.SlotsByPool[key]}, nil
+	return internal.Capacity{
+		Available: f.SlotsByPool[key], ActiveByEntity: f.ActiveByEntityByPool[key],
+	}, nil
 }
 
 func (f *FakeKube) CollectPodFailureInfo(ctx context.Context, p internal.Pod, reason internal.FailureReason) internal.FailureInfoV2 {
