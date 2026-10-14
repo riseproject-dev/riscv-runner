@@ -504,9 +504,10 @@ func IsRateLimited(err error) bool {
 // Capacity is the AvailableSlots breakdown so callers can log every number
 // that goes into the decision.
 type Capacity struct {
-	Total     int // allocatable runner resource on matching nodes
-	Active    int // count of Pending|Running runner pods
-	Available int // Total - Active
+	Total          int           // allocatable runner resource on matching nodes
+	Active         int           // count of Pending|Running runner pods
+	Available      int           // Total - Active
+	ActiveByEntity map[int64]int // active runner pods keyed by entity ID
 }
 
 // KubeClient is the Kubernetes surface used by the scheduler.

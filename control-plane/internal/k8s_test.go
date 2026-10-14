@@ -5,6 +5,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -251,12 +252,72 @@ func TestAvailableSlots_TotalMinusActive(t *testing.T) {
 	}
 }
 
-// TestAvailableSlots_MeasuredPerBoard pins the transitional behaviour:
-// capacity is summed across the whole board, ignoring the selector's provider,
-// so board-only pods from before the provider label are still counted. Each
-// board model has one provider today, so this matches reality. Flip this test
-// to per-provider expectations when AvailableSlots narrows to sel.Key().
-func TestAvailableSlots_MeasuredPerBoard(t *testing.T) {
+func TestAvailableSlots_ActiveByEntity(t *testing.T) {
+	sel := NodeSelector{Board: BoardScalewayEMRV1, Provider: ProviderScaleway}
+	p1 := makePod("p1", sel, "n1", corev1.PodRunning)
+	p1.Labels["riseproject.dev/entity_id"] = "42"
+	p1.Labels["riseproject.dev/entity_name"] = "orga"
+	p2 := makePod("p2", sel, "", corev1.PodPending)
+	p2.Labels["riseproject.dev/entity_id"] = "42"
+	p2.Labels["riseproject.dev/entity_name"] = "orga"
+	p3 := makePod("p3", sel, "n1", corev1.PodRunning)
+	p3.Labels["riseproject.dev/entity_id"] = "84"
+	p3.Labels["riseproject.dev/entity_name"] = "orgb"
+	terminal := makePod("done", sel, "n1", corev1.PodSucceeded)
+	terminal.Labels["riseproject.dev/entity_id"] = "84"
+	terminal.Labels["riseproject.dev/entity_name"] = "orgb"
+
+	k := NewK8sClientFromInterface(fake.NewSimpleClientset(makeNode("n1", sel, 5), p1, p2, p3, terminal))
+	got, err := k.AvailableSlots(context.Background(), sel)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	want := Capacity{
+		Total: 5, Active: 3, Available: 2,
+		ActiveByEntity: map[int64]int{42: 2, 84: 1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestAvailableSlots_MissingAndInvalidEntityLabelsStillConsumeCapacity(t *testing.T) {
+	sel := NodeSelector{Board: BoardScalewayEMRV1, Provider: ProviderScaleway}
+	missing := makePod("missing", sel, "n1", corev1.PodRunning)
+	invalid := makePod("invalid", sel, "n1", corev1.PodRunning)
+	invalid.Labels["riseproject.dev/entity_id"] = "invalid"
+	invalid.Labels["riseproject.dev/entity_name"] = "wrong"
+	k := NewK8sClientFromInterface(fake.NewSimpleClientset(makeNode("n1", sel, 3), missing, invalid))
+
+	got, err := k.AvailableSlots(context.Background(), sel)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if got.Active != 2 || got.Available != 1 || len(got.ActiveByEntity) != 0 {
+		t.Fatalf("got %+v, want two active and no attributed entities", got)
+	}
+}
+
+func TestAvailableSlots_EntityNameDoesNotSplitEntityID(t *testing.T) {
+	sel := NodeSelector{Board: BoardScalewayEMRV1, Provider: ProviderScaleway}
+	p1 := makePod("p1", sel, "n1", corev1.PodRunning)
+	p1.Labels["riseproject.dev/entity_id"] = "42"
+	p1.Labels["riseproject.dev/entity_name"] = "correct"
+	p2 := makePod("p2", sel, "n1", corev1.PodRunning)
+	p2.Labels["riseproject.dev/entity_id"] = "42"
+	p2.Labels["riseproject.dev/entity_name"] = "stale"
+	k := NewK8sClientFromInterface(fake.NewSimpleClientset(makeNode("n1", sel, 3), p1, p2))
+
+	got, err := k.AvailableSlots(context.Background(), sel)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if got.ActiveByEntity[42] != 2 || len(got.ActiveByEntity) != 1 {
+		t.Fatalf("got histogram %v, want entity 42 with two runners", got.ActiveByEntity)
+	}
+}
+
+func TestAvailableSlots_MeasuredPerSelector(t *testing.T) {
 	cloudv := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x}
 	mengzhuo := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderMengZhuo}
 	cs := fake.NewSimpleClientset(
@@ -266,21 +327,33 @@ func TestAvailableSlots_MeasuredPerBoard(t *testing.T) {
 	)
 	k := NewK8sClientFromInterface(cs)
 
-	// Both selectors see the board total (4+1) minus the one running pod.
-	want := Capacity{Total: 5, Active: 1, Available: 4}
-	for _, sel := range []NodeSelector{mengzhuo, cloudv} {
-		got, err := k.AvailableSlots(context.Background(), sel)
+	tests := []struct {
+		sel  NodeSelector
+		want Capacity
+	}{
+		{
+			sel: cloudv,
+			want: Capacity{Total: 4, Active: 1, Available: 3,
+				ActiveByEntity: map[int64]int{}},
+		},
+		{
+			sel: mengzhuo,
+			want: Capacity{Total: 1, Active: 0, Available: 1,
+				ActiveByEntity: map[int64]int{}},
+		},
+	}
+	for _, tt := range tests {
+		got, err := k.AvailableSlots(context.Background(), tt.sel)
 		if err != nil {
-			t.Fatalf("AvailableSlots(%+v): %v", sel, err)
+			t.Fatalf("AvailableSlots(%+v): %v", tt.sel, err)
 		}
-		if got != want {
-			t.Errorf("%+v: got %+v, want %+v", sel, got, want)
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%+v: got %+v, want %+v", tt.sel, got, tt.want)
 		}
 	}
 }
 
-// Another board's capacity and pods stay excluded: only the provider dimension
-// is ignored, not the board.
+// Another selector's capacity and pods stay excluded.
 func TestAvailableSlots_OtherBoardExcluded(t *testing.T) {
 	k1 := NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x}
 	k3 := NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS}
@@ -295,7 +368,7 @@ func TestAvailableSlots_OtherBoardExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AvailableSlots: %v", err)
 	}
-	if want := (Capacity{Total: 4, Active: 0, Available: 4}); got != want {
+	if want := (Capacity{Total: 4, Active: 0, Available: 4, ActiveByEntity: map[int64]int{}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
@@ -683,12 +756,32 @@ func TestAvailableSlots_CountsUnscheduledLegacyPod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AvailableSlots: %v", err)
 	}
-	if want := (Capacity{Total: 1, Active: 1, Available: 0}); got != want {
+	if want := (Capacity{Total: 1, Active: 1, Available: 0, ActiveByEntity: map[int64]int{}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
 
 // An unscheduled pod has no node yet, so it is counted via its labels.
+func TestAvailableSlots_CountsNonTerminalPhasesConservatively(t *testing.T) {
+	sel := NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS}
+	cs := fake.NewSimpleClientset(
+		makeNode("n1", sel, 4),
+		makePod("new", sel, "", corev1.PodPhase("")),
+		makePod("unknown", sel, "n1", corev1.PodUnknown),
+		makePod("failed", sel, "n1", corev1.PodFailed),
+		makePod("succeeded", sel, "n1", corev1.PodSucceeded),
+	)
+	k := NewK8sClientFromInterface(cs)
+
+	got, err := k.AvailableSlots(context.Background(), sel)
+	if err != nil {
+		t.Fatalf("AvailableSlots: %v", err)
+	}
+	if got.Active != 2 || got.Available != 2 {
+		t.Errorf("got %+v, want Active:2 Available:2", got)
+	}
+}
+
 func TestAvailableSlots_CountsUnscheduledPod(t *testing.T) {
 	sel := NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS}
 	cs := fake.NewSimpleClientset(makeNode("n1", sel, 1), makePod("new", sel, "", corev1.PodPending))

@@ -14,10 +14,8 @@ import (
 	"github.com/riseproject-dev/riscv-runner/control-plane/internal"
 )
 
-// demandMatch iterates pending jobs FIFO, groups by node selector, and
-// provisions runners until demand is met or pool capacity runs out. Capacity is
-// fetched once per selector per iteration and decremented locally (invariants
-// 4232868, 40476b8).
+// demandMatch groups pending jobs by node selector, then allocates capacity
+// round-robin across entities while preserving FIFO order within each entity.
 func (a *App) demandMatch(ctx context.Context) error {
 	pending, err := a.DB.GetPendingJobs(ctx)
 	if err != nil {
@@ -53,16 +51,22 @@ func (a *App) demandMatch(ctx context.Context) error {
 			continue
 		}
 		slog.Info("Capacity for k8s_selector",
-			"k8s_selector", sel, "total", cap.Total, "active", cap.Active, "available", cap.Available)
+			"k8s_selector", sel, "total", cap.Total, "active", cap.Active, "available", cap.Available,
+			"active_by_entity", cap.ActiveByEntity)
 		slots := cap.Available
+		if cap.ActiveByEntity == nil {
+			cap.ActiveByEntity = make(map[int64]int)
+		}
+		queue := newFairJobQueue(jobs)
 		if slots <= 0 {
 			continue
 		}
-		for _, j := range jobs {
+		for queue.len > 0 {
 			if slots <= 0 {
 				slog.Debug("Capacity for k8s_selector is now 0", "k8s_selector", sel)
 				break
 			}
+			j := queue.pop(cap.ActiveByEntity)
 			if rateLimited[j.EntityID] {
 				continue
 			}
@@ -73,10 +77,52 @@ func (a *App) demandMatch(ctx context.Context) error {
 			}
 			if consumed {
 				slots--
+				cap.ActiveByEntity[j.EntityID]++
 			}
 		}
 	}
 	return nil
+}
+
+type fairJobQueue struct {
+	byEntity map[int64][]internal.Job
+	len      int
+}
+
+func newFairJobQueue(jobs []internal.Job) *fairJobQueue {
+	q := &fairJobQueue{byEntity: make(map[int64][]internal.Job), len: len(jobs)}
+	for _, job := range jobs {
+		q.byEntity[job.EntityID] = append(q.byEntity[job.EntityID], job)
+	}
+	return q
+}
+
+func (q *fairJobQueue) pop(activeByEntity map[int64]int) internal.Job {
+	var selected internal.Job
+	selectedSet := false
+	for entityID, jobs := range q.byEntity {
+		candidate := jobs[0]
+		if !selectedSet || activeByEntity[entityID] < activeByEntity[selected.EntityID] ||
+			(activeByEntity[entityID] == activeByEntity[selected.EntityID] && jobOlder(candidate, selected)) {
+			selected = candidate
+			selectedSet = true
+		}
+	}
+	jobs := q.byEntity[selected.EntityID]
+	if len(jobs) == 1 {
+		delete(q.byEntity, selected.EntityID)
+	} else {
+		q.byEntity[selected.EntityID] = jobs[1:]
+	}
+	q.len--
+	return selected
+}
+
+func jobOlder(left, right internal.Job) bool {
+	if left.CreatedAt.Equal(right.CreatedAt) {
+		return left.JobID < right.JobID
+	}
+	return left.CreatedAt.Before(right.CreatedAt)
 }
 
 // tryProvision evaluates demand/cap/availability for one job and provisions

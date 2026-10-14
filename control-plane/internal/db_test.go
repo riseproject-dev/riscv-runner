@@ -257,7 +257,7 @@ func TestGetActiveJobs(t *testing.T) {
 func TestGetPendingJobs(t *testing.T) {
 	db, mock := newMockDB(t)
 	rows := pgxmock.NewRows(jobColumns()).AddRow(jobScanRow()...)
-	mock.ExpectQuery(`SELECT .* FROM jobs.*WHERE status = 'pending' ORDER BY created_at`).WillReturnRows(rows)
+	mock.ExpectQuery(`SELECT .* FROM jobs.*WHERE status = 'pending' ORDER BY created_at, job_id`).WillReturnRows(rows)
 	out, err := db.GetPendingJobs(context.Background())
 	if err != nil || len(out) != 1 {
 		t.Fatalf("got %+v err=%v", out, err)
