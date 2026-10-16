@@ -114,59 +114,20 @@ func dropKeys(m map[string]any, drop map[string]struct{}) map[string]any {
 // matchLabelsToK8s maps a job's labels to (node selector, image). Returns
 // ok=false with a zero selector when no rule matches; the caller emits
 // IGNORED_NO_LABEL.
-func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, labels []string) (sel internal.NodeSelector, image string, ok bool) {
-	isRiseprojectDevScope := orgID == internal.RiseprojectDevOrgID
-	isLuhenryScope := orgID == internal.LuhenryUserID
-
-	isGGMLScope := orgID == internal.GGMLOrgID ||
-		(isRiseprojectDevScope &&
-			(repoFullName == "riseproject-dev/llama.cpp" || repoFullName == "riseproject-dev/llama.cpp-validation"))
-	if isGGMLScope {
-		if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu24 {
-			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true
+func matchLabelsToK8s(cfg internal.Config, entityID int64, labels []string) (sel internal.NodeSelector, image string, ok bool) {
+	for _, route := range internal.LabelRoutes(cfg) {
+		if len(route.EntityIDs) > 0 && !slices.Contains(route.EntityIDs, entityID) {
+			continue
 		}
-		return internal.NodeSelector{}, "", false
-	}
-
-	isMengZhuoScope := orgID == internal.MengZhuoUserID
-	if isMengZhuoScope {
-		if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu24 {
-			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true
+		if len(route.Labels) != len(labels) {
+			continue
 		}
-	}
-
-	isRuyiAIScope := orgID == internal.RuyiAIOrgID
-	if isRuyiAIScope || isLuhenryScope {
-		if len(labels) == 3 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVA23) && slices.Contains(labels, internal.GitHubLabelXL) {
-			return nodeSelector(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true
+		if slices.ContainsFunc(route.Labels, func(label string) bool {
+			return !slices.Contains(labels, label)
+		}) {
+			continue
 		}
-		if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVA23) {
-			return nodeSelector(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true
-		}
-		if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVV) {
-			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderISCAS), cfg.ImageUbuntu24, true
-		}
-	}
-
-	isNumpyScope := orgID == internal.NumpyOrgID
-	if isNumpyScope {
-		if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVV) {
-			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true
-		}
-	}
-
-	if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu24 {
-		return nodeSelector(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true
-	}
-	if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVA23) {
-		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu24, true
-	}
-	if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu26 {
-		return nodeSelector(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true
+		return route.Selector, route.Image, true
 	}
 	return internal.NodeSelector{}, "", false
-}
-
-func nodeSelector(board, provider string) internal.NodeSelector {
-	return internal.NodeSelector{Board: board, Provider: provider}
 }

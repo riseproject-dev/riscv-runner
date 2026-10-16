@@ -52,6 +52,79 @@ const (
 	PersonalAppInstallURL = "https://github.com/apps/rise-risc-v-runners-personal/installations/new"
 )
 
+type LabelRoute struct {
+	EntityIDs []int64
+	Labels    []string
+	Selector  NodeSelector
+	Image     string
+}
+
+func LabelRoutes(cfg Config) []LabelRoute {
+	return []LabelRoute{
+		{
+			// [ubuntu-24.04-riscv], entity: ggml-org
+			EntityIDs: []int64{GGMLOrgID},
+			Labels:    []string{GitHubLabelUbuntu24},
+			Selector:  NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x},
+			Image:     cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-24.04-riscv], entity: mengzhuo
+			EntityIDs: []int64{MengZhuoUserID},
+			Labels:    []string{GitHubLabelUbuntu24},
+			Selector:  NodeSelector{Board: BoardSpacemitK1, Provider: ProviderMengZhuo},
+			Image:     cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-24.04-riscv, rva23, xlarge], entity: RuyiAI-Stack
+			EntityIDs: []int64{RuyiAIOrgID},
+			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVA23, GitHubLabelXL},
+			Selector:  NodeSelector{Board: BoardSpacemitV100, Provider: ProviderISCAS},
+			Image:     cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-24.04-riscv, rva23], entity: RuyiAI-Stack
+			EntityIDs: []int64{RuyiAIOrgID},
+			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVA23},
+			Selector:  NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS},
+			Image:     cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-24.04-riscv, rvv], entity: RuyiAI-Stack
+			EntityIDs: []int64{RuyiAIOrgID},
+			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVV},
+			Selector:  NodeSelector{Board: BoardSpacemitK1, Provider: ProviderISCAS},
+			Image:     cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-24.04-riscv, rvv], entity: Numpy
+			EntityIDs: []int64{NumpyOrgID},
+			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVV},
+			Selector:  NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x},
+			Image:     cfg.ImageUbuntu24,
+		},
+		// Global fallthrough: every other entities fall through the following cases
+		{
+			// [ubuntu-24.04-riscv]
+			Labels:   []string{GitHubLabelUbuntu24},
+			Selector: NodeSelector{Board: BoardScalewayEMRV1, Provider: ProviderScaleway},
+			Image:    cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-24.04-riscv, rva23]
+			Labels:   []string{GitHubLabelUbuntu24, GitHubLabelRVA23},
+			Selector: NodeSelector{Board: BoardSpacemitK3, Provider: ProviderRISE},
+			Image:    cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-26.04-riscv]
+			Labels:   []string{GitHubLabelUbuntu26},
+			Selector: NodeSelector{Board: BoardSpacemitK3, Provider: ProviderRISE},
+			Image:    cfg.ImageUbuntu26,
+		},
+	}
+}
+
 // EntityConfig caps how many concurrent workers an entity may have,
 // and lists staging repos that proxy through to the staging environment.
 type EntityConfig struct {

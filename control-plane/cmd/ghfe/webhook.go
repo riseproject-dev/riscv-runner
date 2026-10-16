@@ -271,7 +271,7 @@ func (a *App) handleWorkflowJobEvent(w http.ResponseWriter, r *http.Request, bod
 
 	base.Event = "workflow_job." + action
 
-	sel, image, matched := matchLabelsToK8s(a.Config, entity.ID, repoFullName, labels)
+	sel, image, matched := matchLabelsToK8s(a.Config, entity.ID, labels)
 	if !matched {
 		base.Payload = minimalJobPayload(job, labels, repoFullName)
 		base.Outcome = internal.OutcomeIgnoredNoLabel
