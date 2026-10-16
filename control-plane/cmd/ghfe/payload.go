@@ -148,6 +148,13 @@ func matchLabelsToK8s(cfg internal.Config, orgID int64, repoFullName string, lab
 		}
 	}
 
+	isNumpyScope := orgID == internal.NumpyOrgID
+	if isNumpyScope {
+		if len(labels) == 2 && slices.Contains(labels, internal.GitHubLabelUbuntu24) && slices.Contains(labels, internal.GitHubLabelRVV) {
+			return nodeSelector(internal.BoardSpacemitK1, internal.ProviderCloudV10x), cfg.ImageUbuntu24, true
+		}
+	}
+
 	if len(labels) == 1 && labels[0] == internal.GitHubLabelUbuntu24 {
 		return nodeSelector(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true
 	}
