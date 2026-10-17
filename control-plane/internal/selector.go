@@ -30,6 +30,7 @@ const (
 	BoardSpacemitK1    = "spacemit-k1"
 	BoardSpacemitK3    = "spacemit-k3"
 	BoardSpacemitV100  = "spacemit-v100"
+	BoardUrDp1000      = "ur-dp1000"
 )
 
 // Providers are applied to nodes by hand; nothing detects who owns a machine.

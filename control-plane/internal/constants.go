@@ -103,6 +103,13 @@ func LabelRoutes(cfg Config) []LabelRoute {
 			Selector:  NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x},
 			Image:     cfg.ImageUbuntu24,
 		},
+		{
+			// [ubuntu-24.04-riscv], entity: conda-forge
+			EntityIDs: []int64{CondaForgeOrgID},
+			Labels:    []string{GitHubLabelUbuntu24},
+			Selector:  NodeSelector{Board: BoardUrDp1000, Provider: ProviderOpenKylin},
+			Image:     cfg.ImageUbuntu24,
+		},
 		// Global fallthrough: every other entities fall through the following cases
 		{
 			// [ubuntu-24.04-riscv]
