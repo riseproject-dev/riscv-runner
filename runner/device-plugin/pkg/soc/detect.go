@@ -42,6 +42,11 @@ var spacemitV100 = SoC{
 	ID:   SoCID{MVendorID: 0x0000000000000710, MArchID: 0x8000000058000002, MImpID: 0x0000000004c4d900},
 }
 
+var ultrariscDp1000 = SoC{
+	Name: "ultrarisc-dp-1000",
+	ID:   SoCID{MVendorID: 0x000000000000070a, MArchID: 0x8000000000413031, MImpID: 0x0000000005510000},
+}
+
 // zhihe-a210 has two heterogeneous 4-core clusters: primary cluster cores 0-3 (SiFive P550)
 // and secondary cores 4-7. probeHWID automatically queries CPU 0 if all-CPU probe detects heterogeneity.
 var zhiheA210 = SoC{
@@ -56,6 +61,7 @@ var socs = []SoC{
 	spacemitK1,
 	spacemitK3,
 	spacemitV100,
+	urDp1000,
 }
 
 // Detect identifies the SoC from the riscv_hwprobe (mvendorid, marchid, mimpid)
