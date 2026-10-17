@@ -9,38 +9,6 @@ import (
 	"log/slog"
 )
 
-const (
-	LabelBoard    = "riseproject.dev/board"
-	LabelProvider = "riseproject.dev/provider"
-)
-
-const (
-	GitHubLabelUbuntu24 = "ubuntu-24.04-riscv"
-	GitHubLabelUbuntu26 = "ubuntu-26.04-riscv"
-	GitHubLabelRVV      = "rvv"
-	GitHubLabelRVA23    = "rva23"
-	GitHubLabelXL       = "xlarge"
-)
-
-// Board values must match the SoC names the device plugin writes to
-// riseproject.dev/board (runner/device-plugin/pkg/soc/detect.go). A rename on
-// either side strands jobs at available=0.
-const (
-	BoardScalewayEMRV1 = "scaleway-em-rv1"
-	BoardSpacemitK1    = "spacemit-k1"
-	BoardSpacemitK3    = "spacemit-k3"
-	BoardSpacemitV100  = "spacemit-v100"
-)
-
-// Providers are applied to nodes by hand; nothing detects who owns a machine.
-const (
-	ProviderScaleway  = "scaleway"
-	ProviderCloudV10x = "cloudv10x"
-	ProviderISCAS     = "iscas"
-	ProviderMengZhuo  = "mengzhuo"
-	ProviderRISE      = "rise"
-)
-
 // ErrEmptySelector guards the node queries: a selector without a board would
 // match every node in the cluster, so callers must fail loudly rather than
 // place a runner on arbitrary hardware.
