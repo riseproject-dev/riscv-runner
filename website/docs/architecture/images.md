@@ -24,7 +24,7 @@ The [GitHub Actions Runner for RISC-V](https://github.com/Cloud-V-10xE/github-ru
 
 | Category | Packages |
 |----------|----------|
-| **Languages** | Python 3.10–3.14 (including free-threaded variants), Node.js 20/22/24, Go 1.22–1.26, Rust, Java (Temurin 17/21/25), PHP, Ruby, Perl, Lua, R |
+| **Languages** | Python 3.10–3.15 (including free-threaded variants), Node.js 20/22/24, Go 1.22–1.26, Rust, Java (Temurin 17/21/25), PHP, Ruby, Perl, Lua, R |
 | **Compilers** | GCC 12/13/14, G++, Clang |
 | **Build tools** | Make, CMake, Ninja, Autoconf, Automake, Libtool, Flex, Bison, Binutils, Gradle, Maven, Ant |
 | **Container tooling** | Docker (CLI, Buildx, Compose, daemon), podman, buildah, skopeo, runc, kubectl, tini, crictl |
