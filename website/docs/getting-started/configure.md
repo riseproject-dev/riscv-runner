@@ -39,7 +39,7 @@ See the [Runner Labels Reference](labels) for full hardware specs.
 
 The runner image aims to mirror the standard GitHub Actions Ubuntu runner. Highlights:
 
-- **Languages and runtimes:** Python 3.10–3.14 (including free-threaded variants), Node.js, Go, Rust, Java (Temurin 17/21/25), PHP, Ruby, Perl, Lua, R.
+- **Languages and runtimes:** Python 3.10–3.15 (including free-threaded variants), Node.js, Go, Rust, Java (Temurin 17/21/25), PHP, Ruby, Perl, Lua, R.
 - **Compilers:** GCC, G++, Clang.
 - **Build tools:** Make, CMake, Ninja, Autoconf, Automake, Libtool, Gradle, Maven, Ant.
 - **Container tooling:** Docker (CLI + daemon, Buildx, Compose), podman, buildah, skopeo, runc, kubectl.
