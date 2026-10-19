@@ -419,7 +419,7 @@ EOF
 # Download Gradle
 FROM base-builder AS gradle
 
-ARG GRADLE_VERSION=9.8.0
+ARG GRADLE_VERSION=9.8.1
 ARG GRADLE_SHA256=bafd5ce9cfaea0fbccfdc8439a1ac42fbd4cd9c89dc9a988228d8a2639a58e6c # https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip.sha256
 ADD --link --checksum=sha256:${GRADLE_SHA256} https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip /tmp/gradle-${GRADLE_VERSION}-bin.zip
 RUN bash -eux -o pipefail <<'EOF'
@@ -465,7 +465,7 @@ ADD --link --checksum=sha256:${DOCKERCOMPOSE_SHA256} --chmod=+x https://github.c
 # Download docker-buildx
 FROM base-builder AS docker-buildx
 
-ARG DOCKERBUILDX_VERSION=0.37.2
+ARG DOCKERBUILDX_VERSION=0.38.0
 ARG DOCKERBUILDX_SHA256=0678850b5e49218e0c22990a1b9a9ea1e0835d92a89f01a21dc7e9c85033826b # https://github.com/docker/buildx/releases/v${DOCKERBUILDX_VERSION}
 ADD --link --checksum=sha256:${DOCKERBUILDX_SHA256} --chmod=+x https://github.com/docker/buildx/releases/download/v${DOCKERBUILDX_VERSION}/buildx-v${DOCKERBUILDX_VERSION}.linux-riscv64 /usr/local/lib/docker/cli-plugins/docker-buildx
 
@@ -815,7 +815,7 @@ ENV CARGO_HOME=/home/runner/.cargo
 ENV PATH=${RUSTUP_HOME}/bin:${CARGO_HOME}/bin:${PATH}
 
 # Install Gradle
-ARG GRADLE_VERSION=9.8.0
+ARG GRADLE_VERSION=9.8.1
 COPY --link --from=gradle --chmod=0777 /usr/share/gradle-${GRADLE_VERSION} /usr/share/gradle-${GRADLE_VERSION}
 ENV GRADLE_HOME=/usr/share/gradle-${GRADLE_VERSION}
 RUN bash -eux -o pipefail <<'EOF'
