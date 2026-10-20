@@ -52,6 +52,40 @@ const (
 	PersonalAppInstallURL = "https://github.com/apps/rise-risc-v-runners-personal/installations/new"
 )
 
+const (
+	LabelBoard    = "riseproject.dev/board"
+	LabelProvider = "riseproject.dev/provider"
+)
+
+const (
+	GitHubLabelUbuntu24 = "ubuntu-24.04-riscv"
+	GitHubLabelUbuntu26 = "ubuntu-26.04-riscv"
+	GitHubLabelRVV      = "rvv"
+	GitHubLabelRVA23    = "rva23"
+	GitHubLabelXL       = "xlarge"
+)
+
+// Board values must match the SoC names the device plugin writes to
+// riseproject.dev/board (runner/device-plugin/pkg/soc/detect.go). A rename on
+// either side strands jobs at available=0.
+const (
+	BoardScalewayEMRV1   = "scaleway-em-rv1"
+	BoardSpacemitK1      = "spacemit-k1"
+	BoardSpacemitK3      = "spacemit-k3"
+	BoardSpacemitV100    = "spacemit-v100"
+	BoardUltrariscDp1000 = "ultrarisc-dp-1000"
+)
+
+// Providers are applied to nodes by hand; nothing detects who owns a machine.
+const (
+	ProviderScaleway  = "scaleway"
+	ProviderCloudV10x = "cloudv10x"
+	ProviderISCAS     = "iscas"
+	ProviderMengZhuo  = "mengzhuo"
+	ProviderRISE      = "rise"
+	ProviderOpenKylin = "openkylin"
+)
+
 type LabelRoute struct {
 	EntityIDs []int64
 	Labels    []string
@@ -101,6 +135,13 @@ func LabelRoutes(cfg Config) []LabelRoute {
 			EntityIDs: []int64{NumpyOrgID},
 			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVV},
 			Selector:  NodeSelector{Board: BoardSpacemitK1, Provider: ProviderCloudV10x},
+			Image:     cfg.ImageUbuntu24,
+		},
+		{
+			// [ubuntu-24.04-riscv], entity: conda-forge
+			EntityIDs: []int64{CondaForgeOrgID},
+			Labels:    []string{GitHubLabelUbuntu24},
+			Selector:  NodeSelector{Board: BoardUltrariscDp1000, Provider: ProviderOpenKylin},
 			Image:     cfg.ImageUbuntu24,
 		},
 		// Global fallthrough: every other entities fall through the following cases
