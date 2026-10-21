@@ -138,9 +138,9 @@ func LabelRoutes(cfg Config) []LabelRoute {
 			Image:     cfg.ImageUbuntu24,
 		},
 		{
-			// [ubuntu-24.04-riscv], entity: conda-forge
+			// [ubuntu-24.04-riscv, ur], entity: conda-forge
 			EntityIDs: []int64{CondaForgeOrgID},
-			Labels:    []string{GitHubLabelUbuntu24},
+			Labels:    []string{GitHubLabelUbuntu24, "ur"},
 			Selector:  NodeSelector{Board: BoardUltrariscDp1000, Provider: ProviderOpenKylin},
 			Image:     cfg.ImageUbuntu24,
 		},
