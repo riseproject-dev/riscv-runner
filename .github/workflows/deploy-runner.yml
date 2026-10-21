@@ -336,7 +336,7 @@ jobs:
   deploy-prod:
     if: github.repository_owner == 'riseproject-dev' && github.ref_name == github.event.repository.default_branch
     name: "deploy to prod"
-    needs: [setup, deploy-staging]
+    needs: [setup, build-images, build-kube-proxy, build-pause, build-device-plugin]
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
