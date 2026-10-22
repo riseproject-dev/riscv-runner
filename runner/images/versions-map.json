@@ -30,6 +30,12 @@
     "dockerfile": "runner/images/Dockerfile.ubuntu"
   },
   {
+    "arg": "PYTHON315_VERSION",
+    "json_tool": "Cached Tools/Python",
+    "match_prefix": "3.15",
+    "dockerfile": "runner/images/Dockerfile.ubuntu"
+  },
+  {
     "arg": "GO122_VERSION",
     "json_tool": "Cached Tools/Go",
     "match_prefix": "1.22",
