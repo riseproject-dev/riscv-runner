@@ -175,7 +175,7 @@ type EntityConfig struct {
 
 // EntityConfigs is keyed by entity id (org id or user id).
 var EntityConfigs = map[int64]EntityConfig{
-	RiseprojectDevOrgID:     {MaxWorkers: intPtr(30)},
+	RiseprojectDevOrgID:     {MaxWorkers: intPtr(40)},
 	RiseprojectStagingOrgID: {MaxWorkers: intPtr(20), Staging: true},
 	CondaForgeOrgID:         {MaxWorkers: intPtr(30)},
 }
