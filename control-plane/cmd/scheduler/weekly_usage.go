@@ -16,10 +16,11 @@ import (
 	"github.com/riseproject-dev/riscv-runner/control-plane/internal"
 )
 
-// weeklyUsageExcludedEntity is dropped from the second stacked chart per
-// the standing request: riseproject-dev dwarfs the other entities and
-// hides their trends.
 const weeklyUsageExcludedEntity = "riseproject-dev"
+
+func isWeeklyUsageExcludedEntity(entity string) bool {
+	return entity == weeklyUsageExcludedEntity || strings.HasPrefix(entity, weeklyUsageExcludedEntity+"/")
+}
 
 // weeklyUsageTopEntities caps how many entities get their own series in the
 // stacked charts (color-blind-safe categorical palette tops out at 8 slots,
@@ -244,10 +245,9 @@ type weeklyUsageChartData struct {
 
 // buildWeeklyUsageChartData keeps the top weeklyUsageTopEntities (p.Entities
 // is already ranked by total duration DESC, see buildWeeklyUsagePivot) as
-// their own series, and folds the rest into "Other". Each entity's CSS
-// class is fixed by its rank so it keeps the same color whether or not
-// it's excluded from a given chart (color follows the entity, never its
-// position within a filtered chart).
+// their own series, and folds the rest into "Other". The filtered chart
+// ranks entities after removing all riseproject-dev repositories so they
+// do not consume its limited series slots.
 func buildWeeklyUsageChartData(p weeklyUsagePivot) weeklyUsageChartData {
 	weeks := make([]string, len(p.Weeks))
 	for i, wk := range p.Weeks {
@@ -255,34 +255,29 @@ func buildWeeklyUsageChartData(p weeklyUsagePivot) weeklyUsageChartData {
 	}
 
 	ranked := p.Entities
-	top := ranked
-	if len(top) > weeklyUsageTopEntities {
-		top = top[:weeklyUsageTopEntities]
-	}
-	topSet := make(map[string]bool, len(top))
-	for _, e := range top {
-		topSet[e] = true
-	}
 
-	buildSeries := func(exclude string) []weeklyUsageChartSeries {
+	buildSeries := func(excludeRiseprojectDev bool) []weeklyUsageChartSeries {
+		eligible := make([]string, 0, len(ranked))
+		for _, e := range ranked {
+			if !excludeRiseprojectDev || !isWeeklyUsageExcludedEntity(e) {
+				eligible = append(eligible, e)
+			}
+		}
+		top := eligible
+		if len(top) > weeklyUsageTopEntities {
+			top = top[:weeklyUsageTopEntities]
+		}
 		var series []weeklyUsageChartSeries
 		for i, e := range top {
-			class := fmt.Sprintf("s%d", i+1)
-			if e == exclude {
-				continue
-			}
 			values := make([]int64, len(p.Weeks))
 			for wi, wk := range p.Weeks {
 				values[wi] = p.Duration[wk][e]
 			}
-			series = append(series, weeklyUsageChartSeries{Name: e, Class: class, Values: values})
+			series = append(series, weeklyUsageChartSeries{Name: e, Class: fmt.Sprintf("s%d", i+1), Values: values})
 		}
 		other := make([]int64, len(p.Weeks))
 		hasOther := false
-		for _, e := range ranked {
-			if topSet[e] || e == exclude {
-				continue
-			}
+		for _, e := range eligible[len(top):] {
 			hasOther = true
 			for wi, wk := range p.Weeks {
 				other[wi] += p.Duration[wk][e]
@@ -303,8 +298,8 @@ func buildWeeklyUsageChartData(p weeklyUsagePivot) weeklyUsageChartData {
 
 	return weeklyUsageChartData{
 		Weeks:                            weeks,
-		DurationByEntity:                 buildSeries(""),
-		DurationByEntityExRiseprojectDev: buildSeries(weeklyUsageExcludedEntity),
+		DurationByEntity:                 buildSeries(false),
+		DurationByEntityExRiseprojectDev: buildSeries(true),
 		TotalDuration:                    totalDuration,
 		TotalJobs:                        totalJobs,
 	}

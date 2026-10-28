@@ -375,7 +375,11 @@ func (d *pgDB) GetAllJobs(ctx context.Context, start, end string, page, perPage 
 
 func (d *pgDB) GetWeeklyEntityUsage(ctx context.Context) ([]WeeklyEntityUsage, error) {
 	rows, err := d.q(ctx).Query(ctx, `
-		SELECT date_trunc('week', job_completed_at)::date AS week, entity_name,
+		SELECT date_trunc('week', job_completed_at)::date AS week,
+		       CASE WHEN entity_name = 'riseproject-dev'
+		            THEN COALESCE(NULLIF(repo_full_name, ''), entity_name)
+		            ELSE entity_name
+		       END AS entity_name,
 		       CEIL(EXTRACT(EPOCH FROM SUM(job_completed_at - job_started_at)) / 60)::bigint AS total_duration_minutes,
 		       COUNT(*) AS job_count
 		FROM jobs
