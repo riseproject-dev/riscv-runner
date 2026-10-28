@@ -254,6 +254,68 @@ RUN bash -eux -o pipefail <<'EOF'
     ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}/riscv64-freethreaded/bin/python3.14 --version
 EOF
 
+# Build Python 3.15
+FROM base-builder AS python-3.15
+
+ARG PYTHON315_VERSION=3.15.0
+ARG PYTHON315_TAG=${PYTHON315_VERSION}-38050414446
+ARG PYTHON315_SHA256=119227f29e67946e34dec3207225d3a57ec47a40c5e662bccb41f390ee790a0c # https://github.com/riseproject-dev/python-versions/releases/${PYTHON315_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64.complete
+        exit 0
+    fi
+
+    # Download Python 3.15
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON315_TAG}/python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz \
+        -o python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON315_SHA256}  python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64
+    tar -xzf python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64.complete
+    rm -f python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64/bin/python3.15 --version
+EOF
+
+# Build Python 3.15 (free threaded)
+FROM base-builder AS python-3.15t
+
+ARG PYTHON315_VERSION=3.15.0
+ARG PYTHON315_TAG=${PYTHON315_VERSION}-38050414446
+ARG PYTHON315_SHA256=dc46091ba2eed2ee41794e6a4a3998856ab3edca6a20fc766ab6246e3e409f99 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON315_TAG}
+RUN bash -eux -o pipefail <<'EOF'
+    if [[ "${OS_VERSION}" == "26.04" ]]; then
+        # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
+        mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64
+        touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64.complete
+        exit 0
+    fi
+
+    # Download Python 3.15
+    curl -fsSL --retry 12 --retry-all-errors https://github.com/riseproject-dev/python-versions/releases/download/${PYTHON315_TAG}/python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz \
+        -o python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
+
+    # Verify package integrity
+    echo "${PYTHON315_SHA256}  python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz" | sha256sum --check
+
+    # Unpack tar file
+    mkdir -p ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64-freethreaded
+    tar -xzf python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz -C ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64-freethreaded
+    touch ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64-freethreaded.complete
+    rm -f python-${PYTHON315_VERSION}-linux-${OS_VERSION}-riscv64-freethreaded.tar.gz
+
+    # Smoke test
+    ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}/riscv64-freethreaded/bin/python3.15 --version
+EOF
+
 # Download Go 1.22
 FROM base-builder AS go-1.22
 
@@ -773,6 +835,9 @@ COPY --link --from=python-3.13t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CAC
 ARG PYTHON314_VERSION=3.14.8
 COPY --link --from=python-3.14  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
 COPY --link --from=python-3.14t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
+ARG PYTHON315_VERSION=3.15.0
+COPY --link --from=python-3.15  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}
+COPY --link --from=python-3.15t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}
 
 # Install Go
 ARG GO122_VERSION=1.22.12
