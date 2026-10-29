@@ -380,7 +380,15 @@ func (d *pgDB) GetWeeklyEntityUsage(ctx context.Context) ([]WeeklyEntityUsage, e
 		            THEN COALESCE(NULLIF(repo_full_name, ''), entity_name)
 		            ELSE entity_name
 		       END AS entity_name,
-		       CEIL(EXTRACT(EPOCH FROM SUM(job_completed_at - job_started_at)) / 60)::bigint AS total_duration_minutes,
+		       CEIL(EXTRACT(EPOCH FROM SUM(
+		           CASE WHEN status = 'completed'
+		                     AND job_conclusion = 'cancelled'
+		                     AND job_created_at = job_started_at
+		                     AND job_completed_at = job_started_at + interval '1 day'
+		                THEN interval '0'
+		                ELSE job_completed_at - job_started_at
+		           END
+		       )) / 60)::bigint AS total_duration_minutes,
 		       COUNT(*) AS job_count
 		FROM jobs
 		WHERE job_started_at IS NOT NULL AND job_completed_at IS NOT NULL
