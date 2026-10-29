@@ -381,10 +381,13 @@ func (d *pgDB) GetWeeklyEntityUsage(ctx context.Context) ([]WeeklyEntityUsage, e
 		            ELSE entity_name
 		       END AS entity_name,
 		       CEIL(EXTRACT(EPOCH FROM SUM(
+		           -- Jobs that never got a runner: GitHub cancels them after 24h in the queue,
+		           -- reporting started = created and completed ~1 day later (plus a few seconds of drift).
 		           CASE WHEN status = 'completed'
 		                     AND job_conclusion = 'cancelled'
 		                     AND job_created_at = job_started_at
-		                     AND job_completed_at = job_started_at + interval '1 day'
+		                     AND job_completed_at BETWEEN job_started_at + interval '1 day'
+		                                          AND job_started_at + interval '1 day 1 minute'
 		                THEN interval '0'
 		                ELSE job_completed_at - job_started_at
 		           END

@@ -298,7 +298,7 @@ func TestGetWeeklyEntityUsage(t *testing.T) {
 	rows := pgxmock.NewRows([]string{"week", "entity_name", "total_duration_minutes", "job_count"}).
 		AddRow(week, "acme", int64(42), int64(3)).
 		AddRow(week, "riseproject-dev/riscv-runner", int64(84), int64(6))
-	mock.ExpectQuery(`SELECT date_trunc\('week', job_completed_at\).*CASE WHEN entity_name = 'riseproject-dev'.*repo_full_name.*CASE WHEN status = 'completed'.*job_conclusion = 'cancelled'.*job_created_at = job_started_at.*job_completed_at = job_started_at \+ interval '1 day'.*THEN interval '0'.*FROM jobs`).WillReturnRows(rows)
+	mock.ExpectQuery(`SELECT date_trunc\('week', job_completed_at\).*CASE WHEN entity_name = 'riseproject-dev'.*repo_full_name.*CASE WHEN status = 'completed'.*job_conclusion = 'cancelled'.*job_created_at = job_started_at.*job_completed_at BETWEEN job_started_at \+ interval '1 day'\s+AND job_started_at \+ interval '1 day 1 minute'.*THEN interval '0'.*FROM jobs`).WillReturnRows(rows)
 	out, err := db.GetWeeklyEntityUsage(context.Background())
 	if err != nil || len(out) != 2 {
 		t.Fatalf("out=%+v err=%v", out, err)
