@@ -15,8 +15,17 @@ jobs:
   update-versions:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        id: app-token
+        if: ${{ vars.RISEPROJECT_APP_CLIENT_ID != '' && github.ref == 'refs/heads/main' }}
+        with:
+          client-id: ${{ vars.RISEPROJECT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.app-private-key }}
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: Run update script
         run: python3 scripts/update-versions.py
@@ -46,3 +55,4 @@ jobs:
             **Note:** SHA256/SHA512 hashes are NOT updated by this PR.
             They must be updated manually before merging.
           commit-message: "chore: update package versions from runner-images"
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
