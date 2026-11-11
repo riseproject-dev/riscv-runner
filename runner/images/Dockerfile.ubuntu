@@ -71,9 +71,9 @@ EOF
 # Build Python 3.11
 FROM base-builder AS python-3.11
 
-ARG PYTHON311_VERSION=3.11.17
-ARG PYTHON311_TAG=${PYTHON311_VERSION}-36862635264
-ARG PYTHON311_SHA256=5227e91c6ad0cd9512284efff9f2689eef0ec774e53e7852dcb396ae4e9846e9 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON311_TAG}
+ARG PYTHON311_VERSION=3.11.18
+ARG PYTHON311_TAG=${PYTHON311_VERSION}-40463735725
+ARG PYTHON311_SHA256=c62d02f6f5afaec6511cd837644a2dac93ba49f5a7fa31a525c08fa5652e0cc1 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON311_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -102,9 +102,9 @@ EOF
 # Build Python 3.12
 FROM base-builder AS python-3.12
 
-ARG PYTHON312_VERSION=3.12.15
-ARG PYTHON312_TAG=${PYTHON312_VERSION}-36862635420
-ARG PYTHON312_SHA256=11ad83c0f35cea8877266883901f61b298d4ec65f8ea3d394df242c4ea4e9d26 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON312_TAG}
+ARG PYTHON312_VERSION=3.12.16
+ARG PYTHON312_TAG=${PYTHON312_VERSION}-40463736139
+ARG PYTHON312_SHA256=2b14d6eee4787b2d15cd8b1825b98aee7b6d90a8ab4b6574ee85cd4fe49bcf78 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON312_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -133,9 +133,9 @@ EOF
 # Build Python 3.13
 FROM base-builder AS python-3.13
 
-ARG PYTHON313_VERSION=3.13.17
-ARG PYTHON313_TAG=${PYTHON313_VERSION}-39769479898
-ARG PYTHON313_SHA256=167aca82cc8985b6701851992cda82bb9244d7e4e09617d4e573d0091d2cbe0f # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
+ARG PYTHON313_VERSION=3.13.18
+ARG PYTHON313_TAG=${PYTHON313_VERSION}-40463735872
+ARG PYTHON313_SHA256=e86be75d2bb838b416d85fa04a68c2422860422788b99d4a422e50a425718793 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -164,9 +164,9 @@ EOF
 # Build Python 3.13 (free threaded)
 FROM base-builder AS python-3.13t
 
-ARG PYTHON313_VERSION=3.13.17
-ARG PYTHON313_TAG=${PYTHON313_VERSION}-39769479898
-ARG PYTHON313_SHA256=b262f0b882dded11621665d5aab2d208c3ab93ba7d2363cd3c3b5670a0016a61 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
+ARG PYTHON313_VERSION=3.13.18
+ARG PYTHON313_TAG=${PYTHON313_VERSION}-40463735872
+ARG PYTHON313_SHA256=8caed1c60a53940ab126aa3e2fb7e4b1bca6e54aee767a01543035f0146650a8 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON313_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -195,9 +195,9 @@ EOF
 # Build Python 3.14
 FROM base-builder AS python-3.14
 
-ARG PYTHON314_VERSION=3.14.9
-ARG PYTHON314_TAG=${PYTHON314_VERSION}-39769479905
-ARG PYTHON314_SHA256=47705e006489c150f9062e7f262f06fc4ab25f4213cef52f5855b861a0b2a65b # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+ARG PYTHON314_VERSION=3.14.10
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-40463735726
+ARG PYTHON314_SHA256=0c40bb09e656c53563a5fbe864704974a66243591cc840dc784c2b32330a14e7 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -226,9 +226,9 @@ EOF
 # Build Python 3.14 (free threaded)
 FROM base-builder AS python-3.14t
 
-ARG PYTHON314_VERSION=3.14.9
-ARG PYTHON314_TAG=${PYTHON314_VERSION}-39769479905
-ARG PYTHON314_SHA256=98934107b8afcfe6468d31a8977a06583bf5ab1e5bcdcd1d6e7c3e8c028778bb # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
+ARG PYTHON314_VERSION=3.14.10
+ARG PYTHON314_TAG=${PYTHON314_VERSION}-40463735726
+ARG PYTHON314_SHA256=c921c99684872496691096cb5997f0238842ac768e75fd96db060184e6329a58 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON314_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -257,9 +257,9 @@ EOF
 # Build Python 3.15
 FROM base-builder AS python-3.15
 
-ARG PYTHON315_VERSION=3.15.1
-ARG PYTHON315_TAG=${PYTHON315_VERSION}-39769479976
-ARG PYTHON315_SHA256=be97f7b576ea930f8d9b391af00c6f873cdca7517dfee110afb3c1bb3af8877f # https://github.com/riseproject-dev/python-versions/releases/${PYTHON315_TAG}
+ARG PYTHON315_VERSION=3.15.2
+ARG PYTHON315_TAG=${PYTHON315_VERSION}-40463735541
+ARG PYTHON315_SHA256=f6736338dafc6b8ab6fd4529c1e58dbc4fb1bfae141f0407f12fd028db0182ad # https://github.com/riseproject-dev/python-versions/releases/${PYTHON315_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -288,9 +288,9 @@ EOF
 # Build Python 3.15 (free threaded)
 FROM base-builder AS python-3.15t
 
-ARG PYTHON315_VERSION=3.15.1
-ARG PYTHON315_TAG=${PYTHON315_VERSION}-39769479976
-ARG PYTHON315_SHA256=297d4f845292485cd32a8a10da2469d2347967ff792b210b58dc0bffed364ee3 # https://github.com/riseproject-dev/python-versions/releases/${PYTHON315_TAG}
+ARG PYTHON315_VERSION=3.15.2
+ARG PYTHON315_TAG=${PYTHON315_VERSION}-40463735541
+ARG PYTHON315_SHA256=928f60e2ac12ae28f3e785f105b947c105257afdcbacfebdc3e0875b3fc2e96b # https://github.com/riseproject-dev/python-versions/releases/${PYTHON315_TAG}
 RUN bash -eux -o pipefail <<'EOF'
     if [[ "${OS_VERSION}" == "26.04" ]]; then
         # FIXME: It's still missing 26.06 python builds at https://github.com/riseproject-dev/python-versions
@@ -465,8 +465,8 @@ EOF
 # Download Node.js 24
 FROM base-builder AS node-24
 
-ARG NODE24_VERSION=24.22.1
-ARG NODE24_SHA256=ea649557895e299f200d9ca02df7bcdc62d3dd925f05e3c3e5c5a04a1535acd7   # https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/SHASUMS256.txt
+ARG NODE24_VERSION=24.22.2
+ARG NODE24_SHA256=33a99a474786653775d08fb5f7813aca46cfe7d41f035de5fedcc1230333d9a2   # https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/SHASUMS256.txt
 ADD --link --checksum=sha256:${NODE24_SHA256} https://unofficial-builds.nodejs.org/download/release/v${NODE24_VERSION}/node-v${NODE24_VERSION}-linux-riscv64.tar.xz /tmp/node-v${NODE24_VERSION}-linux-riscv64.tar.xz
 RUN bash -eux -o pipefail <<'EOF'
     # Unpack to ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}/riscv64
@@ -536,7 +536,7 @@ FROM go-1.26 AS kubernetes
 
 WORKDIR /build
 
-ARG KUBECTL_VERSION=1.37.1
+ARG KUBECTL_VERSION=1.37.2
 ADD --link --keep-git-dir https://github.com/kubernetes/kubernetes.git#v${KUBECTL_VERSION} /tmp/kubernetes
 RUN bash -eux -o pipefail <<'EOF'
     cd /tmp/kubernetes
@@ -825,17 +825,17 @@ EOF
 # Install Python
 ARG PYTHON310_VERSION=3.10.22
 COPY --link --from=python-3.10 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON310_VERSION}
-ARG PYTHON311_VERSION=3.11.17
+ARG PYTHON311_VERSION=3.11.18
 COPY --link --from=python-3.11 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON311_VERSION}
-ARG PYTHON312_VERSION=3.12.15
+ARG PYTHON312_VERSION=3.12.16
 COPY --link --from=python-3.12 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON312_VERSION}
-ARG PYTHON313_VERSION=3.13.17
+ARG PYTHON313_VERSION=3.13.18
 COPY --link --from=python-3.13  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}
 COPY --link --from=python-3.13t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON313_VERSION}
-ARG PYTHON314_VERSION=3.14.9
+ARG PYTHON314_VERSION=3.14.10
 COPY --link --from=python-3.14  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
 COPY --link --from=python-3.14t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON314_VERSION}
-ARG PYTHON315_VERSION=3.15.1
+ARG PYTHON315_VERSION=3.15.2
 COPY --link --from=python-3.15  --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}
 COPY --link --from=python-3.15t --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION} ${RUNNER_TOOL_CACHE}/Python/${PYTHON315_VERSION}
 
@@ -863,7 +863,7 @@ ARG NODE20_VERSION=20.20.2
 COPY --link --from=node-20 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE20_VERSION}
 ARG NODE22_VERSION=22.23.4
 COPY --link --from=node-22 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE22_VERSION}
-ARG NODE24_VERSION=24.22.1
+ARG NODE24_VERSION=24.22.2
 COPY --link --from=node-24 --chown=1001:1001 --chmod=0777 ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION} ${RUNNER_TOOL_CACHE}/node/${NODE24_VERSION}
 
 # Install Java environment variables
