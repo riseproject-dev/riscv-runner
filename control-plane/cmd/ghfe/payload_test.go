@@ -96,6 +96,9 @@ func TestMatchLabelsToK8s(t *testing.T) {
 		{"ggml with extra label", internal.GGMLOrgID, []string{internal.GitHubLabelUbuntu24, "extra"}, internal.NodeSelector{}, "", false},
 		{"ggml ubuntu-26 falls through", internal.GGMLOrgID, []string{internal.GitHubLabelUbuntu26}, sel(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true},
 		{"riseproject ubuntu-24 uses default", internal.RiseprojectDevOrgID, []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
+		{"riseproject rva23", internal.RiseprojectDevOrgID, []string{internal.GitHubLabelUbuntu24RVA23}, sel(internal.BoardSpacemitK3, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"riseproject rva23 xlarge", internal.RiseprojectDevOrgID, []string{internal.GitHubLabelUbuntu24RVA23XLarge}, sel(internal.BoardSpacemitV100, internal.ProviderISCAS), cfg.ImageUbuntu24, true},
+		{"riseproject multi-label rva23 xlarge ignored", internal.RiseprojectDevOrgID, []string{internal.GitHubLabelUbuntu24, internal.GitHubLabelRVA23, internal.GitHubLabelXL}, internal.NodeSelector{}, "", false},
 
 		{"mengzhuo ubuntu-24", internal.MengZhuoUserID, []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true},
 

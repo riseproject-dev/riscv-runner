@@ -58,11 +58,13 @@ const (
 )
 
 const (
-	GitHubLabelUbuntu24 = "ubuntu-24.04-riscv"
-	GitHubLabelUbuntu26 = "ubuntu-26.04-riscv"
-	GitHubLabelRVV      = "rvv"
-	GitHubLabelRVA23    = "rva23"
-	GitHubLabelXL       = "xlarge"
+	GitHubLabelUbuntu24            = "ubuntu-24.04-riscv"
+	GitHubLabelUbuntu24RVA23       = "ubuntu-24.04-riscv-rva23"
+	GitHubLabelUbuntu24RVA23XLarge = "ubuntu-24.04-riscv-rva23-xlarge"
+	GitHubLabelUbuntu26            = "ubuntu-26.04-riscv"
+	GitHubLabelRVV                 = "rvv"
+	GitHubLabelRVA23               = "rva23"
+	GitHubLabelXL                  = "xlarge"
 )
 
 // Board values must match the SoC names the device plugin writes to
@@ -145,16 +147,16 @@ func LabelRoutes(cfg Config) []LabelRoute {
 			Image:     cfg.ImageUbuntu24,
 		},
 		{
-			// [ubuntu-24.04-riscv, rva23, xlarge], entity: riseproject-dev
+			// [ubuntu-24.04-riscv-rva23-xlarge], entity: riseproject-dev
 			EntityIDs: []int64{RiseprojectDevOrgID},
-			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVA23, GitHubLabelXL},
+			Labels:    []string{GitHubLabelUbuntu24RVA23XLarge},
 			Selector:  NodeSelector{Board: BoardSpacemitV100, Provider: ProviderISCAS},
 			Image:     cfg.ImageUbuntu24,
 		},
 		{
-			// [ubuntu-24.04-riscv, rva23], entity: riseproject-dev
+			// [ubuntu-24.04-riscv-rva23], entity: riseproject-dev
 			EntityIDs: []int64{RiseprojectDevOrgID},
-			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVA23},
+			Labels:    []string{GitHubLabelUbuntu24RVA23},
 			Selector:  NodeSelector{Board: BoardSpacemitK3, Provider: ProviderISCAS},
 			Image:     cfg.ImageUbuntu24,
 		},
