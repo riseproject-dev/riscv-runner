@@ -96,6 +96,11 @@ func TestMatchLabelsToK8s(t *testing.T) {
 		{"ggml with extra label", internal.GGMLOrgID, []string{internal.GitHubLabelUbuntu24, "extra"}, internal.NodeSelector{}, "", false},
 		{"ggml ubuntu-26 falls through", internal.GGMLOrgID, []string{internal.GitHubLabelUbuntu26}, sel(internal.BoardSpacemitK3, internal.ProviderRISE), cfg.ImageUbuntu26, true},
 		{"riseproject ubuntu-24 uses default", internal.RiseprojectDevOrgID, []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
+		{"riseproject rvv uses zhihe-a210", internal.RiseprojectDevOrgID, []string{internal.GitHubLabelUbuntu24RVV}, sel(internal.BoardZhiheA210, internal.ProviderRISE), cfg.ImageUbuntu24, true},
+		{"riseproject multi-label rvv ignored", internal.RiseprojectDevOrgID, []string{internal.GitHubLabelUbuntu24, internal.GitHubLabelRVV}, internal.NodeSelector{}, "", false},
+		{"riseproject-staging ubuntu-24 uses default", internal.RiseprojectStagingOrgID, []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardScalewayEMRV1, internal.ProviderScaleway), cfg.ImageUbuntu24, true},
+		{"riseproject-staging rvv uses zhihe-a210", internal.RiseprojectStagingOrgID, []string{internal.GitHubLabelUbuntu24RVV}, sel(internal.BoardZhiheA210, internal.ProviderRISE), cfg.ImageUbuntu24, true},
+		{"general single-label rvv ignored", 999, []string{internal.GitHubLabelUbuntu24RVV}, internal.NodeSelector{}, "", false},
 
 		{"mengzhuo ubuntu-24", internal.MengZhuoUserID, []string{internal.GitHubLabelUbuntu24}, sel(internal.BoardSpacemitK1, internal.ProviderMengZhuo), cfg.ImageUbuntu24, true},
 

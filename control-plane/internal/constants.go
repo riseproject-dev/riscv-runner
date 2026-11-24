@@ -58,11 +58,12 @@ const (
 )
 
 const (
-	GitHubLabelUbuntu24 = "ubuntu-24.04-riscv"
-	GitHubLabelUbuntu26 = "ubuntu-26.04-riscv"
-	GitHubLabelRVV      = "rvv"
-	GitHubLabelRVA23    = "rva23"
-	GitHubLabelXL       = "xlarge"
+	GitHubLabelUbuntu24    = "ubuntu-24.04-riscv"
+	GitHubLabelUbuntu24RVV = "ubuntu-24.04-riscv-rvv"
+	GitHubLabelUbuntu26    = "ubuntu-26.04-riscv"
+	GitHubLabelRVV         = "rvv"
+	GitHubLabelRVA23       = "rva23"
+	GitHubLabelXL          = "xlarge"
 )
 
 // Board values must match the SoC names the device plugin writes to
@@ -74,6 +75,7 @@ const (
 	BoardSpacemitK3      = "spacemit-k3"
 	BoardSpacemitV100    = "spacemit-v100"
 	BoardUltrariscDp1000 = "ultrarisc-dp-1000"
+	BoardZhiheA210       = "zhihe-a210"
 )
 
 // Providers are applied to nodes by hand; nothing detects who owns a machine.
@@ -159,10 +161,10 @@ func LabelRoutes(cfg Config) []LabelRoute {
 			Image:     cfg.ImageUbuntu24,
 		},
 		{
-			// [ubuntu-24.04-riscv, rvv], entity: riseproject-dev
-			EntityIDs: []int64{RiseprojectDevOrgID},
-			Labels:    []string{GitHubLabelUbuntu24, GitHubLabelRVV},
-			Selector:  NodeSelector{Board: BoardSpacemitK1, Provider: ProviderISCAS},
+			// [ubuntu-24.04-riscv-rvv], entities: riseproject-dev, riseproject-staging
+			EntityIDs: []int64{RiseprojectDevOrgID, RiseprojectStagingOrgID},
+			Labels:    []string{GitHubLabelUbuntu24RVV},
+			Selector:  NodeSelector{Board: BoardZhiheA210, Provider: ProviderRISE},
 			Image:     cfg.ImageUbuntu24,
 		},
 		// Global fallthrough: every other entities fall through the following cases
